@@ -1,6 +1,1 @@
-secrets/
-node_modules/
-*.md
-*.zip
-backup*.*
-.env
+.vercel

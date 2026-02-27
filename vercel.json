@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "routes": [
+    {"src": "/auth/google/callback", "dest": "/api/auth/google/callback"},
+    {"src": "/auth/google/status", "dest": "/api/auth/google/status"},
+    {"src": "/auth/google", "dest": "/api/auth/google"},
+    {"src": "/ask", "dest": "/api/ask"},
+    {"src": "/parse", "dest": "/api/parse"},
+    {"src": "/upload", "dest": "/api/upload"},
+    {"src": "/login", "dest": "/login.html"},
+    {"src": "/signup", "dest": "/signup.html"},
+    {"src": "/help/(.*)", "dest": "/help/$1"},
+    {"src": "/(.*)", "dest": "/$1"}
+  ]
+}
