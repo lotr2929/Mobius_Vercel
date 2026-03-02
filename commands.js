@@ -517,6 +517,16 @@ async function handleFocus(args, output, outputEl) {
   } catch (err) { output('❌ ' + err.message); }
 }
 
+// ── New Chat ─────────────────────────────────────────────────────────────────
+
+async function handleNew(args, output) {
+  if (window.newChat) {
+    window.newChat(args);
+  } else {
+    output('❌ newChat not available.');
+  }
+}
+
 // ── Chat History ──────────────────────────────────────────────────────────────
 
 async function handleChatHistory(args, output) {
@@ -548,6 +558,7 @@ const COMMANDS = {
   'find':     { requiresAccess: true,  isAI: false, handler: handleFind },
   'list':     { requiresAccess: true,  isAI: false, handler: handleList },
   'history':  { requiresAccess: false, isAI: false, handler: handleChatHistory },
+  'new':      { requiresAccess: false, isAI: false, handler: handleNew },
   'focus':    { requiresAccess: false, isAI: false, handler: handleFocus },
   'ask':      { requiresAccess: false, isAI: true },
 };

@@ -671,6 +671,34 @@
             }
         }
 
+        // ── New Chat ──────────────────────────────────────────────────────────
+        window.newChat = function(topic) {
+            // Clear chat panel and reset history
+            document.getElementById('chatPanel').innerHTML = '';
+            chatHistory = [];
+            attachedFiles = [];
+            document.getElementById('fileChips').innerHTML = '';
+            pendingMobiusQuery = null;
+            currentNavIndex = -1;
+
+            if (topic) {
+                // Show a subtle header, then fire the topic as a new query
+                const header = document.createElement('div');
+                header.style.cssText = 'font-size:12px;color:#8d7c64;margin-bottom:12px;font-style:italic;';
+                header.textContent = '🆕 New chat: ' + topic;
+                document.getElementById('chatPanel').appendChild(header);
+                document.getElementById('input').value = topic;
+                handleAsk();
+            } else {
+                const header = document.createElement('div');
+                header.style.cssText = 'font-size:12px;color:#8d7c64;margin-bottom:12px;font-style:italic;';
+                header.textContent = '🆕 New chat started';
+                document.getElementById('chatPanel').appendChild(header);
+                document.getElementById('input').value = '';
+                document.getElementById('input').focus();
+            }
+        };
+
         // ── Navigation & search ───────────────────────────────────────────────
         function getQueryEntries() { return Array.from(document.querySelectorAll('.chat-query')); }
         function navigateChat(dir) {
