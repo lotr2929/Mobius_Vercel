@@ -175,6 +175,7 @@
         <h1 style="margin:0; font-size:25px;">Mobius</h1>
         <span id="userLabel" style="margin-left:auto; font-size:14px; color:#4a3728;"></span>
         <a href="/help" target="_blank" style="font-size:13px; color:#8d7c64; text-decoration:none; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px;">Help</a>
+        <button onclick="logout()" style="font-size:13px; background:transparent; color:#8d7c64; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; cursor:pointer; height:auto;">Sign out</button>
     </div>
 
     <textarea id="input" placeholder="Ask something..." rows="3"></textarea>
@@ -214,6 +215,14 @@
 
     <script>
         // ── Auth helpers ──────────────────────────────────────────────────────
+        function logout() {
+            ['mobius_user_id','mobius_username','mobius_google_connected'].forEach(k => {
+                localStorage.removeItem(k);
+                sessionStorage.removeItem(k);
+                document.cookie = k + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/';
+            });
+            window.location.href = '/login';
+        }
         function getCookie(name) {
             const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
             return match ? match[2] : null;
@@ -692,17 +701,28 @@
         }
 
         // ── Google auto-connect ───────────────────────────────────────────────
+        // Handle returning from Google OAuth
+        if (window.location.search.includes('google_email')) {
+            const params = new URLSearchParams(window.location.search);
+            const googleEmail = params.get('google_email');
+            if (googleEmail) {
+                setAuth('mobius_username', googleEmail);
+                setAuth('mobius_google_connected', '1');
+                document.getElementById('userLabel').textContent = 'User: ' + googleEmail;
+            }
+            history.replaceState({}, '', '/');
+        }
+
+        // Only auto-connect Google once per login session
         async function autoConnectGoogle() {
             const userId = getAuth('mobius_user_id');
             if (!userId) return;
-            try {
-                const res  = await fetch('/auth/google/status?userId=' + userId);
-                const data = await res.json();
-                if (!data.connected) window.location.href = '/auth/google?userId=' + userId;
-            } catch(e) {}
+            if (getAuth('mobius_google_connected') === '1') return;
+            if (sessionStorage.getItem('mobius_google_attempted') === '1') return;
+            sessionStorage.setItem('mobius_google_attempted', '1');
+            window.location.href = '/auth/google?userId=' + userId;
         }
         autoConnectGoogle();
-        if (window.location.search.includes('google=connected')) history.replaceState({}, '', '/');
     </script>
 
     <script src="commands.js"></script>

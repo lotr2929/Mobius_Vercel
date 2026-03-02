@@ -1,77 +1,41 @@
 const { createClient } = require('@supabase/supabase-js');
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/json');
+
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
+    return res.status(405).end(JSON.stringify({ error: 'Method not allowed' }));
   }
 
   try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email and password required' });
-      return;
-    }
-    if (password.length < 6) {
-      res.status(400).json({ error: 'Password must be at least 6 characters' });
-      return;
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).end(JSON.stringify({ error: 'Username and password are required' }));
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('SUPABASE_URL or SUPABASE_KEY not set');
-      res.status(500).json({ error: 'Server misconfiguration' });
-      return;
-    }
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_KEY
+    );
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { emailRedirectTo: undefined }
+    const { data, error } = await supabase.auth.signUp({
+      email: username,
+      password: password
     });
 
-    if (signUpError) {
-      const msg = signUpError.message || '';
-      if (msg.includes('already registered') || msg.includes('already exists')) {
-        res.status(200).json({ error: 'That email is already registered. Try logging in.' });
-        return;
-      }
-      console.warn('Signup failed:', signUpError.message);
-      res.status(200).json({ error: signUpError.message });
-      return;
+    if (error || !data.user) {
+      return res.status(400).end(JSON.stringify({ error: error?.message || 'Signup failed' }));
     }
 
-    if (!signUpData?.user) {
-      res.status(200).json({ error: 'Sign up failed. Please try again.' });
-      return;
-    }
+    return res.status(200).end(JSON.stringify({
+      userId: data.user.id,
+      username: data.user.email,
+      message: 'User created successfully'
+    }));
 
-    // If Supabase requires email confirmation, user may not be able to sign in yet
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password
-    });
-
-    if (signInError) {
-      // User created but needs to confirm email
-      res.status(200).json({ needsConfirmation: true });
-      return;
-    }
-
-    if (signInData?.user) {
-      res.status(200).json({
-        userId: signInData.user.id,
-        username: signInData.user.email || email
-      });
-      return;
-    }
-
-    res.status(200).json({ needsConfirmation: true });
   } catch (err) {
     console.error('Signup error:', err);
-    res.status(500).json({ error: 'Sign up failed' });
+    return res.status(500).end(JSON.stringify({ error: 'Signup failed', details: err.message }));
   }
 };

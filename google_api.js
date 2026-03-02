@@ -1,11 +1,11 @@
-import { google } from 'googleapis';
-import { createClient } from '@supabase/supabase-js';
+const { google } = require('googleapis');
+const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export async function getGoogleClient(userId) {
+async function getGoogleClient(userId) {
   const { data } = await supabase
     .from('google_tokens')
     .select('access_token, refresh_token, expiry_date')
@@ -27,7 +27,7 @@ export async function getGoogleClient(userId) {
 
 // ── Drive ─────────────────────────────────────────────────────────────────────
 
-export async function getDriveFiles(userId, query) {
+async function getDriveFiles(userId, query) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
 
@@ -56,7 +56,7 @@ export async function getDriveFiles(userId, query) {
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
-export async function getTasks(userId) {
+async function getTasks(userId) {
   const client = await getGoogleClient(userId);
   const tasks = google.tasks({ version: 'v1', auth: client });
   const lists = await tasks.tasklists.list();
@@ -75,7 +75,7 @@ export async function getTasks(userId) {
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
 
-export async function getCalendarEvents(userId) {
+async function getCalendarEvents(userId) {
   const client = await getGoogleClient(userId);
   const calendar = google.calendar({ version: 'v3', auth: client });
   const now = new Date();
@@ -100,7 +100,7 @@ export async function getCalendarEvents(userId) {
 
 // ── Gmail ─────────────────────────────────────────────────────────────────────
 
-export async function getEmails(userId) {
+async function getEmails(userId) {
   const client = await getGoogleClient(userId);
   const gmail = google.gmail({ version: 'v1', auth: client });
 
@@ -163,7 +163,7 @@ async function getMobiusFolderId(drive) {
   return created.data.id;
 }
 
-export async function findDriveFile(userId, filename) {
+async function findDriveFile(userId, filename) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
   const folderId = await getMobiusFolderId(drive);
@@ -198,7 +198,7 @@ export async function findDriveFile(userId, filename) {
   return { files: allFiles, folderId };
 }
 
-export async function copyToMobiusFolder(userId, fileId, mimeType, filename, folderId) {
+async function copyToMobiusFolder(userId, fileId, mimeType, filename, folderId) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
   // Read original content
@@ -222,7 +222,7 @@ export async function copyToMobiusFolder(userId, fileId, mimeType, filename, fol
   return { id: created.data.id, name: created.data.name, content };
 }
 
-export async function updateOriginalFile(userId, originalFileId, content) {
+async function updateOriginalFile(userId, originalFileId, content) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
   await drive.files.update({
@@ -231,7 +231,7 @@ export async function updateOriginalFile(userId, originalFileId, content) {
   });
 }
 
-export async function readDriveFileContent(userId, fileId, mimeType) {
+async function readDriveFileContent(userId, fileId, mimeType) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
   if (mimeType === 'application/vnd.google-apps.document') {
@@ -242,7 +242,7 @@ export async function readDriveFileContent(userId, fileId, mimeType) {
   return res.data;
 }
 
-export async function createDriveFile(userId, filename, folderId) {
+async function createDriveFile(userId, filename, folderId) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
   const resolvedFolder = folderId || await getMobiusFolderId(drive);
@@ -258,7 +258,7 @@ export async function createDriveFile(userId, filename, folderId) {
   return res.data;
 }
 
-export async function writeDriveFileContent(userId, fileId, content) {
+async function writeDriveFileContent(userId, fileId, content) {
   const client = await getGoogleClient(userId);
   const tokenRes = await client.getAccessToken();
   const accessToken = tokenRes.token;
@@ -286,7 +286,7 @@ export async function writeDriveFileContent(userId, fileId, content) {
 
 // ── Google Account Info ───────────────────────────────────────────────────────
 
-export async function getGoogleAccountInfo(userId) {
+async function getGoogleAccountInfo(userId) {
   const client = await getGoogleClient(userId);
   const oauth2 = google.oauth2({ version: 'v2', auth: client });
   const res = await oauth2.userinfo.get();
@@ -296,3 +296,18 @@ export async function getGoogleAccountInfo(userId) {
     picture: res.data.picture || null
   };
 }
+
+module.exports = {
+  getGoogleClient,
+  getDriveFiles,
+  getTasks,
+  getCalendarEvents,
+  getEmails,
+  findDriveFile,
+  copyToMobiusFolder,
+  updateOriginalFile,
+  readDriveFileContent,
+  createDriveFile,
+  writeDriveFileContent,
+  getGoogleAccountInfo
+};

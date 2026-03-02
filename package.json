@@ -1,15 +1,13 @@
 {
   "name": "mobius-vercel",
   "version": "1.0.0",
-  "type": "module",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel --prod"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.96.0",
-    "dotenv": "^17.3.1",
-    "googleapis": "^171.4.0",
-    "node-fetch": "^3.3.0"
+    "busboy": "^1.6.0",
+    "googleapis": "^171.4.0"
   }
 }

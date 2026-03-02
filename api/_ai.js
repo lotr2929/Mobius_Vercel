@@ -1,13 +1,11 @@
-import fetch from 'node-fetch';
-
-export async function askGroq(messages) {
+async function askGroq(messages) {
   const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + process.env.GROQ_API_KEY,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ model: 'openai/gpt-oss-120b', messages })
+    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages })
   });
   const data = await r.json();
   const content = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content;
@@ -21,7 +19,7 @@ export async function askGroq(messages) {
   return content;
 }
 
-export async function askGemini(messages, imageParts = []) {
+async function askGemini(messages, imageParts = []) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY is not set on the server.');
   const contents = messages.map((m, i) => {
@@ -43,7 +41,7 @@ export async function askGemini(messages, imageParts = []) {
   return data.candidates[0].content.parts[0].text;
 }
 
-export async function askMistral(messages) {
+async function askMistral(messages) {
   const r = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -58,7 +56,7 @@ export async function askMistral(messages) {
 
 const MODEL_CHAIN = ['groq', 'gemini', 'mistral'];
 
-export async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
+async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   const startIdx = MODEL_CHAIN.indexOf(startModel);
   const chain = startIdx !== -1 ? MODEL_CHAIN.slice(startIdx) : MODEL_CHAIN;
   let lastErr = null;
@@ -78,7 +76,7 @@ export async function askWithFallback(messages, imageParts = [], startModel = 'g
   throw lastErr || new Error('All models failed');
 }
 
-export async function askWebSearch(messages) {
+async function askWebSearch(messages) {
   const tavilyKey = process.env.TAVILY_API_KEY;
   if (!tavilyKey) throw new Error('TAVILY_API_KEY is not set on the server.');
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
@@ -104,3 +102,11 @@ export async function askWebSearch(messages) {
   });
   return await askWithFallback(augmented);
 }
+
+module.exports = {
+  askGroq,
+  askGemini,
+  askMistral,
+  askWithFallback,
+  askWebSearch
+};
