@@ -21,7 +21,9 @@ module.exports = async function handler(req, res) {
       : 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
 
     const systemMessage = { role: 'user', content: `[System] ${systemPrompt}` };
-    const instructions = [systemMessage, ...(history || [])];
+    // Strip any prior system messages from history to prevent duplication
+    const cleanHistory = (history || []).filter(m => !m.content?.startsWith('[System] ') && !m.content?.startsWith('You are Mobius'));
+    const instructions = [systemMessage, ...cleanHistory];
 
     const mobius_query = {
       ASK: model || 'groq',

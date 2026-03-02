@@ -105,6 +105,21 @@
             max-height: calc(100vh - 280px);
             overflow-y: auto;
         }
+
+        /* Mobile header: username on its own line, buttons right-aligned below */
+        @media (max-width: 600px) {
+            #headerRight {
+                flex-direction: column !important;
+                align-items: flex-end !important;
+                gap: 4px !important;
+            }
+            #userLabel {
+                font-size: 13px !important;
+            }
+            #chatPanel {
+                max-height: calc(100vh - 320px);
+            }
+        }
         .chat-entry { margin-bottom: 4px; }
         .chat-query { color: #4a3728; font-weight: bold; margin-bottom: 4px; white-space: pre-wrap; }
         .chat-answer { color: #2a2a2a; white-space: pre-wrap; }
@@ -170,12 +185,17 @@
 </head>
 <body>
     <!-- Header -->
-    <div style="display:flex; align-items:center; gap:15px; margin-bottom:1px;">
-        <img src="mobius-logo.png" alt="Mobius Logo" style="height:60px;">
-        <h1 style="margin:0; font-size:25px;">Mobius</h1>
-        <span id="userLabel" style="margin-left:auto; font-size:14px; color:#4a3728;"></span>
-        <a href="/help" target="_blank" style="font-size:13px; color:#8d7c64; text-decoration:none; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px;">Help</a>
-        <button onclick="logout()" style="font-size:13px; background:transparent; color:#8d7c64; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; cursor:pointer; height:auto;">Sign out</button>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:1px; flex-wrap:nowrap;">
+        <img src="mobius-logo.png" alt="Mobius Logo" style="height:60px; flex-shrink:0;">
+        <h1 style="margin:0; font-size:25px; flex-shrink:0;">Mobius</h1>
+        <!-- Desktop: single row; Mobile: two rows -->
+        <div id="headerRight" style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px; justify-content:flex-end;">
+            <span id="userLabel" style="font-size:14px; color:#4a3728; white-space:nowrap;"></span>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+                <a href="/help" target="_blank" style="font-size:13px; color:#8d7c64; text-decoration:none; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; white-space:nowrap;">Help</a>
+                <button onclick="logout()" style="font-size:13px; background:transparent; color:#8d7c64; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; cursor:pointer; height:auto; white-space:nowrap;">Log Out</button>
+            </div>
+        </div>
     </div>
 
     <textarea id="input" placeholder="Ask something..." rows="3"></textarea>
