@@ -12,10 +12,21 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // Detect Elaborate command — allow long answers
+    const elaborate = /^Elaborate[:\s]/i.test(text) || /\belaborate\b/i.test(text);
+    const cleanText = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
+
+    const systemPrompt = elaborate
+      ? 'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.'
+      : 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
+
+    const systemMessage = { role: 'user', content: `[System] ${systemPrompt}` };
+    const instructions = [systemMessage, ...(history || [])];
+
     const mobius_query = {
       ASK: model || 'groq',
-      INSTRUCTIONS: history || [],
-      QUERY: text,
+      INSTRUCTIONS: instructions,
+      QUERY: cleanText,
       FILES: [],
       CONTEXT: context || ''
     };
