@@ -181,6 +181,31 @@
 
         /* Image thumbnails */
         .img-thumb { max-width: 100%; max-height: 180px; border: 1px solid #c9bfae; margin-top: 6px; border-radius: 1px; }
+
+        /* Response toolbar */
+        .resp-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            padding-top: 4px;
+        }
+        .resp-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            color: #b8a898;
+            padding: 1px 3px;
+            border-radius: 2px;
+            height: auto;
+            line-height: 1;
+            font-family: inherit;
+            transition: color 0.15s;
+        }
+        .resp-btn:hover { color: #4a3728; background: transparent; }
+        .resp-btn.active-up   { color: #4a7c4e; }
+        .resp-btn.active-down { color: #8d3a3a; }
     </style>
 </head>
 <body>
@@ -700,6 +725,7 @@
                 answerDiv.className = 'chat-answer';
                 answerDiv.innerHTML = markdownToHtml(reply);
                 answerLabel.textContent = `A:(${modelLabels[usedModel] || usedModel})`;
+                addResponseToolbar(wrapper, reply);
                 chatHistory.push({ role:'user', content:mq.QUERY });
                 chatHistory.push({ role:'assistant', content:reply });
                 document.getElementById('input').value = '';
@@ -738,8 +764,73 @@
             }
         };
 
+        // ── Response toolbar ───────────────────────────────────────────────
+        function addResponseToolbar(entry, replyText) {
+            const toolbar = document.createElement('div');
+            toolbar.className = 'resp-toolbar';
+
+            // Copy
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'resp-btn';
+            copyBtn.title = 'Copy response';
+            copyBtn.textContent = '⧉';
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(replyText).then(() => {
+                    copyBtn.textContent = '✓';
+                    setTimeout(() => { copyBtn.textContent = '⧉'; }, 1500);
+                });
+            };
+
+            // Upvote
+            const upvote = document.createElement('button');
+            upvote.className = 'resp-btn';
+            upvote.title = 'Good response';
+            upvote.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
+            upvote.onclick = () => {
+                const active = upvote.classList.toggle('active-up');
+                if (active) upvote.querySelector('svg').setAttribute('fill', 'currentColor');
+                else upvote.querySelector('svg').setAttribute('fill', 'none');
+                downvote.classList.remove('active-down');
+                downvote.querySelector('svg').setAttribute('fill', 'none');
+            };
+
+            // Downvote
+            const downvote = document.createElement('button');
+            downvote.className = 'resp-btn';
+            downvote.title = 'Poor response';
+            downvote.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
+            downvote.onclick = () => {
+                const active = downvote.classList.toggle('active-down');
+                if (active) downvote.querySelector('svg').setAttribute('fill', 'currentColor');
+                else downvote.querySelector('svg').setAttribute('fill', 'none');
+                upvote.classList.remove('active-up');
+                upvote.querySelector('svg').setAttribute('fill', 'none');
+            };
+
+            // Up nav
+            const upBtn = document.createElement('button');
+            upBtn.className = 'resp-btn';
+            upBtn.title = 'Previous';
+            upBtn.textContent = '⌃';
+            upBtn.onclick = () => navigateChat(-1);
+
+            // Down nav
+            const downBtn = document.createElement('button');
+            downBtn.className = 'resp-btn';
+            downBtn.title = 'Next';
+            downBtn.textContent = '⌄';
+            downBtn.onclick = () => navigateChat(1);
+
+            toolbar.appendChild(copyBtn);
+            toolbar.appendChild(upvote);
+            toolbar.appendChild(downvote);
+            toolbar.appendChild(upBtn);
+            toolbar.appendChild(downBtn);
+            entry.appendChild(toolbar);
+        }
+
         // ── Navigation & search ───────────────────────────────────────────────
-        function getQueryEntries() { return Array.from(document.querySelectorAll('.chat-query')); }
+        function getQueryEntries() { return Array.from(document.querySelectorAll('.chat-entry')); }
         function navigateChat(dir) {
             const entries = getQueryEntries();
             if (!entries.length) return;

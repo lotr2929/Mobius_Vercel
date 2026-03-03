@@ -692,7 +692,7 @@ async function handleCode(args, output, outputEl) {
     return;
   }
 
-  // Code: show — display loaded context
+  // Code: show — display loaded context summary
   if (lower === 'show') {
     if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
     const parts = ['📋 Code session: ' + codeSession.projectName];
@@ -706,60 +706,135 @@ async function handleCode(args, output, outputEl) {
   // Code: repo — generate .repo file
   if (lower === 'repo') {
     if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
-    if (!await ensureAccess(output)) return;
-
-    // Find the project folder handle
-    const projectHandle = await findProjectFolder(codeSession.projectName, output);
-    if (!projectHandle) return;
-
-    const repoContent = await generateRepo(projectHandle, codeSession.projectName, output, outputEl);
+    const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, output, outputEl);
     if (!repoContent) return;
-
     const repoName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
-
-    // Update session
     codeSession.repoContent = repoContent;
-
-    // Show summary
     const sectionCount = (repoContent.match(/^## /gm) || []).length;
     output('✅ .repo generated — ' + sectionCount + ' files, ' + repoContent.length + ' chars');
-
-    // Offer download
     offerDownload(outputEl, repoName, repoContent);
-
-    // Save to Drive
     await saveToMobiusDrive(userId, repoName, repoContent, output);
-
     document.getElementById('input').value = '';
     return;
   }
 
-  // Code: [projectname] — start coding session
+  // Code: [projectname] — search for matching folders, show selection list
   const projectName = trimmed;
   if (!projectName) {
     output('Usage: Code: [projectname]  |  Code: repo  |  Code: map  |  Code: audit  |  Code: all  |  Code: show  |  Code: end');
     return;
   }
 
-  output('🔍 Starting code session for ' + projectName + '...');
+  output('🔍 Searching for folders matching "' + projectName + '"...');
 
-  // Ensure folder access
-  if (!await ensureAccess(output)) return;
+  // Open directory picker if no access yet
+  if (!rootHandle) {
+    try {
+      rootHandle = null;
+      const handle = await window.showDirectoryPicker({ mode: 'read' });
+      rootHandle = handle;
+      await saveHandle(handle);
+    } catch (err) {
+      if (err.name !== 'AbortError') output('❌ Access denied: ' + err.message);
+      else output('❌ Cancelled.');
+      return;
+    }
+  }
+
+  // Search recursively for folders matching projectName
+  const matches = [];
+  const searchLower = projectName.toLowerCase();
+
+  async function searchFolders(dirHandle, pathPrefix, depth) {
+    if (depth > 3) return;
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== 'directory') continue;
+      if (CODE_EXCLUDE.has(name)) continue;
+      const relPath = pathPrefix ? pathPrefix + '/' + name : name;
+      if (name.toLowerCase().includes(searchLower)) {
+        matches.push({ name, relPath, handle });
+      }
+      await searchFolders(handle, relPath, depth + 1);
+    }
+  }
+
+  try {
+    await searchFolders(rootHandle, '', 0);
+  } catch (err) {
+    output('❌ Search error: ' + err.message);
+    return;
+  }
+
+  document.getElementById('input').value = '';
+
+  // Build selection list
+  if (outputEl) {
+    outputEl.classList.add('html-content');
+    let html = '<div style="font-size:13px;color:#4a3728;margin-bottom:8px;">'
+      + '📁 Folders matching "' + projectName + '" — click to select:</div>';
+
+    if (matches.length === 0) {
+      html += '<div style="color:#8d7c64;margin-bottom:8px;">No matching folders found.</div>';
+    } else {
+      matches.forEach((m, i) => {
+        const id = 'code-folder-' + i;
+        html += '<div id="' + id + '" style="cursor:pointer;padding:6px 10px;margin-bottom:4px;'
+          + 'background:#ede5d4;border:1px solid #c9bfae;border-radius:1px;"'
+          + ' onmouseover="this.style.background=\'#d9cfbc\'"'
+          + ' onmouseout="this.style.background=\'#ede5d4\'"'
+          + ' onclick="window.codeSelectFolder(' + i + ', document.getElementById(\'' + id + '\').closest(\'.mq-block\'))">'    
+          + '📁 ' + m.relPath + '</div>';
+      });
+    }
+
+    // Create new folder option
+    html += '<div id="code-create" style="cursor:pointer;padding:6px 10px;margin-bottom:4px;'
+      + 'background:#e8f0e8;border:1px solid #4a7c4e;border-radius:1px;color:#4a7c4e;"'
+      + ' onmouseover="this.style.background=\'#d4e8d4\'"'
+      + ' onmouseout="this.style.background=\'#e8f0e8\'"'
+      + ' onclick="window.codeCreateFolder(\'' + projectName + '\', document.getElementById(\'code-create\').closest(\'.mq-block\'))">'    
+      + '➕ Create new folder: ' + projectName + '</div>';
+
+    // Cancel option
+    html += '<div style="cursor:pointer;padding:6px 10px;margin-bottom:4px;'
+      + 'background:#f5eedd;border:1px solid #c9bfae;border-radius:1px;color:#8d7c64;"'
+      + ' onmouseover="this.style.background=\'#ede5d4\'"'
+      + ' onmouseout="this.style.background=\'#f5eedd\'"'
+      + ' onclick="this.closest(\'.mq-block\').innerHTML=\'❌ Cancelled.\'">'    
+      + '✕ Cancel</div>';
+
+    outputEl.innerHTML = html;
+
+    // Store matches for click handler
+    window._codeFolderMatches = matches;
+    window._codeFolderProjectName = projectName;
+  }
+}
+
+// Called when user clicks a folder in the Code: selection list
+window.codeSelectFolder = async function(index, outputEl) {
+  const m           = window._codeFolderMatches[index];
+  const projectName = window._codeFolderProjectName;
+  const userId      = getAuth('mobius_user_id');
+  if (!m) return;
+
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '⏳ Loading ' + m.relPath + '...';
 
   const baseName  = projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
   const mapName   = baseName + '.map';
   const repoName  = baseName + '.repo';
   const auditName = baseName + '.audit';
 
-  // Search recursively for a file, returns { content, date } or null
+  // Search for doc files within the selected folder
   async function findDocFile(dirHandle, filename, depth) {
-    if (depth > 4) return null;
+    if (depth > 3) return null;
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === 'file' && name.toLowerCase() === filename) {
         const file = await handle.getFile();
         return { content: await file.text(), date: new Date(file.lastModified) };
       }
-      if (handle.kind === 'directory') {
+      if (handle.kind === 'directory' && name.toLowerCase() === 'documents') {
         const found = await findDocFile(handle, filename, depth + 1);
         if (found) return found;
       }
@@ -770,28 +845,28 @@ async function handleCode(args, output, outputEl) {
   let mapResult, repoResult, auditResult;
   try {
     [mapResult, repoResult, auditResult] = await Promise.all([
-      findDocFile(rootHandle, mapName,   0),
-      findDocFile(rootHandle, repoName,  0),
-      findDocFile(rootHandle, auditName, 0)
+      findDocFile(m.handle, mapName,   0),
+      findDocFile(m.handle, repoName,  0),
+      findDocFile(m.handle, auditName, 0)
     ]);
   } catch (err) {
-    output('❌ Error reading files: ' + err.message);
+    outputEl.innerHTML = '❌ Error reading files: ' + err.message;
     return;
   }
 
   codeSession = {
     projectName,
-    mapContent:   mapResult   ? mapResult.content   : null,
-    repoContent:  repoResult  ? repoResult.content  : null,
-    auditContent: auditResult ? auditResult.content : null
+    projectHandle: m.handle,
+    mapContent:    mapResult   ? mapResult.content   : null,
+    repoContent:   repoResult  ? repoResult.content  : null,
+    auditContent:  auditResult ? auditResult.content : null
   };
 
-  document.getElementById('input').value = '';
   updateCodeBadge();
 
   const fmt = d => d.toLocaleString('en-AU', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
   const lines = [
-    '🟢 Code mode: ' + projectName,
+    '🟢 Code mode: ' + projectName + ' (' + m.relPath + ')',
     mapResult   ? '✅ ' + mapName   + ' — ' + fmt(mapResult.date)   : '⚠️  ' + mapName   + ' — not found',
     repoResult  ? '✅ ' + repoName  + ' — ' + fmt(repoResult.date)  : '⚠️  ' + repoName  + ' — not found',
     auditResult ? '✅ ' + auditName + ' — ' + fmt(auditResult.date) : '⚠️  ' + auditName + ' — not found',
@@ -799,25 +874,14 @@ async function handleCode(args, output, outputEl) {
     'AI queries use Code mode with project context.',
     'Commands: Code: repo  |  Code: map  |  Code: audit  |  Code: all  |  Code: show  |  Code: end'
   ];
-  output(lines.join('\n'));
-}
+  outputEl.classList.remove('html-content');
+  outputEl.textContent = lines.join('\n');
+};
 
-// Find project folder handle by name within rootHandle
-async function findProjectFolder(projectName, output) {
-  const lower = projectName.toLowerCase();
-  for await (const [name, handle] of rootHandle.entries()) {
-    if (handle.kind === 'directory' && name.toLowerCase() === lower) return handle;
-  }
-  // Try one level deeper
-  for await (const [name, handle] of rootHandle.entries()) {
-    if (handle.kind !== 'directory') continue;
-    for await (const [subName, subHandle] of handle.entries()) {
-      if (subHandle.kind === 'directory' && subName.toLowerCase() === lower) return subHandle;
-    }
-  }
-  output('❌ Could not find folder "' + projectName + '" in accessed directory.');
-  return null;
-}
+// Called when user clicks Create new folder
+window.codeCreateFolder = async function(projectName, outputEl) {
+  outputEl.textContent = '📁 To create a new project folder, navigate to your projects directory and create "' + projectName + '" manually, then run Code: ' + projectName + ' again.';
+};
 
 function updateCodeBadge() {
   let badge = document.getElementById('codeBadge');
