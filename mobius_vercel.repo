@@ -1,0 +1,145 @@
+# Mobius_Vercel — Code Index
+# Generated: 03/03/2026, 6:22:39 pm
+
+## actions.js
+[F] resolveCommand(text)
+[F] resolveLocalData(text, context)
+[F] resolveGoogle(text)
+[F] resolveAction(text, context)
+
+## api/_ai.js
+[F] askGroq(messages)
+[F] askGemini(messages, imageParts = [])
+[F] askMistral(messages)
+[F] askGitHub(messages)
+[F] askWithFallback(messages, imageParts = [], startModel = 'groq')
+[F] askWebSearch(messages)
+[E] GEMINI_API_KEY
+[E] GITHUB_TOKEN
+[E] GROQ_API_KEY
+[E] MISTRAL_API_KEY
+[E] TAVILY_API_KEY
+[>]  + startName + 
+[<] exports: askGroq, askGemini, askMistral, askGitHub, askWithFallback, askWebSearch, MODEL_FULL_NAMES
+
+## api/_supabase.js
+[F] saveConversation(userId, query, reply, modelUsed, topic)
+[F] getChatHistory(userId, limit = 10000)
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+[<] exports: supabase, saveConversation, getChatHistory
+
+## api/ask.js
+[>]  + MODEL_FULL_NAMES.gemini + 
+[>]  + MODEL_FULL_NAMES.github + 
+[>]  + MODEL_FULL_NAMES.mistral + 
+[>] _ai.js
+[>] _supabase.js
+[>] google_api.js
+
+## api/auth/google/callback.js
+[E] BASE_URL
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[>] ../_supabase.js
+[>] googleapis
+
+## api/auth/google/index.js
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[>] ../_supabase.js
+[>] googleapis
+
+## api/auth/google/status.js
+[>] ../_supabase.js
+
+## api/chat-history.js
+[>] @supabase/supabase-js
+[>] _supabase.js
+
+## api/focus/[action].js
+[>] ../google_api.js
+
+## api/google/info.js
+[>] ../google_api.js
+
+## api/login.js
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+
+## api/signup.js
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+[>] _supabase.js
+
+## api/test-google-auth.js
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[>] googleapis
+
+## api/upload.js
+[>] busboy
+
+## commands.js
+[F] getLastModel()
+[F] setLastModel(model)
+[F] nextModelInChain(current)
+[F] openDB()
+[F] saveHandle(handle)
+[F] loadHandle()
+[F] clearHandle()
+[F] ensureAccess(output)
+[F] handleDate(args, output)
+[F] handleTime(args, output)
+[F] handleLocation(args, output)
+[F] handleGoogle(args, output)
+[F] handleDevice(args, output)
+[F] handleAccess(output)
+[F] parseNaturalDate(str)
+[F] parseFindArgs(raw)
+[F] handleFind(args, output)
+[F] searchDirectory(dirHandle, query, ext, from, to, results, path)
+[F] handleList(args, output)
+[F] handleFocus(args, output, outputEl)
+[F] handleNew(args, output)
+[F] saveToMobiusDrive(userId, filename, content, output) — ── Shared: save content to Google Drive Mobius folder ────────────────────────
+[F] offerDownload(outputEl, filename, content) — ── Shared: offer download link ───────────────────────────────────────────────
+[F] generateRepo(projectHandle, projectName, output, outputEl) — ── Code: repo — recursive JS/HTML parser ────────────────────────────────────
+[F] handleCode(args, output, outputEl)
+[F] codeSelectFolder(m, projectName, outputEl) — Internal handler — called directly or from click list
+[F] updateCodeBadge()
+[F] handleChatHistory(args, output)
+[F] detectCommand(text)
+[F] runCommand(command, args, outputFn, outputEl)
+[F] getAskModel(text) — Returns the model for the current Ask and updates saved default if explicit.
+[>]  + from.toLocaleDateString(
+
+## google_api.js
+[F] getGoogleClient(userId)
+[F] getDriveFiles(userId, query)
+[F] getTasks(userId)
+[F] getCalendarEvents(userId)
+[F] getEmails(userId)
+[F] getFilePath(drive, fileId, fileName) — Resolve a file's full path by walking up parent folders
+[F] getMobiusFolderId(drive) — Get or create the Mobius folder in Drive
+[F] findDriveFile(userId, filename)
+[F] copyToMobiusFolder(userId, fileId, mimeType, filename, folderId)
+[F] updateOriginalFile(userId, originalFileId, content)
+[F] readDriveFileContent(userId, fileId, mimeType)
+[F] createDriveFile(userId, filename, folderId)
+[F] writeDriveFileContent(userId, fileId, content)
+[F] getGoogleAccountInfo(userId)
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+[>] googleapis
+[<] exports: getGoogleClient, getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, copyToMobiusFolder, updateOriginalFile, readDriveFileContent, createDriveFile, writeDriveFileContent, getGoogleAccountInfo

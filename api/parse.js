@@ -12,10 +12,10 @@ module.exports = async function handler(req, res) {
 
     // Detect response mode
     const elaborate = /^Elaborate[:\s]/i.test(text) || /\belaborate\b/i.test(text);
-    const isCoding = /\b(code|fix|debug|function|script|error|refactor|python|javascript|js|html|css|json|sql|class|loop|bug|syntax|compile|import|module|variable|array|object|api|endpoint)\b/i.test(text);
     const cleanText = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
 
-    const instructionMode = forceInstructionMode || (elaborate ? 'Long' : isCoding ? 'Code' : 'Brief');
+    // Code mode only when explicitly set by an active Code session (forceInstructionMode)
+    const instructionMode = forceInstructionMode || (elaborate ? 'Long' : 'Brief');
 
     const systemPrompt =
       instructionMode === 'Long'

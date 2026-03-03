@@ -583,7 +583,7 @@ async function generateRepo(projectHandle, projectName, output, outputEl) {
     entries.sort((a, b) => a[0].localeCompare(b[0]));
 
     for (const [name, handle] of entries) {
-      if (CODE_EXCLUDE.has(name)) continue;
+      if (CODE_EXCLUDE.has(name)) continue; 
       const relPath = pathPrefix ? pathPrefix + '/' + name : name;
 
       if (handle.kind === 'directory') {
@@ -603,25 +603,32 @@ async function generateRepo(projectHandle, projectName, output, outputEl) {
       const lines  = [];
       const seen   = new Set();
 
-      // [F] Named functions
-      const fnPatterns = [
-        /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*?)\)/gm,
-        /^(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>/gm,
-        /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/gm
-      ];
-      for (const pat of fnPatterns) {
-        let m;
-        while ((m = pat.exec(text)) !== null) {
-          const fname = m[1];
-          if (!seen.has('F:' + fname)) {
-            seen.add('F:' + fname);
-            // Find comment on previous line
-            const pos    = text.lastIndexOf('\n', m.index);
-            const prev   = text.lastIndexOf('\n', pos - 1);
-            const prevLine = text.slice(prev + 1, pos).trim();
-            const comment = prevLine.startsWith('//') ? ' — ' + prevLine.slice(2).trim() : '';
-            lines.push('[F] ' + fname + '(' + (m[2] || '').replace(/\s+/g,' ').trim() + ')' + comment);
-          }
+      // [F] function declarations: function foo(...)
+      const fnDeclPat = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*?)\)/gm;
+      let m;
+      while ((m = fnDeclPat.exec(text)) !== null) {
+        const fname = m[1];
+        if (!seen.has('F:' + fname)) {
+          seen.add('F:' + fname);
+          const pos      = text.lastIndexOf('\n', m.index - 1);
+          const prev     = text.lastIndexOf('\n', pos - 1);
+          const prevLine = text.slice(prev + 1, pos).trim();
+          const comment  = prevLine.startsWith('//') ? ' \u2014 ' + prevLine.slice(2).trim() : '';
+          lines.push('[F] ' + fname + '(' + m[2].replace(/\s+/g, ' ').trim() + ')' + comment);
+        }
+      }
+
+      // [F] arrow functions at start of line: const foo = (async)? (...) =>
+      const arrowPat = /^(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>/gm;
+      while ((m = arrowPat.exec(text)) !== null) {
+        const fname = m[1];
+        if (!seen.has('F:' + fname)) {
+          seen.add('F:' + fname);
+          const pos      = text.lastIndexOf('\n', m.index - 1);
+          const prev     = text.lastIndexOf('\n', pos - 1);
+          const prevLine = text.slice(prev + 1, pos).trim();
+          const comment  = prevLine.startsWith('//') ? ' \u2014 ' + prevLine.slice(2).trim() : '';
+          lines.push('[F] ' + fname + '(' + m[2].replace(/\s+/g, ' ').trim() + ')' + comment);
         }
       }
 
@@ -632,13 +639,14 @@ async function generateRepo(projectHandle, projectName, output, outputEl) {
       while ((em = envPat.exec(text)) !== null) envVars.add(em[1]);
       for (const v of [...envVars].sort()) lines.push('[E] ' + v);
 
-      // [>] require/import dependencies
-      const reqPat = /require\(['"]([^'"]+)['"]\)|from\s+['"]([^'"]+)['"]/g;
+      // [>] require/import — skip template literals and expressions
+      const reqPat = /require\s*\(\s*['"]([^'"]+)['"]\s*\)|from\s+['"]([^'"]+)['"]/g;
       const deps   = new Set();
       let rm;
       while ((rm = reqPat.exec(text)) !== null) {
-        const dep = (rm[1] || rm[2]).replace(/^\.\/|\.\.\//, '');
-        if (!dep.startsWith('node_modules')) deps.add(dep);
+        const dep = (rm[1] || rm[2] || '').trim();
+        if (!dep || dep.startsWith('+') || dep.includes('${') || dep.startsWith('node_modules')) continue;
+        deps.add(dep);
       }
       for (const d of [...deps].sort()) lines.push('[>] ' + d);
 
@@ -650,11 +658,12 @@ async function generateRepo(projectHandle, projectName, output, outputEl) {
         if (exported.length) lines.push('[<] exports: ' + exported.join(', '));
       }
 
-      // app.post/get routes
-      const routePat = /app\.(post|get|put|delete)\(['"]([^'"]+)['"]/g;
+      // [R] Express routes
+      const routePat = /app\.(post|get|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]/g;
       let route;
       while ((route = routePat.exec(text)) !== null) {
-        lines.push('[F] route ' + route[1].toUpperCase() + ' ' + route[2]);
+        const rkey = 'R:' + route[1] + route[2];
+        if (!seen.has(rkey)) { seen.add(rkey); lines.push('[R] ' + route[1].toUpperCase() + ' ' + route[2]); }
       }
 
       if (lines.length) {
