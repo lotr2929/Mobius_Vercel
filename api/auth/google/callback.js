@@ -24,12 +24,19 @@ module.exports = async function handler(req, res) {
 
     // Save tokens to Supabase for Google API use
     if (userId) {
-      await supabase.from('google_tokens').upsert({
+      const { error: upsertError } = await supabase.from('google_tokens').upsert({
         user_id: userId,
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         expiry_date: tokens.expiry_date
       }, { onConflict: 'user_id' });
+      if (upsertError) {
+        console.error('Supabase upsert error:', upsertError);
+        return res.status(500).json({ error: 'Failed to save tokens: ' + upsertError.message, userId, hasAccessToken: !!tokens.access_token });
+      }
+    } else {
+      console.error('No userId in state parameter');
+      return res.status(400).json({ error: 'No userId provided in OAuth state' });
     }
 
     const baseUrl = process.env.BASE_URL || 'https://mobius-plum.vercel.app';

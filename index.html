@@ -261,10 +261,9 @@
     <script>
         // ── Auth helpers ──────────────────────────────────────────────────────
         function logout() {
-            ['mobius_user_id','mobius_username','mobius_google_connected'].forEach(k => {
+            ['mobius_user_id','mobius_username','mobius_google_connected','mobius_google_attempted'].forEach(k => {
                 localStorage.removeItem(k);
                 sessionStorage.removeItem(k);
-                // Clear both JS-set and server-set cookies
                 document.cookie = k + '=; Max-Age=0; Path=/; SameSite=Lax';
                 document.cookie = k + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/';
             });

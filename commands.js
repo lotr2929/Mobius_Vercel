@@ -706,14 +706,24 @@ async function handleCode(args, output, outputEl) {
   // Code: repo — generate .repo file
   if (lower === 'repo') {
     if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
-    const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, output, outputEl);
+
+    // Switch outputEl to append mode
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => {
+      const line = document.createElement('div');
+      line.textContent = msg;
+      outputEl.appendChild(line);
+    };
+
+    const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
     if (!repoContent) return;
     const repoName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
     codeSession.repoContent = repoContent;
     const sectionCount = (repoContent.match(/^## /gm) || []).length;
-    output('✅ .repo generated — ' + sectionCount + ' files, ' + repoContent.length + ' chars');
+    append('✅ .repo generated — ' + sectionCount + ' files, ' + repoContent.length + ' chars');
     offerDownload(outputEl, repoName, repoContent);
-    await saveToMobiusDrive(userId, repoName, repoContent, output);
+    await saveToMobiusDrive(userId, repoName, repoContent, append);
     document.getElementById('input').value = '';
     return;
   }
