@@ -529,16 +529,162 @@ async function handleNew(args, output) {
 
 // ── Code Mode ────────────────────────────────────────────────────────────────
 
-let codeSession = null; // { projectName, mapContent, repoContent }
+const CODE_EXCLUDE = new Set(['node_modules', '.git', '.vercel', '.aider.tags.cache.v4', 'documents']);
+const REPO_EXTS    = new Set(['js', 'html']);
+
+let codeSession = null; // { projectName, mapContent, repoContent, auditContent }
 
 // Expose for index.html to check coding mode
 window.getCodeSession = () => codeSession;
 
+// ── Shared: save content to Google Drive Mobius folder ────────────────────────
+async function saveToMobiusDrive(userId, filename, content, output) {
+  try {
+    output('💾 Saving ' + filename + ' to Drive...');
+    const res  = await fetch('/api/focus/create-or-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, filename, content })
+    });
+    const data = await res.json();
+    if (data.error) { output('⚠️  Drive save failed: ' + data.error); return false; }
+    output('✅ Saved to Drive: ' + filename);
+    return true;
+  } catch (err) {
+    output('⚠️  Drive save failed: ' + err.message);
+    return false;
+  }
+}
+
+// ── Shared: offer download link ───────────────────────────────────────────────
+function offerDownload(outputEl, filename, content) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href     = url;
+  link.download = filename;
+  link.textContent = '⬇️  Download ' + filename;
+  link.style.cssText = 'display:block; margin-top:8px; color:#4a7c4e; font-weight:bold; cursor:pointer;';
+  link.onclick = () => setTimeout(() => URL.revokeObjectURL(url), 5000);
+  outputEl.appendChild(link);
+}
+
+// ── Code: repo — recursive JS/HTML parser ────────────────────────────────────
+async function generateRepo(projectHandle, projectName, output, outputEl) {
+  output('🔍 Scanning ' + projectName + ' files...');
+
+  const sections = [];
+
+  async function scanDir(dirHandle, pathPrefix) {
+    const entries = [];
+    for await (const [name, handle] of dirHandle.entries()) {
+      entries.push([name, handle]);
+    }
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+
+    for (const [name, handle] of entries) {
+      if (CODE_EXCLUDE.has(name)) continue;
+      const relPath = pathPrefix ? pathPrefix + '/' + name : name;
+
+      if (handle.kind === 'directory') {
+        await scanDir(handle, relPath);
+        continue;
+      }
+
+      const ext = name.split('.').pop().toLowerCase();
+      if (!REPO_EXTS.has(ext)) continue;
+
+      let text = '';
+      try {
+        const file = await handle.getFile();
+        text = await file.text();
+      } catch { continue; }
+
+      const lines  = [];
+      const seen   = new Set();
+
+      // [F] Named functions
+      const fnPatterns = [
+        /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*?)\)/gm,
+        /^(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>/gm,
+        /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/gm
+      ];
+      for (const pat of fnPatterns) {
+        let m;
+        while ((m = pat.exec(text)) !== null) {
+          const fname = m[1];
+          if (!seen.has('F:' + fname)) {
+            seen.add('F:' + fname);
+            // Find comment on previous line
+            const pos    = text.lastIndexOf('\n', m.index);
+            const prev   = text.lastIndexOf('\n', pos - 1);
+            const prevLine = text.slice(prev + 1, pos).trim();
+            const comment = prevLine.startsWith('//') ? ' — ' + prevLine.slice(2).trim() : '';
+            lines.push('[F] ' + fname + '(' + (m[2] || '').replace(/\s+/g,' ').trim() + ')' + comment);
+          }
+        }
+      }
+
+      // [E] process.env references
+      const envPat = /process\.env\.([A-Z0-9_]+)/g;
+      const envVars = new Set();
+      let em;
+      while ((em = envPat.exec(text)) !== null) envVars.add(em[1]);
+      for (const v of [...envVars].sort()) lines.push('[E] ' + v);
+
+      // [>] require/import dependencies
+      const reqPat = /require\(['"]([^'"]+)['"]\)|from\s+['"]([^'"]+)['"]/g;
+      const deps   = new Set();
+      let rm;
+      while ((rm = reqPat.exec(text)) !== null) {
+        const dep = (rm[1] || rm[2]).replace(/^\.\/|\.\.\//, '');
+        if (!dep.startsWith('node_modules')) deps.add(dep);
+      }
+      for (const d of [...deps].sort()) lines.push('[>] ' + d);
+
+      // [<] module.exports
+      const expPat = /module\.exports\s*=\s*\{([^}]+)\}/;
+      const expMatch = expPat.exec(text);
+      if (expMatch) {
+        const exported = expMatch[1].split(',').map(s => s.trim().split(':')[0].trim()).filter(Boolean);
+        if (exported.length) lines.push('[<] exports: ' + exported.join(', '));
+      }
+
+      // app.post/get routes
+      const routePat = /app\.(post|get|put|delete)\(['"]([^'"]+)['"]/g;
+      let route;
+      while ((route = routePat.exec(text)) !== null) {
+        lines.push('[F] route ' + route[1].toUpperCase() + ' ' + route[2]);
+      }
+
+      if (lines.length) {
+        sections.push('## ' + relPath + '\n' + lines.join('\n'));
+      }
+    }
+  }
+
+  try {
+    await scanDir(projectHandle, '');
+  } catch (err) {
+    output('❌ Scan error: ' + err.message);
+    return null;
+  }
+
+  const timestamp  = new Date().toLocaleString('en-AU');
+  const repoContent = '# ' + projectName + ' — Code Index\n' +
+    '# Generated: ' + timestamp + '\n\n' +
+    sections.join('\n\n');
+
+  return repoContent;
+}
+
 async function handleCode(args, output, outputEl) {
   const trimmed = args.trim();
+  const lower   = trimmed.toLowerCase();
+  const userId  = getAuth('mobius_user_id');
 
   // Code: end
-  if (trimmed.toLowerCase() === 'end') {
+  if (lower === 'end') {
     codeSession = null;
     document.getElementById('input').value = '';
     updateCodeBadge();
@@ -546,81 +692,131 @@ async function handleCode(args, output, outputEl) {
     return;
   }
 
-  // Code: map — refresh and display current project map
-  if (trimmed.toLowerCase() === 'map') {
+  // Code: show — display loaded context
+  if (lower === 'show') {
     if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
-    output('📋 Project: ' + codeSession.projectName + '\n\n' +
-      '── .map ──────────────────────\n' + codeSession.mapContent +
-      '\n\n── .repo ─────────────────────\n' + codeSession.repoContent);
+    const parts = ['📋 Code session: ' + codeSession.projectName];
+    if (codeSession.mapContent)   parts.push('\n── .map ────────────────────\n'   + codeSession.mapContent);
+    if (codeSession.repoContent)  parts.push('\n── .repo ───────────────────\n'  + codeSession.repoContent);
+    if (codeSession.auditContent) parts.push('\n── .audit ──────────────────\n' + codeSession.auditContent);
+    output(parts.join('\n'));
+    return;
+  }
+
+  // Code: repo — generate .repo file
+  if (lower === 'repo') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+    if (!await ensureAccess(output)) return;
+
+    // Find the project folder handle
+    const projectHandle = await findProjectFolder(codeSession.projectName, output);
+    if (!projectHandle) return;
+
+    const repoContent = await generateRepo(projectHandle, codeSession.projectName, output, outputEl);
+    if (!repoContent) return;
+
+    const repoName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
+
+    // Update session
+    codeSession.repoContent = repoContent;
+
+    // Show summary
+    const sectionCount = (repoContent.match(/^## /gm) || []).length;
+    output('✅ .repo generated — ' + sectionCount + ' files, ' + repoContent.length + ' chars');
+
+    // Offer download
+    offerDownload(outputEl, repoName, repoContent);
+
+    // Save to Drive
+    await saveToMobiusDrive(userId, repoName, repoContent, output);
+
+    document.getElementById('input').value = '';
     return;
   }
 
   // Code: [projectname] — start coding session
   const projectName = trimmed;
   if (!projectName) {
-    output('Usage: Code: [projectname]  |  Code: map  |  Code: end');
+    output('Usage: Code: [projectname]  |  Code: repo  |  Code: map  |  Code: audit  |  Code: all  |  Code: show  |  Code: end');
     return;
   }
 
-  output('🔍 Looking for ' + projectName + '.map and ' + projectName + '.repo ...');
+  output('🔍 Starting code session for ' + projectName + '...');
 
   // Ensure folder access
   if (!await ensureAccess(output)) return;
 
-  // Search for .map file
-  const mapName  = projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.map';
-  const repoName = projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
+  const baseName  = projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const mapName   = baseName + '.map';
+  const repoName  = baseName + '.repo';
+  const auditName = baseName + '.audit';
 
-  let mapContent  = null;
-  let repoContent = null;
-
-  // Search recursively for both files
-  async function findFile(dirHandle, filename, depth) {
+  // Search recursively for a file, returns { content, date } or null
+  async function findDocFile(dirHandle, filename, depth) {
     if (depth > 4) return null;
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === 'file' && name.toLowerCase() === filename) {
         const file = await handle.getFile();
-        return await file.text();
+        return { content: await file.text(), date: new Date(file.lastModified) };
       }
       if (handle.kind === 'directory') {
-        const found = await findFile(handle, filename, depth + 1);
+        const found = await findDocFile(handle, filename, depth + 1);
         if (found) return found;
       }
     }
     return null;
   }
 
+  let mapResult, repoResult, auditResult;
   try {
-    mapContent  = await findFile(rootHandle, mapName,  0);
-    repoContent = await findFile(rootHandle, repoName, 0);
+    [mapResult, repoResult, auditResult] = await Promise.all([
+      findDocFile(rootHandle, mapName,   0),
+      findDocFile(rootHandle, repoName,  0),
+      findDocFile(rootHandle, auditName, 0)
+    ]);
   } catch (err) {
     output('❌ Error reading files: ' + err.message);
     return;
   }
 
-  if (!mapContent && !repoContent) {
-    output('❌ Could not find ' + mapName + ' or ' + repoName + '.\nMake sure they exist in the accessed folder.');
-    return;
-  }
-
   codeSession = {
     projectName,
-    mapContent:  mapContent  || '(not found)',
-    repoContent: repoContent || '(not found)'
+    mapContent:   mapResult   ? mapResult.content   : null,
+    repoContent:  repoResult  ? repoResult.content  : null,
+    auditContent: auditResult ? auditResult.content : null
   };
 
   document.getElementById('input').value = '';
   updateCodeBadge();
 
+  const fmt = d => d.toLocaleString('en-AU', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
   const lines = [
     '🟢 Code mode: ' + projectName,
-    mapContent  ? '✅ ' + mapName  + ' loaded (' + mapContent.length  + ' chars)' : '⚠️  ' + mapName  + ' not found',
-    repoContent ? '✅ ' + repoName + ' loaded (' + repoContent.length + ' chars)' : '⚠️  ' + repoName + ' not found',
+    mapResult   ? '✅ ' + mapName   + ' — ' + fmt(mapResult.date)   : '⚠️  ' + mapName   + ' — not found',
+    repoResult  ? '✅ ' + repoName  + ' — ' + fmt(repoResult.date)  : '⚠️  ' + repoName  + ' — not found',
+    auditResult ? '✅ ' + auditName + ' — ' + fmt(auditResult.date) : '⚠️  ' + auditName + ' — not found',
     '',
-    'All AI queries now use coding mode with project context.',
-    'Use Code: map to view, Code: end to exit.'
+    'AI queries use Code mode with project context.',
+    'Commands: Code: repo  |  Code: map  |  Code: audit  |  Code: all  |  Code: show  |  Code: end'
   ];
   output(lines.join('\n'));
+}
+
+// Find project folder handle by name within rootHandle
+async function findProjectFolder(projectName, output) {
+  const lower = projectName.toLowerCase();
+  for await (const [name, handle] of rootHandle.entries()) {
+    if (handle.kind === 'directory' && name.toLowerCase() === lower) return handle;
+  }
+  // Try one level deeper
+  for await (const [name, handle] of rootHandle.entries()) {
+    if (handle.kind !== 'directory') continue;
+    for await (const [subName, subHandle] of handle.entries()) {
+      if (subHandle.kind === 'directory' && subName.toLowerCase() === lower) return subHandle;
+    }
+  }
+  output('❌ Could not find folder "' + projectName + '" in accessed directory.');
+  return null;
 }
 
 function updateCodeBadge() {

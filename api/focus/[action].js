@@ -47,6 +47,22 @@ module.exports = async function handler(req, res) {
         await updateOriginalFile(userId, originalFileId, content);
         return res.json({ ok: true });
       }
+      case 'create-or-update': {
+        if (!filename || !content) return res.status(400).json({ error: 'filename and content required' });
+        // Search for existing file in Mobius folder
+        const found = await findDriveFile(userId, filename);
+        if (found.files && found.files.length > 0) {
+          // Overwrite the first match in Mobius folder
+          const existing = found.files.find(f => f.inMobius) || found.files[0];
+          await writeDriveFileContent(userId, existing.id, content);
+          return res.json({ ok: true, action: 'updated', fileId: existing.id });
+        } else {
+          // Create new in Mobius folder
+          const newFile = await createDriveFile(userId, filename, found.folderId);
+          await writeDriveFileContent(userId, newFile.id, content);
+          return res.json({ ok: true, action: 'created', fileId: newFile.id });
+        }
+      }
       default:
         return res.status(400).json({ error: 'Invalid action: ' + action });
     }
