@@ -28,6 +28,14 @@ module.exports = async function handler(req, res) {
       return res.status(400).end(JSON.stringify({ error: error?.message || 'Signup failed' }));
     }
 
+    // Also insert into custom users table so google_tokens foreign key works
+    const { supabase: db } = require('./_supabase.js');
+    await db.from('users').upsert({
+      id: data.user.id,
+      username: data.user.email,
+      password: password
+    }, { onConflict: 'id' });
+
     return res.status(200).end(JSON.stringify({
       userId: data.user.id,
       username: data.user.email,
