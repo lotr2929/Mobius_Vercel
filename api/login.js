@@ -28,6 +28,14 @@ module.exports = async function handler(req, res) {
       return res.status(401).end(JSON.stringify({ error: 'Invalid username or password' }));
     }
 
+    // Set long-lived HTTP cookies so mobile PWA stays logged in even if
+    // localStorage is cleared by iOS/Android (365 days, SameSite=Lax).
+    const maxAge = 365 * 24 * 60 * 60; // seconds
+    res.setHeader('Set-Cookie', [
+      `mobius_user_id=${data.user.id}; Max-Age=${maxAge}; Path=/; SameSite=Lax`,
+      `mobius_username=${encodeURIComponent(data.user.email)}; Max-Age=${maxAge}; Path=/; SameSite=Lax`
+    ]);
+
     return res.status(200).end(JSON.stringify({
       userId: data.user.id,
       username: data.user.email,

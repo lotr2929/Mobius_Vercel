@@ -6,10 +6,15 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { mobius_query, userId, topic } = req.body;
-  const { ASK, INSTRUCTIONS, QUERY, FILES, CONTEXT } = mobius_query;
+  const { ASK, INSTRUCTIONS, HISTORY, QUERY, FILES, CONTEXT } = mobius_query;
 
   try {
-    const messages = [...INSTRUCTIONS, { role: 'user', content: QUERY }];
+    // Assemble in order: system instruction, history, current query
+    const messages = [
+      ...(INSTRUCTIONS || []),
+      ...(HISTORY || []),
+      { role: 'user', content: QUERY }
+    ];
     if (CONTEXT) messages.unshift({ role: 'system', content: CONTEXT });
 
     let reply, modelUsed = ASK;
