@@ -725,43 +725,42 @@ async function handleCode(args, output, outputEl) {
     return;
   }
 
-  output('🔍 Searching for folders matching "' + projectName + '"...');
+  output('🔍 Select the folder containing "' + projectName + '"...');
 
-  // Open directory picker if no access yet
-  if (!rootHandle) {
-    try {
-      rootHandle = null;
-      const handle = await window.showDirectoryPicker({ mode: 'read' });
-      rootHandle = handle;
-      await saveHandle(handle);
-    } catch (err) {
-      if (err.name !== 'AbortError') output('❌ Access denied: ' + err.message);
-      else output('❌ Cancelled.');
-      return;
-    }
+  // Always open a fresh picker for Code: — independent of rootHandle
+  let pickedHandle;
+  try {
+    pickedHandle = await window.showDirectoryPicker({ mode: 'read' });
+  } catch (err) {
+    if (err.name !== 'AbortError') output('❌ Access denied: ' + err.message);
+    else output('❌ Cancelled.');
+    return;
   }
 
-  // Search recursively for folders matching projectName
-  const matches = [];
   const searchLower = projectName.toLowerCase();
 
-  async function searchFolders(dirHandle, pathPrefix, depth) {
-    if (depth > 3) return;
-    for await (const [name, handle] of dirHandle.entries()) {
-      if (handle.kind !== 'directory') continue;
-      if (CODE_EXCLUDE.has(name)) continue;
-      const relPath = pathPrefix ? pathPrefix + '/' + name : name;
-      if (name.toLowerCase().includes(searchLower)) {
-        matches.push({ name, relPath, handle });
-      }
-      await searchFolders(handle, relPath, depth + 1);
+  // Case 1: selected folder IS the project
+  if (pickedHandle.name.toLowerCase() === searchLower) {
+    document.getElementById('input').value = '';
+    await codeSelectFolder({ name: pickedHandle.name, relPath: pickedHandle.name, handle: pickedHandle }, projectName, outputEl);
+    return;
+  }
+
+  // Case 2: search one level deep inside selected folder
+  const matches = [];
+  for await (const [name, handle] of pickedHandle.entries()) {
+    if (handle.kind !== 'directory') continue;
+    if (CODE_EXCLUDE.has(name)) continue;
+    if (name.toLowerCase().includes(searchLower)) {
+      matches.push({ name, relPath: name, handle });
     }
   }
 
-  try {
-    await searchFolders(rootHandle, '', 0);
-  } catch (err) {
-    output('❌ Search error: ' + err.message);
+  // Case 3: exact match found — use directly without showing list
+  const exact = matches.filter(m => m.name.toLowerCase() === searchLower);
+  if (exact.length === 1) {
+    document.getElementById('input').value = '';
+    await codeSelectFolder(exact[0], projectName, outputEl);
     return;
   }
 
@@ -782,7 +781,7 @@ async function handleCode(args, output, outputEl) {
           + 'background:#ede5d4;border:1px solid #c9bfae;border-radius:1px;"'
           + ' onmouseover="this.style.background=\'#d9cfbc\'"'
           + ' onmouseout="this.style.background=\'#ede5d4\'"'
-          + ' onclick="window.codeSelectFolder(' + i + ', document.getElementById(\'' + id + '\').closest(\'.mq-block\'))">'    
+          + ' onclick="window.codeSelectFolderByIndex(' + i + ', document.getElementById(\'' + id + '\').closest(\'.mq-block\'))">'    
           + '📁 ' + m.relPath + '</div>';
       });
     }
@@ -811,11 +810,9 @@ async function handleCode(args, output, outputEl) {
   }
 }
 
-// Called when user clicks a folder in the Code: selection list
-window.codeSelectFolder = async function(index, outputEl) {
-  const m           = window._codeFolderMatches[index];
-  const projectName = window._codeFolderProjectName;
-  const userId      = getAuth('mobius_user_id');
+// Internal handler — called directly or from click list
+async function codeSelectFolder(m, projectName, outputEl) {
+  const userId = getAuth('mobius_user_id');
   if (!m) return;
 
   outputEl.classList.add('html-content');
@@ -826,7 +823,6 @@ window.codeSelectFolder = async function(index, outputEl) {
   const repoName  = baseName + '.repo';
   const auditName = baseName + '.audit';
 
-  // Search for doc files within the selected folder
   async function findDocFile(dirHandle, filename, depth) {
     if (depth > 3) return null;
     for await (const [name, handle] of dirHandle.entries()) {
@@ -876,6 +872,11 @@ window.codeSelectFolder = async function(index, outputEl) {
   ];
   outputEl.classList.remove('html-content');
   outputEl.textContent = lines.join('\n');
+}
+
+// Called when user clicks a folder in the selection list
+window.codeSelectFolderByIndex = async function(index, outputEl) {
+  await codeSelectFolder(window._codeFolderMatches[index], window._codeFolderProjectName, outputEl);
 };
 
 // Called when user clicks Create new folder
