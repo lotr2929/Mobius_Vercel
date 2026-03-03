@@ -432,12 +432,12 @@
         }
         function formatMobiusQuery(mq) {
             const lines = [
-                `ASK:          ${mq.ASK}`,
+                `ASK: ${mq.ASK}`,
                 `INSTRUCTIONS: ${mq.INSTRUCTIONS || 'Brief'}`,
-                `HISTORY:      [${(mq.HISTORY || []).length}]`,
-                `QUERY:        ${mq.QUERY}`,
-                `FILES:        [${(mq.FILES || []).length}]`,
-                `CONTEXT:      ${mq.CONTEXT || 'None'}`
+                `HISTORY: [${(mq.HISTORY || []).length}]`,
+                `QUERY: ${mq.QUERY}`,
+                `FILES: [${(mq.FILES || []).length}]`,
+                `CONTEXT: ${mq.CONTEXT || 'None'}`
             ];
             return lines.join('\n');
         }
