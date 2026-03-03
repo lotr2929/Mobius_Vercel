@@ -122,8 +122,10 @@
         }
         .chat-entry { margin-bottom: 4px; }
         .chat-query { color: #4a3728; font-weight: bold; margin-bottom: 4px; white-space: pre-wrap; }
-        .chat-answer { color: #2a2a2a; white-space: pre-wrap; }
-        .chat-answer h1, .chat-answer h2, .chat-answer h3 { margin: 4px 0; }
+        .chat-answer { color: #2a2a2a; white-space: pre-wrap; font-size: 15px; line-height: 1.5; }
+        .chat-answer h1 { font-size: 17px; margin: 6px 0 2px; }
+        .chat-answer h2 { font-size: 16px; margin: 6px 0 2px; }
+        .chat-answer h3 { font-size: 15px; margin: 4px 0 2px; }
         .chat-answer table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; display: block; overflow-x: auto; }
         .chat-answer th { background: #8d7c64; color: white; padding: 6px 10px; text-align: left; }
         .chat-answer td { border: 1px solid #c9bfae; padding: 5px 10px; }
@@ -437,7 +439,8 @@
                 .replace(/```([^`]+)```/g,'<pre><code>$1</code></pre>')
                 .replace(/`([^`]+)`/g,'<code>$1</code>')
                 .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')  // wrap li in ul
-                .replace(/\n/g,'<br>');
+                .replace(/\n/g,'<br>')
+                .replace(/(<br>\s*){2,}/g,'<br>'); // collapse multiple line breaks into one
         }
         function formatMobiusQuery(mq) {
             const lines = [
