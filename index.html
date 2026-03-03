@@ -406,14 +406,15 @@
                 .replace(/\n/g,'<br>');
         }
         function formatMobiusQuery(mq) {
-            return JSON.stringify({
-                ASK: mq.ASK,
-                INSTRUCTIONS: `[${(mq.INSTRUCTIONS || []).length}]`,
-                HISTORY:      `[${(mq.HISTORY || []).length}]`,
-                QUERY:        mq.QUERY,
-                FILES:        `[${(mq.FILES || []).length}]`,
-                CONTEXT:      '[1]'
-            }, null, 2);
+            const lines = [
+                `ASK:          ${mq.ASK}`,
+                `INSTRUCTIONS: ${mq.INSTRUCTIONS || 'Brief'}`,
+                `HISTORY:      [${(mq.HISTORY || []).length}]`,
+                `QUERY:        ${mq.QUERY}`,
+                `FILES:        [${(mq.FILES || []).length}]`,
+                `CONTEXT:      ${mq.CONTEXT || 'None'}`
+            ];
+            return lines.join('\n');
         }
 
         // ── File handling ─────────────────────────────────────────────────────

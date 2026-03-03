@@ -54,7 +54,31 @@ async function askMistral(messages) {
   return data.choices?.[0]?.message?.content || JSON.stringify(data);
 }
 
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral'];
+async function askGitHub(messages) {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error('GITHUB_TOKEN is not set on the server.');
+  const r = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ model: 'gpt-4o', messages })
+  });
+  const data = await r.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error(JSON.stringify(data));
+  return content;
+}
+
+const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github'];
+
+const MODEL_FULL_NAMES = {
+  groq:    'Groq Llama 3.3 70B',
+  gemini:  'Gemini 2.5 Flash',
+  mistral: 'Mistral Codestral',
+  github:  'GitHub GPT-4o'
+};
 
 async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   const startIdx = MODEL_CHAIN.indexOf(startModel);
@@ -63,10 +87,13 @@ async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   for (const model of chain) {
     try {
       let result;
-      if (model === 'groq') result = await askGroq(messages);
-      else if (model === 'gemini') result = await askGemini(messages, imageParts);
+      if (model === 'groq')    result = await askGroq(messages);
+      else if (model === 'gemini')  result = await askGemini(messages, imageParts);
       else if (model === 'mistral') result = await askMistral(messages);
-      const label = model === startModel ? model : model + ' (fallback from ' + startModel + ')';
+      else if (model === 'github')  result = await askGitHub(messages);
+      const fullName = MODEL_FULL_NAMES[model] || model;
+      const startName = MODEL_FULL_NAMES[startModel] || startModel;
+      const label = model === startModel ? fullName : fullName + ' (fallback from ' + startName + ')';
       return { reply: result, modelUsed: label };
     } catch (err) {
       console.warn('[Mobius] ' + model + ' failed:', err.message);
@@ -107,6 +134,8 @@ module.exports = {
   askGroq,
   askGemini,
   askMistral,
+  askGitHub,
   askWithFallback,
-  askWebSearch
+  askWebSearch,
+  MODEL_FULL_NAMES
 };

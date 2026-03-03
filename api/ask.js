@@ -1,4 +1,4 @@
-const { askGemini, askMistral, askWithFallback, askWebSearch } = require('./_ai.js');
+const { askGemini, askMistral, askGitHub, askWithFallback, askWebSearch, MODEL_FULL_NAMES } = require('./_ai.js');
 const { saveConversation } = require('./_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails } = require('../google_api.js');
 
@@ -9,13 +9,22 @@ module.exports = async function handler(req, res) {
   const { ASK, INSTRUCTIONS, HISTORY, QUERY, FILES, CONTEXT } = mobius_query;
 
   try {
+    // Rebuild system instruction from INSTRUCTIONS mode label
+    const systemPrompts = {
+      'Brief': 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.',
+      'Long':  'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.',
+      'Code':  'You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
+    };
+    const systemPrompt = systemPrompts[INSTRUCTIONS] || systemPrompts['Brief'];
+    const instructionMessages = [{ role: 'user', content: '[System] ' + systemPrompt }];
+
     // Assemble in order: system instruction, history, current query
     const messages = [
-      ...(INSTRUCTIONS || []),
+      ...instructionMessages,
       ...(HISTORY || []),
       { role: 'user', content: QUERY }
     ];
-    if (CONTEXT) messages.unshift({ role: 'system', content: CONTEXT });
+    if (CONTEXT && CONTEXT !== 'None') messages.unshift({ role: 'system', content: CONTEXT });
 
     let reply, modelUsed = ASK;
 
@@ -55,29 +64,34 @@ module.exports = async function handler(req, res) {
     } else if (ASK === 'gemini' || hasImages) {
       try {
         reply = await askGemini(messages, imageParts);
-        modelUsed = 'gemini';
+        modelUsed = MODEL_FULL_NAMES.gemini;
       } catch (err) {
-        console.warn('[Mobius] Gemini failed, falling back to Mistral:', err.message);
-        try {
-          reply = await askMistral(messages);
-          modelUsed = 'mistral (fallback from gemini)';
-        } catch (err2) {
-          console.warn('[Mobius] Mistral failed, falling back to Groq:', err2.message);
-          const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'groq');
-          reply = fbReply;
-          modelUsed = fbModel + ' (fallback from gemini)';
-        }
+        console.warn('[Mobius] Gemini failed, falling back:', err.message);
+        const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'mistral');
+        reply = fbReply;
+        modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.gemini + ')';
       }
 
     } else if (ASK === 'mistral' || ASK === 'codestral') {
       try {
         reply = await askMistral(messages);
-        modelUsed = 'mistral';
+        modelUsed = MODEL_FULL_NAMES.mistral;
       } catch (err) {
         console.warn('[Mobius] Mistral failed, falling back:', err.message);
+        const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'github');
+        reply = fbReply;
+        modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.mistral + ')';
+      }
+
+    } else if (ASK === 'github') {
+      try {
+        reply = await askGitHub(messages);
+        modelUsed = MODEL_FULL_NAMES.github;
+      } catch (err) {
+        console.warn('[Mobius] GitHub failed, falling back:', err.message);
         const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'groq');
         reply = fbReply;
-        modelUsed = fbModel + ' (fallback from mistral)';
+        modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
       }
 
     } else if (ASK === 'websearch') {

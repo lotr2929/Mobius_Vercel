@@ -10,13 +10,19 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Text is required' });
     }
 
-    // Detect Elaborate command — allow long answers
+    // Detect response mode
     const elaborate = /^Elaborate[:\s]/i.test(text) || /\belaborate\b/i.test(text);
+    const isCoding = /\b(code|fix|debug|function|script|error|refactor|python|javascript|js|html|css|json|sql|class|loop|bug|syntax|compile|import|module|variable|array|object|api|endpoint)\b/i.test(text);
     const cleanText = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
 
-    const systemPrompt = elaborate
-      ? 'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.'
-      : 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
+    const instructionMode = elaborate ? 'Long' : isCoding ? 'Code' : 'Brief';
+
+    const systemPrompt =
+      instructionMode === 'Long'
+        ? 'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.'
+        : instructionMode === 'Code'
+          ? 'You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
+          : 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
 
     // INSTRUCTIONS: always exactly 1 — the system prompt only
     const instructions = [
@@ -32,11 +38,11 @@ module.exports = async function handler(req, res) {
 
     const mobius_query = {
       ASK: model || 'groq',
-      INSTRUCTIONS: instructions,
+      INSTRUCTIONS: instructionMode,
       HISTORY: history_clean,
       QUERY: cleanText,
       FILES: [],
-      CONTEXT: context || ''
+      CONTEXT: context ? 'Yes' : 'None'
     };
 
     return res.status(200).json({ mobius_query });
