@@ -622,11 +622,26 @@
             panel.appendChild(entry);
             scrollToBottom();
 
-            try {
+            // Inject code session context if active
+            let effectiveModel = model;
+            let effectiveContext = mobiusContext;
+            let forceInstructionMode = null;
+            const codeSession = window.getCodeSession ? window.getCodeSession() : null;
+            if (codeSession) {
+                effectiveModel = 'gemini'; // coding chain starts at gemini
+                forceInstructionMode = 'Code'; // always Code mode in a code session
+                effectiveContext = (mobiusContext ? mobiusContext + '\n\n' : '') +
+                    '[Code Session: ' + codeSession.projectName + ']\n\n' +
+                    (codeSession.mapContent  ? '=== PROJECT MAP ===\n'   + codeSession.mapContent  + '\n\n' : '') +
+                    (codeSession.repoContent ? '=== CODE INDEX ===\n'    + codeSession.repoContent + '\n\n' : '') +
+                    (codeSession.auditContent? '=== AUDIT REPORT ===\n'  + codeSession.auditContent : '');
+            }
+
+        try {
                 const res  = await fetch('/parse', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text:cleanText, model, history:chatHistory, context:mobiusContext })
+                    body: JSON.stringify({ text:cleanText, model:effectiveModel, history:chatHistory, context:effectiveContext, forceInstructionMode })
                 });
                 const data = await res.json();
                 pendingMobiusQuery = data.mobius_query;
@@ -660,7 +675,7 @@
             attachedFiles = [];
             document.getElementById('fileChips').innerHTML = '';
 
-            const modelLabel  = modelLabels[mq.ASK] || mq.ASK;
+            const modelLabel  = mq.ASK; // full name now comes from _ai.js MODEL_FULL_NAMES
             const answerLabel = document.createElement('div');
             answerLabel.className = 'chat-label';
             answerLabel.textContent = `A:(${modelLabel})`;

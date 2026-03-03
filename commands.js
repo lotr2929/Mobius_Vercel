@@ -527,6 +527,119 @@ async function handleNew(args, output) {
   }
 }
 
+// ── Code Mode ────────────────────────────────────────────────────────────────
+
+let codeSession = null; // { projectName, mapContent, repoContent }
+
+// Expose for index.html to check coding mode
+window.getCodeSession = () => codeSession;
+
+async function handleCode(args, output, outputEl) {
+  const trimmed = args.trim();
+
+  // Code: end
+  if (trimmed.toLowerCase() === 'end') {
+    codeSession = null;
+    document.getElementById('input').value = '';
+    updateCodeBadge();
+    output('🔴 Code mode ended.');
+    return;
+  }
+
+  // Code: map — refresh and display current project map
+  if (trimmed.toLowerCase() === 'map') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+    output('📋 Project: ' + codeSession.projectName + '\n\n' +
+      '── .map ──────────────────────\n' + codeSession.mapContent +
+      '\n\n── .repo ─────────────────────\n' + codeSession.repoContent);
+    return;
+  }
+
+  // Code: [projectname] — start coding session
+  const projectName = trimmed;
+  if (!projectName) {
+    output('Usage: Code: [projectname]  |  Code: map  |  Code: end');
+    return;
+  }
+
+  output('🔍 Looking for ' + projectName + '.map and ' + projectName + '.repo ...');
+
+  // Ensure folder access
+  if (!await ensureAccess(output)) return;
+
+  // Search for .map file
+  const mapName  = projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.map';
+  const repoName = projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
+
+  let mapContent  = null;
+  let repoContent = null;
+
+  // Search recursively for both files
+  async function findFile(dirHandle, filename, depth) {
+    if (depth > 4) return null;
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind === 'file' && name.toLowerCase() === filename) {
+        const file = await handle.getFile();
+        return await file.text();
+      }
+      if (handle.kind === 'directory') {
+        const found = await findFile(handle, filename, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  try {
+    mapContent  = await findFile(rootHandle, mapName,  0);
+    repoContent = await findFile(rootHandle, repoName, 0);
+  } catch (err) {
+    output('❌ Error reading files: ' + err.message);
+    return;
+  }
+
+  if (!mapContent && !repoContent) {
+    output('❌ Could not find ' + mapName + ' or ' + repoName + '.\nMake sure they exist in the accessed folder.');
+    return;
+  }
+
+  codeSession = {
+    projectName,
+    mapContent:  mapContent  || '(not found)',
+    repoContent: repoContent || '(not found)'
+  };
+
+  document.getElementById('input').value = '';
+  updateCodeBadge();
+
+  const lines = [
+    '🟢 Code mode: ' + projectName,
+    mapContent  ? '✅ ' + mapName  + ' loaded (' + mapContent.length  + ' chars)' : '⚠️  ' + mapName  + ' not found',
+    repoContent ? '✅ ' + repoName + ' loaded (' + repoContent.length + ' chars)' : '⚠️  ' + repoName + ' not found',
+    '',
+    'All AI queries now use coding mode with project context.',
+    'Use Code: map to view, Code: end to exit.'
+  ];
+  output(lines.join('\n'));
+}
+
+function updateCodeBadge() {
+  let badge = document.getElementById('codeBadge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.id = 'codeBadge';
+    badge.style.cssText = 'font-size:12px; color:#fff; background:#4a7c4e; padding:2px 8px; border-radius:2px; margin-left:8px; font-family:inherit;';
+    const h1 = document.querySelector('h1');
+    if (h1) h1.parentNode.insertBefore(badge, h1.nextSibling);
+  }
+  if (codeSession) {
+    badge.textContent = '⌨ ' + codeSession.projectName;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 // ── Chat History ──────────────────────────────────────────────────────────────
 
 async function handleChatHistory(args, output) {
@@ -560,6 +673,7 @@ const COMMANDS = {
   'history':  { requiresAccess: false, isAI: false, handler: handleChatHistory },
   'new':      { requiresAccess: false, isAI: false, handler: handleNew },
   'focus':    { requiresAccess: false, isAI: false, handler: handleFocus },
+  'code':     { requiresAccess: false, isAI: false, handler: handleCode },
   'ask':      { requiresAccess: false, isAI: true },
 };
 

@@ -2,3 +2,5 @@
 .env*.local
 .aider*
 node_modules
+documents/
+*.zip

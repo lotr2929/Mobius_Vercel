@@ -4,7 +4,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { text, model, history, context } = req.body || {};
+    const { text, model, history, context, forceInstructionMode } = req.body || {};
 
     if (!text) {
       return res.status(400).json({ error: 'Text is required' });
@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
     const isCoding = /\b(code|fix|debug|function|script|error|refactor|python|javascript|js|html|css|json|sql|class|loop|bug|syntax|compile|import|module|variable|array|object|api|endpoint)\b/i.test(text);
     const cleanText = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
 
-    const instructionMode = elaborate ? 'Long' : isCoding ? 'Code' : 'Brief';
+    const instructionMode = forceInstructionMode || (elaborate ? 'Long' : isCoding ? 'Code' : 'Brief');
 
     const systemPrompt =
       instructionMode === 'Long'
