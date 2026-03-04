@@ -5,7 +5,13 @@ const { getDriveFiles, getTasks, getCalendarEvents, getEmails } = require('../go
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { mobius_query, userId, topic } = req.body;
+  // Read userId from cookie (preferred — works even when client forgets to send it)
+  // Fall back to req.body.userId for backward compatibility
+  const cookieHeader = req.headers.cookie || '';
+  const cookieUserId = cookieHeader.split(';').map(c => c.trim())
+    .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || null;
+  const { mobius_query, userId: bodyUserId, topic, session_id } = req.body;
+  const userId = cookieUserId || bodyUserId || null;
   const { ASK, INSTRUCTIONS, HISTORY, QUERY, FILES, CONTEXT } = mobius_query;
 
   try {
@@ -121,7 +127,7 @@ module.exports = async function handler(req, res) {
     // Send response first, then save asynchronously
     res.json({ reply, modelUsed });
     if (userId && reply !== '__CHAT_HISTORY__') {
-      saveConversation(userId, QUERY, reply, modelUsed, topic || 'general').catch(e => console.error('Save error:', e.message));
+      saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null).catch(e => console.error('Save error:', e.message));
     }
   } catch (err) {
     console.error('Error:', err.message);

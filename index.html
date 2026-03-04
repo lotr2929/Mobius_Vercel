@@ -352,6 +352,18 @@
         let ctxSession       = null;
         let currentNavIndex  = -1;
 
+        // ── Session ID ────────────────────────────────────────────────────────
+        // UUID generated once per page load; reset on New: command
+        // Exposed globally so commands.js Code: calls can include it
+        function generateSessionId() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+        let currentSessionId = generateSessionId();
+        window.getCurrentSessionId = () => currentSessionId;
+
         // ── Input history (PowerShell-style ↑/↓, persisted to localStorage) ─────────
         const inputHistory   = JSON.parse(localStorage.getItem('mobius_input_history') || '[]');
         let   inputHistIdx   = -1;
@@ -856,7 +868,7 @@
                 const res  = await fetch('/ask', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mobius_query:mq, userId })
+                    body: JSON.stringify({ mobius_query:mq, userId, session_id: currentSessionId })
                 });
                 const data = await res.json();
                 const reply     = data.reply || data.error;
@@ -885,6 +897,7 @@
             // Clear chat panel and reset history
             document.getElementById('chatPanel').innerHTML = '';
             chatHistory = [];
+            currentSessionId = generateSessionId(); // new session = new UUID
             attachedFiles = [];
             document.getElementById('fileChips').innerHTML = '';
             pendingMobiusQuery = null;

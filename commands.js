@@ -1015,7 +1015,7 @@ async function handleCode(args, output, outputEl) {
       const res  = await fetch('/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: mapPrompt, FILES: [], CONTEXT: 'None' }, userId })
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: mapPrompt, FILES: [], CONTEXT: 'None' }, userId, session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null, topic: 'code' })
       });
       const data = await res.json();
       if (data.error) { append('❌ AI error: ' + data.error); return; }
@@ -1198,7 +1198,7 @@ async function handleCode(args, output, outputEl) {
         'Keep it brief. This will be saved as the permanent audit record.');
       try {
         const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: prompt, FILES: [], CONTEXT: 'None' }, userId }) });
+          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: prompt, FILES: [], CONTEXT: 'None' }, userId, session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null, topic: 'audit' }) });
         const data = await res.json();
         if (data.error) { append('❌ AI error: ' + data.error); return; }
 
@@ -1269,7 +1269,7 @@ async function handleCode(args, output, outputEl) {
 
       try {
         const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: briefingPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: briefingPrompt, FILES: [], CONTEXT: 'None' }, userId, session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null, topic: 'audit' }) });
         clearInterval(thinkingTimer);
         thinkingDiv.textContent = '✅ Gemini responded.';
         const data = await res.json();
@@ -1395,7 +1395,7 @@ async function handleCode(args, output, outputEl) {
     }, 600);
     try {
       const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: catchUpPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: catchUpPrompt, FILES: [], CONTEXT: 'None' }, userId, session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null, topic: 'audit' }) });
       clearInterval(resumeTimer);
       resumeThinkDiv.textContent = '✅ Gemini responded.';
       const data = await res.json();
@@ -1461,7 +1461,7 @@ async function handleCode(args, output, outputEl) {
       const mapPrompt = 'You are a senior software architect. Analyse this code index and produce a concise project map.\n\n' +
         '# ' + codeSession.projectName + ' — Project Map\n\n## Purpose\n## Architecture\n## Key Files\n## Data Flow\n## External Dependencies\n## Notes\n\n---\nCODE INDEX:\n' + repoContent;
       const mr = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: mapPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: mapPrompt, FILES: [], CONTEXT: 'None' }, userId, session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null, topic: 'code' }) });
       const md = await mr.json();
       if (md.error) { append('❌ map error: ' + md.error); }
       else {
@@ -1478,7 +1478,7 @@ async function handleCode(args, output, outputEl) {
       const auditPrompt = 'You are a senior software engineer conducting a code audit. Analyse this code index and produce a concise audit report.\n\n' +
         '# ' + codeSession.projectName + ' — Audit Report\n\n## Summary\n## Strengths\n## Issues\n## Improvements\n## Security\n## Missing\n\n---\nCODE INDEX:\n' + repoContent;
       const ar = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: auditPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: auditPrompt, FILES: [], CONTEXT: 'None' }, userId, session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null, topic: 'audit' }) });
       const ad = await ar.json();
       if (ad.error) { append('❌ audit error: ' + ad.error); }
       else {
