@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
       HISTORY: history_clean,
       QUERY: cleanText,
       FILES: [],
-      CONTEXT: context ? 'Yes' : 'None'
+      CONTEXT: null  // context is now passed as a virtual file, not a field
     };
 
     return res.status(200).json({ mobius_query });

@@ -573,8 +573,8 @@
                 `INSTRUCTIONS: ${mq.INSTRUCTIONS || 'Brief'}`,
                 `HISTORY: [${(mq.HISTORY || []).length}]`,
                 `QUERY: ${mq.QUERY}`,
-                `FILES: [${(mq.FILES || []).length}]`,
-                `CONTEXT: ${mq.CONTEXT || 'None'}`
+                `FILES: [${(mq.FILES || []).filter(f => f.name !== 'environment.txt').length}]` + ((mq.FILES || []).filter(f => f.name !== 'environment.txt').length > 0 ? '\n' + mq.FILES.filter(f => f.name !== 'environment.txt').map(f => '  ' + f.name).join('\n') : ''),
+                `CONTEXT: ${mobiusContext ? 'Yes' : 'None'}`
             ];
             return lines.join('\n');
         }
@@ -800,14 +800,15 @@
 
             // Inject code session context if active
             let effectiveModel = model;
-            let effectiveContext = mobiusContext;
+            let effectiveContext = mobiusContext; // always just environment data
             let forceInstructionMode = null;
+            let codeSessionFile = null;           // virtual file for code session content
             const codeSession = window.getCodeSession ? window.getCodeSession() : null;
             if (codeSession) {
-                effectiveModel = 'gemini';
+                effectiveModel       = 'gemini';
                 forceInstructionMode = 'Code';
 
-                // Parse audit sections — avoid duplicating REPO/SCAN already in CODE INDEX
+                // Parse audit sections — exclude REPO/SCAN (already in code index)
                 let auditPlan = '', auditStatus = '', auditChat = '';
                 if (codeSession.auditContent) {
                     const auditplanMatch = codeSession.auditContent.match(/^## AUDITPLAN\s*\n([\s\S]*?)(?=^## |$)/m);
@@ -815,34 +816,54 @@
                     const chatMatch      = codeSession.auditContent.match(/^## CHAT\s*\n([\s\S]*)/m);
                     auditPlan   = auditplanMatch ? auditplanMatch[1].trim() : '';
                     auditStatus = statusMatch    ? statusMatch[1].trim()    : '';
-                    auditChat   = chatMatch       ? chatMatch[1].trim()      : '';
+                    auditChat   = chatMatch      ? chatMatch[1].trim()      : '';
                 }
 
-                // Pre-append current user message to audit chat so Gemini sees the full conversation
+                // Pre-append current user message so Gemini sees the full conversation
                 const now = new Date().toLocaleString('en-AU');
                 const auditChatWithUser = auditChat
                     ? auditChat + '\n\n[' + now + '] YOU\n' + cleanText
                     : '[' + now + '] YOU\n' + cleanText;
 
-                effectiveContext =
-                    (mobiusContext ? mobiusContext + '\n\n' : '') +
-                    '[Code Session: ' + codeSession.projectName + ']\n\n' +
+                // Build composite session document
+                const sessionDoc =
+                    '# Code Session: ' + codeSession.projectName + '\n\n' +
                     (codeSession.mapContent  ? '=== PROJECT MAP ===\n'  + codeSession.mapContent  + '\n\n' : '') +
                     (codeSession.repoContent ? '=== CODE INDEX ===\n'   + codeSession.repoContent + '\n\n' : '') +
                     (auditPlan               ? '=== AUDIT PLAN ===\n'   + auditPlan               + '\n\n' : '') +
                     (auditStatus             ? '=== AUDIT STATUS ===\n' + auditStatus             + '\n\n' : '') +
                     '=== AUDIT CHAT ===\n' + auditChatWithUser;
+
+                // Encode as a virtual file attachment
+                codeSessionFile = {
+                    name:     codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '_session.txt',
+                    mimeType: 'text/plain',
+                    base64:   btoa(unescape(encodeURIComponent(sessionDoc))),
+                    size:     sessionDoc.length
+                };
             }
 
         try {
                 const res  = await fetch('/parse', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text:cleanText, model:effectiveModel, history:chatHistory, context:effectiveContext, forceInstructionMode })
+                    body: JSON.stringify({ text:cleanText, model:effectiveModel, history:chatHistory, forceInstructionMode })
                 });
                 const data = await res.json();
                 pendingMobiusQuery = data.mobius_query;
-                pendingMobiusQuery.FILES = [...attachedFiles];
+                // Build environment context as a virtual file
+                const envFile = mobiusContext ? {
+                    name:     'environment.txt',
+                    mimeType: 'text/plain',
+                    base64:   btoa(unescape(encodeURIComponent(mobiusContext))),
+                    size:     mobiusContext.length
+                } : null;
+
+                pendingMobiusQuery.FILES = [
+                    ...(envFile         ? [envFile]         : []),
+                    ...(codeSessionFile ? [codeSessionFile] : []),
+                    ...attachedFiles
+                ];
                 // Attach focused file content if active
                 if (window.getFocusFile && window.getFocusFile()) {
                     const ff = window.getFocusFile();
