@@ -557,22 +557,35 @@ async function saveToMobiusDrive(userId, filename, content, output) {
 }
 
 // ── Shared: offer download link ───────────────────────────────────────────────
-// Opens a new tab with the file content so the browser's Save As dialog can be used
+// Uses File System Access API to show a native Save As dialog
 function offerDownload(outputEl, filename, content) {
   const link = document.createElement('a');
   link.textContent = '⬇️  Save ' + filename;
   link.style.cssText = 'display:block; margin-top:8px; color:#4a7c4e; font-weight:bold; cursor:pointer;';
-  link.onclick = () => {
+  link.onclick = async () => {
+    // Try File System Access API (Chrome/Edge — shows native Save As dialog)
+    if (window.showSaveFilePicker) {
+      try {
+        const ext    = filename.split('.').pop();
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'Text file', accept: { 'text/plain': ['.' + ext] } }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return; // user cancelled
+        // Fall through to direct download on other errors
+      }
+    }
+    // Fallback: direct download (Firefox, Safari)
     const blob = new Blob([content], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
-    const win  = window.open(url, '_blank');
-    // Revoke after a delay to allow the window to load
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    if (!win) {
-      // Fallback if popups are blocked — direct download
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-    }
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
   outputEl.appendChild(link);
 }
