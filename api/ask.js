@@ -32,7 +32,7 @@ module.exports = async function handler(req, res) {
     ];
     if (CONTEXT && CONTEXT !== 'None') messages.unshift({ role: 'system', content: CONTEXT });
 
-    let reply, modelUsed = ASK;
+    let reply, modelUsed = ASK, tokensIn = null, tokensOut = null;
 
     const imageParts = (FILES || [])
       .filter(f => f.mimeType?.startsWith('image/'))
@@ -69,7 +69,10 @@ module.exports = async function handler(req, res) {
 
     } else if (ASK === 'gemini' || hasImages) {
       try {
-        reply = await askGemini(messages, imageParts);
+        const geminiResult = await askGemini(messages, imageParts);
+        reply     = geminiResult.text;
+        tokensIn  = geminiResult.tokensIn;
+        tokensOut = geminiResult.tokensOut;
         modelUsed = MODEL_FULL_NAMES.gemini;
       } catch (err) {
         console.warn('[Mobius] Gemini failed, falling back:', err.message);
@@ -125,7 +128,7 @@ module.exports = async function handler(req, res) {
     }
 
     // Send response first, then save asynchronously
-    res.json({ reply, modelUsed });
+    res.json({ reply, modelUsed, tokensIn, tokensOut });
     if (userId && reply !== '__CHAT_HISTORY__') {
       saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null).catch(e => console.error('Save error:', e.message));
     }
