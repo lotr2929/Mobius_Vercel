@@ -122,7 +122,7 @@
         }
         .chat-entry { margin-bottom: 4px; }
         .chat-query { color: #4a3728; font-weight: bold; margin-bottom: 4px; white-space: pre-wrap; }
-        .chat-answer { color: #2a2a2a; white-space: pre-wrap; font-size: 15px; line-height: 1.5; }
+        .chat-answer { color: #2a2a2a; white-space: normal; font-size: 15px; line-height: 1.5; }
         .chat-answer h1 { font-size: 17px; margin: 6px 0 2px; }
         .chat-answer h2 { font-size: 16px; margin: 6px 0 2px; }
         .chat-answer h3 { font-size: 15px; margin: 4px 0 2px; }
@@ -198,14 +198,19 @@
             cursor: pointer;
             font-size: 13px;
             color: #b8a898;
-            padding: 1px 3px;
+            padding: 2px 4px;
             border-radius: 2px;
-            height: auto;
+            height: 22px;
             line-height: 1;
             font-family: inherit;
             transition: color 0.15s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
         }
         .resp-btn:hover { color: #4a3728; background: transparent; }
+        .resp-btn svg { display: block; }
         .resp-btn.active-up   { color: #4a7c4e; }
         .resp-btn.active-down { color: #8d3a3a; }
     </style>
@@ -890,14 +895,14 @@
             const upBtn = document.createElement('button');
             upBtn.className = 'resp-btn';
             upBtn.title = 'Previous';
-            upBtn.textContent = '⌃';
+            upBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18,15 12,9 6,15"/></svg>';
             upBtn.onclick = () => navigateChat(-1);
 
             // Down nav
             const downBtn = document.createElement('button');
             downBtn.className = 'resp-btn';
             downBtn.title = 'Next';
-            downBtn.textContent = '⌄';
+            downBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>';
             downBtn.onclick = () => navigateChat(1);
 
             toolbar.appendChild(copyBtn);

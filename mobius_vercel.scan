@@ -1,54 +1,6 @@
 # Mobius_Vercel — Scan Report
-# Generated: 04/03/2026, 11:23:41 am
-# HIGH: 12  MED: 151  LOW: 5
-
-[HIGH] help/index.html:9
-  Issue: Possible hardcoded secret or token
-  Code:  <meta name="apple-mobile-web-app-capable" content="yes">
-
-[HIGH] help/index.html:10
-  Issue: Possible hardcoded secret or token
-  Code:  <meta name="apple-mobile-web-app-title" content="Mobius Help">
-
-[HIGH] commands.js:190
-  Issue: Possible hardcoded secret or token
-  Code:  const dbgInfo = gl.getExtension('WEBGL_debug_renderer_info');
-
-[HIGH] index.html:11
-  Issue: Possible hardcoded secret or token
-  Code:  <meta name="apple-mobile-web-app-capable" content="yes">
-
-[HIGH] index.html:12
-  Issue: Possible hardcoded secret or token
-  Code:  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-
-[HIGH] index.html:13
-  Issue: Possible hardcoded secret or token
-  Code:  <meta name="apple-mobile-web-app-title" content="Mobius">
-
-[HIGH] index.html:266
-  Issue: Possible hardcoded secret or token
-  Code:  ['mobius_user_id','mobius_username','mobius_google_connected','mobius_google_attempted'].forEach(k => {
-
-[HIGH] index.html:899
-  Issue: Possible hardcoded secret or token
-  Code:  setAuth('mobius_google_connected', '1');
-
-[HIGH] index.html:909
-  Issue: Possible hardcoded secret or token
-  Code:  if (getAuth('mobius_google_connected') === '1') return;
-
-[HIGH] index.html:910
-  Issue: Possible hardcoded secret or token
-  Code:  if (sessionStorage.getItem('mobius_google_attempted') === '1') return;
-
-[HIGH] index.html:911
-  Issue: Possible hardcoded secret or token
-  Code:  sessionStorage.setItem('mobius_google_attempted', '1');
-
-[HIGH] service-worker.js:1
-  Issue: Possible hardcoded secret or token
-  Code:  const CACHE_NAME = 'mobius-20262402-1441';
+# Generated: 04/03/2026, 11:52:48 am
+# HIGH: 0  MED: 152  LOW: 5
 
 [MED] api/auth/google/callback.js:20
   Issue: await not wrapped in try/catch
@@ -98,6 +50,10 @@
   Issue: await not wrapped in try/catch
   Code:  await writeDriveFileContent(userId, newFile.id, content);
 
+[MED] api/chat-history.js:10
+  Issue: await not wrapped in try/catch
+  Code:  const sessions = await getChatHistory(userId, 10000);
+
 [MED] api/ask.js:53
   Issue: await not wrapped in try/catch
   Code:  reply = await getDriveFiles(userId, QUERY);
@@ -114,17 +70,17 @@
   Issue: await not wrapped in try/catch
   Code:  reply = await getEmails(userId);
 
-[MED] api/chat-history.js:10
+[MED] api/signup.js:22
   Issue: await not wrapped in try/catch
-  Code:  const sessions = await getChatHistory(userId, 10000);
+  Code:  const { data, error } = await supabase.auth.signUp({
+
+[MED] api/signup.js:33
+  Issue: await not wrapped in try/catch
+  Code:  await db.from('users').upsert({
 
 [MED] api/login.js:22
   Issue: await not wrapped in try/catch
   Code:  const { data, error } = await supabase.auth.signInWithPassword({
-
-[MED] api/upload.js:15
-  Issue: await not wrapped in try/catch
-  Code:  await new Promise((resolve, reject) => {
 
 [MED] api/_ai.js:2
   Issue: await not wrapped in try/catch
@@ -174,13 +130,9 @@
   Issue: await not wrapped in try/catch
   Code:  return await askWithFallback(augmented);
 
-[MED] api/signup.js:22
+[MED] api/upload.js:15
   Issue: await not wrapped in try/catch
-  Code:  const { data, error } = await supabase.auth.signUp({
-
-[MED] api/signup.js:33
-  Issue: await not wrapped in try/catch
-  Code:  await db.from('users').upsert({
+  Code:  await new Promise((resolve, reject) => {
 
 [MED] commands.js:41
   Issue: await not wrapped in try/catch
@@ -302,123 +254,123 @@
   Issue: await not wrapped in try/catch
   Code:  const handle = await window.showSaveFilePicker({
 
-[MED] commands.js:624
+[MED] commands.js:625
   Issue: await not wrapped in try/catch
   Code:  try { const f = await handle.getFile(); text = await f.text(); } catch { return; }
 
-[MED] commands.js:701
+[MED] commands.js:702
   Issue: await not wrapped in try/catch
   Code:  if (!inTry) flag('MED', relPath, lineNum, trimmed, 'await not wrapped in try/catch');
 
-[MED] commands.js:744
+[MED] commands.js:745
   Issue: await not wrapped in try/catch
   Code:  if (handle.kind === 'directory') { await walkDir(handle, relPath); continue; }
 
-[MED] commands.js:747
+[MED] commands.js:748
   Issue: await not wrapped in try/catch
   Code:  await scanFile(handle, relPath);
 
-[MED] commands.js:790
+[MED] commands.js:791
   Issue: await not wrapped in try/catch
   Code:  await scanDir(handle, relPath);
 
-[MED] commands.js:928
+[MED] commands.js:929
   Issue: await not wrapped in try/catch
   Code:  const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
 
-[MED] commands.js:936
+[MED] commands.js:937
   Issue: await not wrapped in try/catch
   Code:  await saveToMobiusDrive(userId, repoName, repoContent, append);
 
-[MED] commands.js:972
+[MED] commands.js:973
   Issue: await not wrapped in try/catch
   Code:  const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
 
-[MED] commands.js:979
+[MED] commands.js:980
   Issue: await not wrapped in try/catch
   Code:  await saveToMobiusDrive(userId, repoName, repoContent, append);
 
-[MED] commands.js:1014
+[MED] commands.js:1015
   Issue: await not wrapped in try/catch
   Code:  const res  = await fetch('/ask', {
 
-[MED] commands.js:1040
+[MED] commands.js:1041
   Issue: await not wrapped in try/catch
   Code:  const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
 
-[MED] commands.js:1103
+[MED] commands.js:1104
   Issue: await not wrapped in try/catch
   Code:  const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
-
-[MED] commands.js:1139
-  Issue: await not wrapped in try/catch
-  Code:  const f = await handle.getFile();
 
 [MED] commands.js:1140
   Issue: await not wrapped in try/catch
+  Code:  const f = await handle.getFile();
+
+[MED] commands.js:1141
+  Issue: await not wrapped in try/catch
   Code:  const text = await f.text();
 
-[MED] commands.js:1162
+[MED] commands.js:1163
   Issue: await not wrapped in try/catch
   Code:  const fileLines = await getFileLines(f.file);
 
-[MED] commands.js:1195
+[MED] commands.js:1196
   Issue: await not wrapped in try/catch
   Code:  const res  = await fetch('/ask', {
 
-[MED] commands.js:1248
+[MED] commands.js:1249
   Issue: await not wrapped in try/catch
   Code:  const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
 
-[MED] commands.js:1254
+[MED] commands.js:1255
   Issue: await not wrapped in try/catch
   Code:  await saveToMobiusDrive(userId, baseName + '.repo', repoContent, append);
 
-[MED] commands.js:1261
+[MED] commands.js:1262
   Issue: await not wrapped in try/catch
   Code:  const mr = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
 
-[MED] commands.js:1269
+[MED] commands.js:1270
   Issue: await not wrapped in try/catch
   Code:  await saveToMobiusDrive(userId, baseName + '.map', md.reply, append);
 
-[MED] commands.js:1278
+[MED] commands.js:1279
   Issue: await not wrapped in try/catch
   Code:  const ar = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
 
-[MED] commands.js:1286
+[MED] commands.js:1287
   Issue: await not wrapped in try/catch
   Code:  await saveToMobiusDrive(userId, baseName + '.audit', ad.reply, append);
 
-[MED] commands.js:1318
+[MED] commands.js:1319
   Issue: await not wrapped in try/catch
   Code:  await saveToMobiusDrive(userId, statusName, statusContent, append);
 
-[MED] commands.js:1348
+[MED] commands.js:1349
   Issue: await not wrapped in try/catch
   Code:  await codeSelectFolder({ name: pickedHandle.name, relPath: pickedHandle.name, handle: pickedHandle }, projectName, outputEl);
 
-[MED] commands.js:1366
+[MED] commands.js:1367
   Issue: await not wrapped in try/catch
   Code:  await codeSelectFolder(exact[0], projectName, outputEl);
 
-[MED] commands.js:1433
+[MED] commands.js:1434
   Issue: await not wrapped in try/catch
   Code:  const file = await handle.getFile();
 
-[MED] commands.js:1434
+[MED] commands.js:1435
   Issue: await not wrapped in try/catch
   Code:  return { content: await file.text(), date: new Date(file.lastModified) };
 
-[MED] commands.js:1437
+[MED] commands.js:1438
   Issue: await not wrapped in try/catch
   Code:  const found = await findDocFile(handle, filename, depth + 1);
 
-[MED] commands.js:1482
+[MED] commands.js:1483
   Issue: await not wrapped in try/catch
   Code:  await codeSelectFolder(window._codeFolderMatches[index], window._codeFolderProjectName, outputEl);
 
-[MED] commands.js:1569
+[MED] commands.js:1570
   Issue: await not wrapped in try/catch
   Code:  await cmd.handler(args, outputFn, outputEl);
 
@@ -594,35 +546,39 @@
   Issue: Empty or suppressed catch block
   Code:  try { sessionStorage.setItem(key, value); } catch(e) {}
 
-[MED] index.html:392
+[MED] index.html:355
+  Issue: Empty or suppressed catch block
+  Code:  try { localStorage.setItem('mobius_input_history', JSON.stringify(inputHistory.slice(0, 100))); } catch(e) {}
+
+[MED] index.html:431
   Issue: await not wrapped in try/catch
   Code:  const g = await geo.json();
 
-[MED] index.html:398
+[MED] index.html:437
   Issue: Empty or suppressed catch block
   Code:  } catch { /* unavailable */ }
 
-[MED] index.html:629
+[MED] index.html:677
   Issue: await not wrapped in try/catch
   Code:  await handleAccess(outputFn);
 
-[MED] index.html:635
+[MED] index.html:683
   Issue: await not wrapped in try/catch
   Code:  await runCommand(detected.command, detected.args, outputFn, outputEl);
 
-[MED] index.html:641
+[MED] index.html:689
   Issue: await not wrapped in try/catch
   Code:  await executeQuery(userId);
 
-[MED] index.html:646
+[MED] index.html:694
   Issue: await not wrapped in try/catch
   Code:  await parseQuery(userId);
 
-[MED] index.html:697
+[MED] index.html:745
   Issue: await not wrapped in try/catch
   Code:  const res  = await fetch('/parse', {
 
-[MED] index.html:748
+[MED] index.html:796
   Issue: await not wrapped in try/catch
   Code:  const res  = await fetch('/ask', {
 
