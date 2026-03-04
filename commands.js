@@ -1091,147 +1091,326 @@ async function handleCode(args, output, outputEl) {
     return;
   }
 
-  // Code: audit — deep scan, present findings, user selects one, AI analyses it
-  if (lower === 'audit') {
+  // Code: audit new | audit | audit end
+  if (lower === 'audit new' || lower === 'audit' || lower === 'audit end') {
     if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
 
     outputEl.classList.add('html-content');
     outputEl.innerHTML = '';
     const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
-    append('🔎 Running deep scan for ' + codeSession.projectName + '...');
+    const appendHtml = html => { const d = document.createElement('div'); d.classList.add('html-content'); d.innerHTML = html; outputEl.appendChild(d); };
 
-    // Phase 1: deep static scan (same engine as scan, but also catches deeper issues)
-    const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
-    if (!findings) return;
+    const baseName   = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const auditName  = baseName + '.audit';
+    const now        = new Date().toLocaleString('en-AU');
 
-    document.getElementById('input').value = '';
+    // ── Helper: parse .audit file into sections ──────────────────────────────
+    function parseAuditFile(content) {
+      const sections = {};
+      const matches = content.split(/^## /m);
+      for (const block of matches) {
+        const nl = block.indexOf('\n');
+        if (nl === -1) continue;
+        const key = block.slice(0, nl).trim().toUpperCase();
+        sections[key] = block.slice(nl + 1).trim();
+      }
+      // Parse header fields
+      const headerMatch = content.match(/^# .+\n((?:[\s\S]*?))(?=^## )/m);
+      if (headerMatch) {
+        const header = headerMatch[1];
+        sections._started  = (header.match(/started: (.+)/) || [])[1]  || '';
+        sections._status   = (header.match(/status: (.+)/)  || [])[1]  || 'in_progress';
+        sections._modified = (header.match(/modified: (.+)/) || [])[1] || '';
+      }
+      return sections;
+    }
 
-    if (findings.length === 0) {
-      append('✅ No issues found. Code is clean.');
+    // ── Helper: serialise sections back to .audit file ─────────────────────────
+    function buildAuditFile(sections, projectName) {
+      return [
+        '# ' + projectName + ' — Audit',
+        '# started: '  + (sections._started  || now),
+        '# status: '   + (sections._status   || 'in_progress'),
+        '# modified: ' + now,
+        '',
+        '## REPO',
+        sections.REPO || '',
+        '',
+        '## SCAN',
+        sections.SCAN || '',
+        '',
+        '## AUDITPLAN',
+        sections.AUDITPLAN || '(pending)',
+        '',
+        '## STATUS',
+        sections.STATUS || '',
+        '',
+        '## CHAT',
+        sections.CHAT || ''
+      ].join('\n');
+    }
+
+    // ── Helper: format scan findings as lean text (no code snippets) ─────────────
+    function formatScanLean(findings) {
+      return findings.map(f => '[' + f.severity + '] ' + f.file + ':' + f.line + ' — ' + f.issue).join('\n');
+    }
+
+    // ── Helper: build Gemini prompt from audit sections ──────────────────────
+    function buildGeminiContext(sections, instruction) {
+      return [
+        'You are a senior software engineer conducting a structured code audit.',
+        'Use British English. Be concise and precise.',
+        '',
+        instruction,
+        '',
+        '## REPO',
+        sections.REPO || '',
+        '',
+        '## SCAN (pending findings only)',
+        sections.SCAN || '',
+        '',
+        '## AUDITPLAN',
+        sections.AUDITPLAN || '(not yet generated)',
+        '',
+        '## STATUS',
+        sections.STATUS || '',
+        '',
+        '## CHAT HISTORY',
+        sections.CHAT || '(none yet)'
+      ].join('\n');
+    }
+
+    // ── CODE: AUDIT END ────────────────────────────────────────────────────
+    if (lower === 'audit end') {
+      append('📌 Closing audit for ' + codeSession.projectName + '...');
+      // Load existing audit file
+      let existingContent = codeSession.auditContent || '';
+      if (!existingContent) { append('❌ No active audit found.'); return; }
+      const sections = parseAuditFile(existingContent);
+
+      // Ask Gemini for final summary
+      append('🧠 Asking Gemini for final summary...');
+      const prompt = buildGeminiContext(sections,
+        'The audit is now complete. Produce a concise final summary covering:\n' +
+        '1. What was fixed and in which files\n' +
+        '2. What was skipped and why\n' +
+        '3. Any remaining risks or recommendations\n' +
+        'Keep it brief. This will be saved as the permanent audit record.');
+      try {
+        const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: prompt, FILES: [], CONTEXT: 'None' }, userId }) });
+        const data = await res.json();
+        if (data.error) { append('❌ AI error: ' + data.error); return; }
+
+        sections._status  = 'complete';
+        sections.CHAT     = (sections.CHAT ? sections.CHAT + '\n\n' : '') +
+          '[' + now + '] AUDIT CLOSED\n' + data.reply;
+        sections.AUDITPLAN = sections.AUDITPLAN + '\n\n## FINAL SUMMARY\n' + data.reply;
+
+        const finalContent = buildAuditFile(sections, codeSession.projectName);
+        codeSession.auditContent = finalContent;
+        await saveToMobiusDrive(userId, auditName, finalContent, append);
+        offerDownload(outputEl, auditName, finalContent);
+        appendHtml('<div style="margin-top:10px;padding:10px;background:#f5eedd;border:1px solid #c9bfae;border-radius:1px;white-space:pre-wrap;font-size:13px;">' + (window.markdownToHtml ? window.markdownToHtml(data.reply) : data.reply) + '</div>');
+        append('✅ Audit closed and saved.');
+      } catch (err) { append('❌ ' + err.message); }
+      document.getElementById('input').value = '';
       return;
     }
 
+    // ── CODE: AUDIT NEW ───────────────────────────────────────────────────
+    if (lower === 'audit new') {
+      append('🔹 Starting new audit for ' + codeSession.projectName + '...');
+
+      // Step 1: generate fresh repo
+      append('🔍 Generating repo...');
+      const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
+      if (!repoContent) return;
+      codeSession.repoContent      = repoContent;
+      codeSession.repoGeneratedAt  = Date.now();
+
+      // Step 2: run scan
+      append('🔍 Running scan...');
+      const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
+      if (!findings) return;
+      const high = findings.filter(f => f.severity === 'HIGH');
+      const med  = findings.filter(f => f.severity === 'MED');
+      const low  = findings.filter(f => f.severity === 'LOW');
+      append('📊 ' + findings.length + ' findings — HIGH: ' + high.length + '  MED: ' + med.length + '  LOW: ' + low.length);
+
+      const leanScan = formatScanLean(findings);
+
+      // Step 3: ask Gemini for briefing + auditplan
+      append('🧠 Asking Gemini for briefing and audit plan...');
+      const briefingPrompt =
+        'You are a senior software engineer starting a code audit.\n' +
+        'Use British English. Be concise and precise.\n\n' +
+        'Here is the code index (repo) and the list of scan findings.\n\n' +
+        'Produce two things:\n\n' +
+        '## BRIEFING\n' +
+        'A short summary: what types of issues were found, which files are most affected, ' +
+        'any patterns or root causes, and overall risk level.\n\n' +
+        '## AUDITPLAN\n' +
+        'An ordered fix list. Group by file. For each file list the findings to fix, ' +
+        'the recommended approach, and why. Mark each item as [PENDING].\n' +
+        'Be specific. One file at a time is the working rule.\n\n' +
+        '--- REPO ---\n' + repoContent + '\n\n' +
+        '--- SCAN ---\n' + leanScan;
+
+      try {
+        const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: briefingPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+        const data = await res.json();
+        if (data.error) { append('❌ AI error: ' + data.error); return; }
+
+        // Parse briefing and auditplan from response
+        const briefingMatch   = data.reply.match(/##\s*BRIEFING\s*\n([\s\S]*?)(?=##\s*AUDITPLAN|$)/i);
+        const auditplanMatch  = data.reply.match(/##\s*AUDITPLAN\s*\n([\s\S]*)/i);
+        const briefingText    = briefingMatch  ? briefingMatch[1].trim()  : data.reply;
+        const auditplanText   = auditplanMatch ? auditplanMatch[1].trim() : '(Gemini did not produce a structured plan — review briefing above)';
+
+        // Build initial STATUS block
+        const statusText =
+          'phase: briefing\n' +
+          'started: ' + now + '\n' +
+          'last_action: audit new\n' +
+          'files_changed: none\n' +
+          'deployments: 0\n' +
+          'findings_total: ' + findings.length + '\n' +
+          'findings_pending: ' + findings.length + '\n' +
+          'findings_resolved: 0';
+
+        // Build initial CHAT block
+        const chatText = '[' + now + '] AUDIT NEW\nGemini briefing received. Awaiting your approval to proceed.';
+
+        // Assemble and save .audit file
+        const sections = {
+          _started: now, _status: 'in_progress', _modified: now,
+          REPO: repoContent, SCAN: leanScan,
+          AUDITPLAN: auditplanText, STATUS: statusText, CHAT: chatText
+        };
+        const auditContent = buildAuditFile(sections, codeSession.projectName);
+        codeSession.auditContent = auditContent;
+        await saveToMobiusDrive(userId, auditName, auditContent, append);
+        offerDownload(outputEl, auditName, auditContent);
+
+        // Display briefing
+        append('');
+        append('── GEMINI BRIEFING ─────────────────────────────────');
+        appendHtml('<div style="margin-top:6px;padding:10px;background:#f5eedd;border:1px solid #c9bfae;border-radius:1px;font-size:13px;">' + (window.markdownToHtml ? window.markdownToHtml(briefingText) : briefingText) + '</div>');
+        append('');
+        append('Review the briefing above. When ready, type your response or run Code: audit to continue.');
+
+      } catch (err) { append('❌ ' + err.message); }
+      document.getElementById('input').value = '';
+      return;
+    }
+
+    // ── CODE: AUDIT (resume) ───────────────────────────────────────────────
+    // Load .audit from session or Drive
+    let auditContent = codeSession.auditContent || null;
+    if (!auditContent) {
+      append('📥 Loading audit from Drive...');
+      try {
+        const res  = await fetch('/api/focus/find', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, filename: auditName }) });
+        const found = await res.json();
+        if (found.files && found.files.length > 0) {
+          const readRes  = await fetch('/api/focus/read', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, fileId: found.files[0].id, mimeType: 'text/plain' }) });
+          const readData = await readRes.json();
+          if (readData.content) { auditContent = readData.content; codeSession.auditContent = auditContent; }
+        }
+      } catch { /* fall through */ }
+    }
+
+    if (!auditContent) {
+      append('⚠️  No audit file found. Run Code: audit new to start.');
+      document.getElementById('input').value = '';
+      return;
+    }
+
+    const sections = parseAuditFile(auditContent);
+
+    if (sections._status === 'complete') {
+      append('✅ This audit is already marked complete.');
+      append('Run Code: audit new to start a fresh audit.');
+      document.getElementById('input').value = '';
+      return;
+    }
+
+    // Re-scan to get current state
+    append('🔍 Re-scanning ' + codeSession.projectName + '...');
+    const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
+    if (!findings) return;
     const high = findings.filter(f => f.severity === 'HIGH');
     const med  = findings.filter(f => f.severity === 'MED');
     const low  = findings.filter(f => f.severity === 'LOW');
+    append('📊 Current: ' + findings.length + ' findings — HIGH: ' + high.length + '  MED: ' + med.length + '  LOW: ' + low.length);
 
-    // Phase 2: present findings as a clickable list — user picks one to escalate
-    const summary = document.createElement('div');
-    summary.style.cssText = 'font-weight:bold; margin-bottom:10px; color:#4a3728;';
-    summary.textContent = '📊 ' + findings.length + ' issue(s) found — HIGH: ' + high.length + '  MED: ' + med.length + '  LOW: ' + low.length;
-    outputEl.appendChild(summary);
+    // Update scan section with current pending findings
+    sections.SCAN = formatScanLean(findings);
 
-    const instruction = document.createElement('div');
-    instruction.style.cssText = 'font-size:12px; color:#8d7c64; margin-bottom:10px;';
-    instruction.textContent = 'Click a finding to ask Gemini for an explanation and fix. One at a time.';
-    outputEl.appendChild(instruction);
+    // Update status
+    const prevStatus = sections.STATUS || '';
+    const pendingMatch = prevStatus.match(/findings_pending: (\d+)/);
+    const resolvedMatch = prevStatus.match(/findings_resolved: (\d+)/);
+    const totalMatch = prevStatus.match(/findings_total: (\d+)/);
+    const total    = totalMatch   ? parseInt(totalMatch[1])   : findings.length;
+    const resolved = totalMatch && resolvedMatch ? (total - findings.length) : 0;
+    sections.STATUS = prevStatus
+      .replace(/findings_pending: \d+/, 'findings_pending: ' + findings.length)
+      .replace(/findings_resolved: \d+/, 'findings_resolved: ' + resolved)
+      .replace(/last_action: .+/, 'last_action: audit resume ' + now);
 
-    // Store file contents cache for context extraction
-    const fileCache = {};
-    async function getFileLines(relPath) {
-      if (fileCache[relPath]) return fileCache[relPath];
-      try {
-        // Walk project handle to find the file
-        async function findFile(dirHandle, parts) {
-          const [head, ...rest] = parts;
-          for await (const [name, handle] of dirHandle.entries()) {
-            if (name !== head) continue;
-            if (rest.length === 0 && handle.kind === 'file') {
-              const f = await handle.getFile();
-              const text = await f.text();
-              fileCache[relPath] = text.split('\n');
-              return fileCache[relPath];
-            }
-            if (handle.kind === 'directory') return findFile(handle, rest);
-          }
-          return null;
-        }
-        const parts = relPath.split('/');
-        return await findFile(codeSession.projectHandle, parts);
-      } catch { return null; }
-    }
+    // Build catch-up prompt for Gemini
+    const catchUpPrompt = buildGeminiContext(sections,
+      'We are resuming this code audit. The scan has been re-run and the findings above reflect the current state.\n' +
+      'Review the auditplan and chat history, then tell me:\n' +
+      '1. What has been done since we last worked on this\n' +
+      '2. What you intend to do next and why\n' +
+      '3. The specific change you recommend for the next file — describe it clearly before I apply anything\n' +
+      'Wait for my approval before proceeding.');
 
-    // Exposed handler for finding click
-    window._auditSelectFinding = async function(index, btnEl) {
-      const f = findings[index];
-      btnEl.textContent = '⏳ Asking Gemini...';
-      btnEl.disabled = true;
+    append('🧠 Asking Gemini to resume...');
+    try {
+      const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: catchUpPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+      const data = await res.json();
+      if (data.error) { append('❌ AI error: ' + data.error); return; }
 
-      // Extract ~15 lines of context around the problem line
-      let codeContext = f.code;
-      if (typeof f.line === 'number') {
-        const fileLines = await getFileLines(f.file);
-        if (fileLines) {
-          const start = Math.max(0, f.line - 8);
-          const end   = Math.min(fileLines.length, f.line + 8);
-          codeContext = fileLines.slice(start, end)
-            .map((l, i) => (start + i + 1) + (start + i + 1 === f.line ? ' ▶ ' : '   ') + l)
-            .join('\n');
-        }
-      }
+      // Append to chat history
+      sections.CHAT = (sections.CHAT ? sections.CHAT + '\n\n' : '') +
+        '[' + now + '] RESUMED\n' + data.reply;
 
-      // Build full findings summary for context
-      const allFindingsSummary = findings.map((x, i) =>
-        (i + 1) + '. [' + x.severity + '] ' + x.file + ':' + x.line + ' — ' + x.issue
-      ).join('\n');
+      // Save updated .audit
+      const updatedContent = buildAuditFile(sections, codeSession.projectName);
+      codeSession.auditContent = updatedContent;
+      await saveToMobiusDrive(userId, auditName, updatedContent, append);
 
-      const prompt =
-        'You are a senior software engineer reviewing a real project.\n' +
-        'A static analysis scan found the following issues across the codebase:\n\n' +
-        'ALL FINDINGS:\n' + allFindingsSummary + '\n\n' +
-        'The developer wants to address this specific issue first:\n\n' +
-        'FILE: ' + f.file + '\n' +
-        'LINE: ' + f.line + '\n' +
-        'SEVERITY: ' + f.severity + '\n' +
-        'ISSUE: ' + f.issue + '\n\n' +
-        'CODE CONTEXT (line ' + f.line + ' marked with ▶):\n' +
-        '```\n' + codeContext + '\n```\n\n' +
-        'Before suggesting a fix: consider whether any of the other findings are related to this issue ' +
-        'or point to a deeper underlying problem. If so, flag it.\n' +
-        'Then either: (a) confirm the straightforward fix and provide corrected code for this location only, ' +
-        'or (b) recommend a better approach if one exists — and explain the trade-off.\n' +
-        'Do not refactor beyond what is needed to address this issue.';
+      // Display Gemini response
+      append('');
+      append('── GEMINI ───────────────────────────────────────');
+      appendHtml('<div style="margin-top:6px;padding:10px;background:#f5eedd;border:1px solid #c9bfae;border-radius:1px;font-size:13px;">' + (window.markdownToHtml ? window.markdownToHtml(data.reply) : data.reply) + '</div>');
 
-      try {
-        const res  = await fetch('/ask', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: prompt, FILES: [], CONTEXT: 'None' }, userId: getAuth('mobius_user_id') })
-        });
-        const data = await res.json();
-        if (data.error) { btnEl.textContent = '❌ AI error: ' + data.error; btnEl.disabled = false; return; }
+      // Input area for response — expose a helper so the main chat can record it
+      append('');
+      const instrDiv = document.createElement('div');
+      instrDiv.style.cssText = 'font-size:12px;color:#8d7c64;margin-top:4px;';
+      instrDiv.textContent = 'Type your response in the input box. Your reply will be recorded in the audit chat. Run Code: audit again after applying any fix and deploying.';
+      outputEl.appendChild(instrDiv);
 
-        // Show AI response below the button
-        const respDiv = document.createElement('div');
-        respDiv.style.cssText = 'margin-top:8px; padding:8px; background:#f5eedd; border:1px solid #c9bfae; border-radius:1px; font-size:13px; white-space:pre-wrap; color:#2a2a2a;';
-        respDiv.textContent = data.reply;
-        btnEl.parentNode.insertBefore(respDiv, btnEl.nextSibling);
-        btnEl.textContent = '✅ Done — click again to re-ask';
-        btnEl.disabled = false;
-      } catch (err) {
-        btnEl.textContent = '❌ ' + err.message;
-        btnEl.disabled = false;
-      }
-    };
+      // Expose a function so index.html can append user messages to auditchat
+      window._auditAppendUserMessage = async function(userMsg) {
+        const s = parseAuditFile(codeSession.auditContent || '');
+        s.CHAT = (s.CHAT ? s.CHAT + '\n\n' : '') + '[' + new Date().toLocaleString('en-AU') + '] YOU\n' + userMsg;
+        const updated = buildAuditFile(s, codeSession.projectName);
+        codeSession.auditContent = updated;
+        await saveToMobiusDrive(userId, auditName, updated, () => {});
+      };
 
-    // Render each finding as a clickable card
-    for (let i = 0; i < findings.length; i++) {
-      const f    = findings[i];
-      const icon = f.severity === 'HIGH' ? '🔴' : f.severity === 'MED' ? '🟡' : '⚪';
-      const card = document.createElement('div');
-      card.style.cssText = 'margin-bottom:8px; padding:8px 10px; background:#ede5d4; border:1px solid #c9bfae; border-radius:1px; font-size:13px;';
-      card.innerHTML =
-        '<div style="font-weight:bold; margin-bottom:2px;">' + icon + ' [' + f.severity + '] ' + f.file + ':' + f.line + '</div>' +
-        '<div style="color:#4a3728; margin-bottom:4px;">' + f.issue + '</div>' +
-        '<div style="font-family:monospace; font-size:11px; color:#8d7c64; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' +
-          f.code.slice(0, 80) + (f.code.length > 80 ? '…' : '') + '</div>';
-      const btn = document.createElement('button');
-      btn.textContent = '🧠 Ask Gemini to fix this';
-      btn.style.cssText = 'padding:4px 10px; background:#4a7c4e; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:12px;';
-      btn.onclick = (function(idx, b) { return () => window._auditSelectFinding(idx, b); })(i, btn);
-      card.appendChild(btn);
-      outputEl.appendChild(card);
-    }
+    } catch (err) { append('❌ ' + err.message); }
+    document.getElementById('input').value = '';
     return;
   }
 
@@ -1325,7 +1504,7 @@ async function handleCode(args, output, outputEl) {
   // Code: [projectname] — search for matching folders, show selection list
   const projectName = trimmed;
   if (!projectName) {
-    output('Usage: Code: [projectname]  |  Code: repo  |  Code: map  |  Code: scan  |  Code: audit  |  Code: all  |  Code: status  |  Code: show  |  Code: end');
+    output('Usage: Code: [projectname]  |  Code: repo  |  Code: map  |  Code: scan  |  Code: audit new  |  Code: audit  |  Code: audit end  |  Code: all  |  Code: status  |  Code: show  |  Code: end');
     return;
   }
 

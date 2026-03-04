@@ -724,6 +724,11 @@
             inputHistIdx   = -1;
             inputHistDraft = '';
 
+            // If an audit is active and this is a plain message (not a command), record it in audit chat
+            if (text && window._auditAppendUserMessage && !detectCommand(text)) {
+                window._auditAppendUserMessage(text);
+            }
+
             // ── Step 1: Intercept all non-AI commands immediately ─────────────
             // Access: needs special handling (synchronous user gesture for mobile)
             const detected = detectCommand(text);

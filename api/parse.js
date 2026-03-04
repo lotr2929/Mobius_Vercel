@@ -19,10 +19,10 @@ module.exports = async function handler(req, res) {
 
     const systemPrompt =
       instructionMode === 'Long'
-        ? 'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.'
+        ? 'Use British English spelling and conventions. You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.'
         : instructionMode === 'Code'
-          ? 'You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
-          : 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
+          ? 'Use British English spelling and conventions. You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
+          : 'Use British English spelling and conventions. You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
 
     // INSTRUCTIONS: always exactly 1 — the system prompt only
     const instructions = [

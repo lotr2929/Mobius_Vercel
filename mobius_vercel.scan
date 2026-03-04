@@ -1,5 +1,5 @@
 # Mobius_Vercel — Scan Report
-# Generated: 04/03/2026, 11:52:48 am
+# Generated: 04/03/2026, 12:17:45 pm
 # HIGH: 0  MED: 152  LOW: 5
 
 [MED] api/auth/google/callback.js:20
@@ -50,10 +50,6 @@
   Issue: await not wrapped in try/catch
   Code:  await writeDriveFileContent(userId, newFile.id, content);
 
-[MED] api/chat-history.js:10
-  Issue: await not wrapped in try/catch
-  Code:  const sessions = await getChatHistory(userId, 10000);
-
 [MED] api/ask.js:53
   Issue: await not wrapped in try/catch
   Code:  reply = await getDriveFiles(userId, QUERY);
@@ -70,17 +66,17 @@
   Issue: await not wrapped in try/catch
   Code:  reply = await getEmails(userId);
 
-[MED] api/signup.js:22
+[MED] api/chat-history.js:10
   Issue: await not wrapped in try/catch
-  Code:  const { data, error } = await supabase.auth.signUp({
-
-[MED] api/signup.js:33
-  Issue: await not wrapped in try/catch
-  Code:  await db.from('users').upsert({
+  Code:  const sessions = await getChatHistory(userId, 10000);
 
 [MED] api/login.js:22
   Issue: await not wrapped in try/catch
   Code:  const { data, error } = await supabase.auth.signInWithPassword({
+
+[MED] api/upload.js:15
+  Issue: await not wrapped in try/catch
+  Code:  await new Promise((resolve, reject) => {
 
 [MED] api/_ai.js:2
   Issue: await not wrapped in try/catch
@@ -130,9 +126,57 @@
   Issue: await not wrapped in try/catch
   Code:  return await askWithFallback(augmented);
 
-[MED] api/upload.js:15
+[MED] api/signup.js:22
   Issue: await not wrapped in try/catch
-  Code:  await new Promise((resolve, reject) => {
+  Code:  const { data, error } = await supabase.auth.signUp({
+
+[MED] api/signup.js:33
+  Issue: await not wrapped in try/catch
+  Code:  await db.from('users').upsert({
+
+[MED] index.html:287
+  Issue: Empty or suppressed catch block
+  Code:  try { localStorage.setItem(key, value); } catch(e) {}
+
+[MED] index.html:288
+  Issue: Empty or suppressed catch block
+  Code:  try { sessionStorage.setItem(key, value); } catch(e) {}
+
+[MED] index.html:360
+  Issue: Empty or suppressed catch block
+  Code:  try { localStorage.setItem('mobius_input_history', JSON.stringify(inputHistory.slice(0, 100))); } catch(e) {}
+
+[MED] index.html:436
+  Issue: await not wrapped in try/catch
+  Code:  const g = await geo.json();
+
+[MED] index.html:442
+  Issue: Empty or suppressed catch block
+  Code:  } catch { /* unavailable */ }
+
+[MED] index.html:732
+  Issue: await not wrapped in try/catch
+  Code:  await handleAccess(outputFn);
+
+[MED] index.html:738
+  Issue: await not wrapped in try/catch
+  Code:  await runCommand(detected.command, detected.args, outputFn, outputEl);
+
+[MED] index.html:744
+  Issue: await not wrapped in try/catch
+  Code:  await executeQuery(userId);
+
+[MED] index.html:749
+  Issue: await not wrapped in try/catch
+  Code:  await parseQuery(userId);
+
+[MED] index.html:800
+  Issue: await not wrapped in try/catch
+  Code:  const res  = await fetch('/parse', {
+
+[MED] index.html:851
+  Issue: await not wrapped in try/catch
+  Code:  const res  = await fetch('/ask', {
 
 [MED] commands.js:41
   Issue: await not wrapped in try/catch
@@ -374,6 +418,26 @@
   Issue: await not wrapped in try/catch
   Code:  await cmd.handler(args, outputFn, outputEl);
 
+[MED] login.html:132
+  Issue: await not wrapped in try/catch
+  Code:  const res = await fetch('/api/login', {
+
+[MED] login.html:137
+  Issue: await not wrapped in try/catch
+  Code:  const data = await res.json();
+
+[MED] login.html:148
+  Issue: await not wrapped in try/catch
+  Code:  await registerFingerprint(data.userId, data.username);
+
+[MED] login.html:163
+  Issue: await not wrapped in try/catch
+  Code:  const credential = await navigator.credentials.create({
+
+[MED] login.html:201
+  Issue: await not wrapped in try/catch
+  Code:  await navigator.credentials.get({
+
 [MED] google_api.js:9
   Issue: await not wrapped in try/catch
   Code:  const { data } = await supabase
@@ -537,70 +601,6 @@
 [MED] google_api.js:292
   Issue: await not wrapped in try/catch
   Code:  const res = await oauth2.userinfo.get();
-
-[MED] index.html:282
-  Issue: Empty or suppressed catch block
-  Code:  try { localStorage.setItem(key, value); } catch(e) {}
-
-[MED] index.html:283
-  Issue: Empty or suppressed catch block
-  Code:  try { sessionStorage.setItem(key, value); } catch(e) {}
-
-[MED] index.html:355
-  Issue: Empty or suppressed catch block
-  Code:  try { localStorage.setItem('mobius_input_history', JSON.stringify(inputHistory.slice(0, 100))); } catch(e) {}
-
-[MED] index.html:431
-  Issue: await not wrapped in try/catch
-  Code:  const g = await geo.json();
-
-[MED] index.html:437
-  Issue: Empty or suppressed catch block
-  Code:  } catch { /* unavailable */ }
-
-[MED] index.html:677
-  Issue: await not wrapped in try/catch
-  Code:  await handleAccess(outputFn);
-
-[MED] index.html:683
-  Issue: await not wrapped in try/catch
-  Code:  await runCommand(detected.command, detected.args, outputFn, outputEl);
-
-[MED] index.html:689
-  Issue: await not wrapped in try/catch
-  Code:  await executeQuery(userId);
-
-[MED] index.html:694
-  Issue: await not wrapped in try/catch
-  Code:  await parseQuery(userId);
-
-[MED] index.html:745
-  Issue: await not wrapped in try/catch
-  Code:  const res  = await fetch('/parse', {
-
-[MED] index.html:796
-  Issue: await not wrapped in try/catch
-  Code:  const res  = await fetch('/ask', {
-
-[MED] login.html:132
-  Issue: await not wrapped in try/catch
-  Code:  const res = await fetch('/api/login', {
-
-[MED] login.html:137
-  Issue: await not wrapped in try/catch
-  Code:  const data = await res.json();
-
-[MED] login.html:148
-  Issue: await not wrapped in try/catch
-  Code:  await registerFingerprint(data.userId, data.username);
-
-[MED] login.html:163
-  Issue: await not wrapped in try/catch
-  Code:  const credential = await navigator.credentials.create({
-
-[MED] login.html:201
-  Issue: await not wrapped in try/catch
-  Code:  await navigator.credentials.get({
 
 [MED] signup.html:119
   Issue: await not wrapped in try/catch
