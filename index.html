@@ -305,6 +305,37 @@
             textarea.addEventListener('keydown', e => {
                 if (e.key === 'Enter' && e.ctrlKey) handleAsk();
                 if (e.key === 'Escape') globalEscape();
+                // ↑/↓ history — only when cursor is on first/last line
+                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                    const val   = textarea.value;
+                    const lines = val.split('\n');
+                    const pos   = textarea.selectionStart;
+                    const onFirstLine = pos <= val.indexOf('\n') || lines.length === 1;
+                    const onLastLine  = pos >= val.lastIndexOf('\n') + 1 || lines.length === 1;
+                    if (!inputHistory.length) return;
+                    if (e.key === 'ArrowUp' && onFirstLine) {
+                        e.preventDefault();
+                        if (inputHistIdx === -1) inputHistDraft = textarea.value;
+                        inputHistIdx = Math.min(inputHistIdx + 1, inputHistory.length - 1);
+                        textarea.value = inputHistory[inputHistIdx];
+                        textarea.style.height = 'auto';
+                        textarea.style.height = textarea.scrollHeight + 'px';
+                        textarea.setSelectionRange(0, 0);
+                    } else if (e.key === 'ArrowDown' && onLastLine) {
+                        e.preventDefault();
+                        if (inputHistIdx <= 0) {
+                            inputHistIdx = -1;
+                            textarea.value = inputHistDraft;
+                        } else {
+                            inputHistIdx--;
+                            textarea.value = inputHistory[inputHistIdx];
+                        }
+                        textarea.style.height = 'auto';
+                        textarea.style.height = textarea.scrollHeight + 'px';
+                        const end = textarea.value.length;
+                        textarea.setSelectionRange(end, end);
+                    }
+                }
             });
         });
         document.addEventListener('click', () => hideContextMenu());
@@ -315,6 +346,14 @@
         let attachedFiles    = [];
         let ctxSession       = null;
         let currentNavIndex  = -1;
+
+        // ── Input history (PowerShell-style ↑/↓, persisted to localStorage) ─────────
+        const inputHistory   = JSON.parse(localStorage.getItem('mobius_input_history') || '[]');
+        let   inputHistIdx   = -1;
+        let   inputHistDraft = '';
+        function saveInputHistory() {
+            try { localStorage.setItem('mobius_input_history', JSON.stringify(inputHistory.slice(0, 100))); } catch(e) {}
+        }
 
         // ── Global Esc handler ───────────────────────────────────────────────────────────────
         function globalEscape() {
@@ -620,6 +659,15 @@
 
             const text = document.getElementById('input').value.trim();
             if (!text && !pendingMobiusQuery) return;
+
+            // Save to input history (deduplicate, most recent first)
+            if (text && (inputHistory.length === 0 || inputHistory[0] !== text)) {
+                inputHistory.unshift(text);
+                if (inputHistory.length > 100) inputHistory.pop();
+                saveInputHistory();
+            }
+            inputHistIdx   = -1;
+            inputHistDraft = '';
 
             // ── Step 1: Intercept all non-AI commands immediately ─────────────
             // Access: needs special handling (synchronous user gesture for mobile)

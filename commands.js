@@ -557,14 +557,23 @@ async function saveToMobiusDrive(userId, filename, content, output) {
 }
 
 // ── Shared: offer download link ───────────────────────────────────────────────
-// Uses File System Access API to show a native Save As dialog
+// Left-click: native Save As dialog (Chrome/Edge) or direct download fallback
+// Right-click → Save link as: works on all browsers/platforms
 function offerDownload(outputEl, filename, content) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+
   const link = document.createElement('a');
   link.textContent = '⬇️  Save ' + filename;
+  link.href        = url;
+  link.download    = filename;
+  link.title       = 'Left-click: Save As dialog  |  Right-click: Save link as';
   link.style.cssText = 'display:block; margin-top:8px; color:#4a7c4e; font-weight:bold; cursor:pointer;';
-  link.onclick = async () => {
-    // Try File System Access API (Chrome/Edge — shows native Save As dialog)
+
+  link.onclick = async e => {
+    // Try File System Access API for native folder picker (Chrome/Edge desktop)
     if (window.showSaveFilePicker) {
+      e.preventDefault();
       try {
         const ext    = filename.split('.').pop();
         const handle = await window.showSaveFilePicker({
@@ -577,16 +586,14 @@ function offerDownload(outputEl, filename, content) {
         return;
       } catch (err) {
         if (err.name === 'AbortError') return; // user cancelled
-        // Fall through to direct download on other errors
+        // Fall through to href/download on other errors
       }
     }
-    // Fallback: direct download (Firefox, Safari)
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    // Fallback: let the href/download attribute handle it
   };
+
+  // Revoke blob URL after a generous delay
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
   outputEl.appendChild(link);
 }
 
@@ -599,13 +606,14 @@ async function generateScan(projectHandle, projectName, output) {
   const allExports   = {}; // fname -> file
   const allImports   = new Set(); // all imported names across project
 
-  // Known secret prefixes
+  // Known secret patterns — only flag real tokens/keys
   const SECRET_PATTERNS = [
-    /['"`][A-Za-z0-9_\-]{20,}['"`]/,  // long opaque strings
-    /sk-[A-Za-z0-9]{20,}/,
-    /AIza[A-Za-z0-9_\-]{30,}/,
-    /ghp_[A-Za-z0-9]{30,}/,
-    /Bearer\s+[A-Za-z0-9_\-\.]{20,}/
+    /\bsk-[A-Za-z0-9]{20,}\b/,
+    /\bAIza[A-Za-z0-9_-]{30,}\b/,
+    /\bghp_[A-Za-z0-9]{30,}\b/,
+    /\bBearer\s+[A-Za-z0-9_.-]{20,}\b/,
+    /['"][a-f0-9]{32,}['"]/,
+    /['"][A-Za-z0-9+\/]{40,}={0,2}['"]/
   ];
 
   function flag(severity, file, lineNum, codeLine, issue) {
