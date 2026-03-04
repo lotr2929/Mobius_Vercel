@@ -557,15 +557,23 @@ async function saveToMobiusDrive(userId, filename, content, output) {
 }
 
 // ── Shared: offer download link ───────────────────────────────────────────────
+// Opens a new tab with the file content so the browser's Save As dialog can be used
 function offerDownload(outputEl, filename, content) {
-  const blob = new Blob([content], { type: 'text/plain' });
-  const url  = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href     = url;
-  link.download = filename;
-  link.textContent = '⬇️  Download ' + filename;
+  link.textContent = '⬇️  Save ' + filename;
   link.style.cssText = 'display:block; margin-top:8px; color:#4a7c4e; font-weight:bold; cursor:pointer;';
-  link.onclick = () => setTimeout(() => URL.revokeObjectURL(url), 5000);
+  link.onclick = () => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const win  = window.open(url, '_blank');
+    // Revoke after a delay to allow the window to load
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    if (!win) {
+      // Fallback if popups are blocked — direct download
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+    }
+  };
   outputEl.appendChild(link);
 }
 
