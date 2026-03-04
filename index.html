@@ -804,13 +804,34 @@
             let forceInstructionMode = null;
             const codeSession = window.getCodeSession ? window.getCodeSession() : null;
             if (codeSession) {
-                effectiveModel = 'gemini'; // coding chain starts at gemini
-                forceInstructionMode = 'Code'; // always Code mode in a code session
-                effectiveContext = (mobiusContext ? mobiusContext + '\n\n' : '') +
+                effectiveModel = 'gemini';
+                forceInstructionMode = 'Code';
+
+                // Parse audit sections — avoid duplicating REPO/SCAN already in CODE INDEX
+                let auditPlan = '', auditStatus = '', auditChat = '';
+                if (codeSession.auditContent) {
+                    const auditplanMatch = codeSession.auditContent.match(/^## AUDITPLAN\s*\n([\s\S]*?)(?=^## |$)/m);
+                    const statusMatch    = codeSession.auditContent.match(/^## STATUS\s*\n([\s\S]*?)(?=^## |$)/m);
+                    const chatMatch      = codeSession.auditContent.match(/^## CHAT\s*\n([\s\S]*)/m);
+                    auditPlan   = auditplanMatch ? auditplanMatch[1].trim() : '';
+                    auditStatus = statusMatch    ? statusMatch[1].trim()    : '';
+                    auditChat   = chatMatch       ? chatMatch[1].trim()      : '';
+                }
+
+                // Pre-append current user message to audit chat so Gemini sees the full conversation
+                const now = new Date().toLocaleString('en-AU');
+                const auditChatWithUser = auditChat
+                    ? auditChat + '\n\n[' + now + '] YOU\n' + cleanText
+                    : '[' + now + '] YOU\n' + cleanText;
+
+                effectiveContext =
+                    (mobiusContext ? mobiusContext + '\n\n' : '') +
                     '[Code Session: ' + codeSession.projectName + ']\n\n' +
-                    (codeSession.mapContent  ? '=== PROJECT MAP ===\n'   + codeSession.mapContent  + '\n\n' : '') +
-                    (codeSession.repoContent ? '=== CODE INDEX ===\n'    + codeSession.repoContent + '\n\n' : '') +
-                    (codeSession.auditContent? '=== AUDIT REPORT ===\n'  + codeSession.auditContent : '');
+                    (codeSession.mapContent  ? '=== PROJECT MAP ===\n'  + codeSession.mapContent  + '\n\n' : '') +
+                    (codeSession.repoContent ? '=== CODE INDEX ===\n'   + codeSession.repoContent + '\n\n' : '') +
+                    (auditPlan               ? '=== AUDIT PLAN ===\n'   + auditPlan               + '\n\n' : '') +
+                    (auditStatus             ? '=== AUDIT STATUS ===\n' + auditStatus             + '\n\n' : '') +
+                    '=== AUDIT CHAT ===\n' + auditChatWithUser;
             }
 
         try {
