@@ -188,7 +188,7 @@
         .resp-toolbar {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 4px;
             margin-top: 6px;
             padding-top: 4px;
         }
@@ -895,14 +895,14 @@
             const upBtn = document.createElement('button');
             upBtn.className = 'resp-btn';
             upBtn.title = 'Previous';
-            upBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18,15 12,9 6,15"/></svg>';
+            upBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18,15 12,9 6,15"/></svg>';
             upBtn.onclick = () => navigateChat(-1);
 
             // Down nav
             const downBtn = document.createElement('button');
             downBtn.className = 'resp-btn';
             downBtn.title = 'Next';
-            downBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>';
+            downBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>';
             downBtn.onclick = () => navigateChat(1);
 
             toolbar.appendChild(copyBtn);
