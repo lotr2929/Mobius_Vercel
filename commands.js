@@ -569,6 +569,178 @@ function offerDownload(outputEl, filename, content) {
   outputEl.appendChild(link);
 }
 
+// ── Code: scan — static analysis engine (no AI) ────────────────────────────────
+async function generateScan(projectHandle, projectName, output) {
+  output('🔬 Scanning ' + projectName + ' for issues...');
+
+  const findings = []; // { severity, file, line, code, issue }
+  const allFunctions = {}; // fname -> [files] for duplicate detection
+  const allExports   = {}; // fname -> file
+  const allImports   = new Set(); // all imported names across project
+
+  // Known secret prefixes
+  const SECRET_PATTERNS = [
+    /['"`][A-Za-z0-9_\-]{20,}['"`]/,  // long opaque strings
+    /sk-[A-Za-z0-9]{20,}/,
+    /AIza[A-Za-z0-9_\-]{30,}/,
+    /ghp_[A-Za-z0-9]{30,}/,
+    /Bearer\s+[A-Za-z0-9_\-\.]{20,}/
+  ];
+
+  function flag(severity, file, lineNum, codeLine, issue) {
+    findings.push({ severity, file, line: lineNum, code: codeLine.trim(), issue });
+  }
+
+  async function scanFile(handle, relPath) {
+    let text = '';
+    try { const f = await handle.getFile(); text = await f.text(); } catch { return; }
+    const lines = text.split('\n');
+
+    // Track function names for duplicate detection
+    const fnPat = /^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/;
+    const arPat = /^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?\(/;
+    for (const line of lines) {
+      let fm = line.match(fnPat) || line.match(arPat);
+      if (fm) {
+        const fn = fm[1];
+        if (!allFunctions[fn]) allFunctions[fn] = [];
+        allFunctions[fn].push(relPath);
+      }
+    }
+
+    // Track exports
+    const expPat = /module\.exports\s*=\s*\{([^}]+)\}/;
+    const expMatch = text.match(expPat);
+    if (expMatch) {
+      expMatch[1].split(',').map(s => s.trim().split(':')[0].trim()).filter(Boolean)
+        .forEach(name => { allExports[name] = relPath; });
+    }
+
+    // Track imports
+    const reqPat = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    let rm;
+    while ((rm = reqPat.exec(text)) !== null) allImports.add(rm[1]);
+
+    // Per-line checks
+    let inMultiComment = false;
+    let fnStartLine    = -1;
+    let fnBraceDepth   = 0;
+    let fnLineCount    = 0;
+    let currentFn      = '';
+    let braceDepth     = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line    = lines[i];
+      const trimmed = line.trim();
+      const lineNum = i + 1;
+
+      // Track multi-line comments
+      if (trimmed.startsWith('/*')) inMultiComment = true;
+      if (inMultiComment) { if (trimmed.includes('*/')) inMultiComment = false; continue; }
+      if (trimmed.startsWith('//')) continue;
+
+      // console.log left in
+      if (/console\.log\(/.test(trimmed)) {
+        flag('LOW', relPath, lineNum, trimmed, 'console.log left in production code');
+      }
+
+      // TODO/FIXME/HACK comments
+      if (/\/\/.*\b(TODO|FIXME|HACK|XXX)\b/i.test(trimmed)) {
+        const tag = trimmed.match(/\b(TODO|FIXME|HACK|XXX)\b/i)[1].toUpperCase();
+        flag('LOW', relPath, lineNum, trimmed, tag + ' comment unresolved');
+      }
+
+      // Hardcoded secrets
+      for (const pat of SECRET_PATTERNS) {
+        if (pat.test(trimmed) && !/process\.env/.test(trimmed) && !/\/\//.test(trimmed.slice(0, trimmed.search(pat)))) {
+          flag('HIGH', relPath, lineNum, trimmed, 'Possible hardcoded secret or token');
+          break;
+        }
+      }
+
+      // await without try/catch — look for bare await not inside a try block
+      if (/\bawait\s+\w/.test(trimmed)) {
+        // Check if this line is inside a try block by scanning back
+        let inTry = false;
+        let depth = 0;
+        for (let j = i; j >= Math.max(0, i - 30); j--) {
+          const prev = lines[j].trim();
+          depth += (prev.match(/\}/g) || []).length;
+          depth -= (prev.match(/\{/g) || []).length;
+          if (depth < 0 && /\btry\b/.test(prev)) { inTry = true; break; }
+          if (depth < 0) break;
+        }
+        if (!inTry) flag('MED', relPath, lineNum, trimmed, 'await not wrapped in try/catch');
+      }
+
+      // Empty catch blocks
+      if (/catch\s*(\(.*\))?\s*\{\s*\}/.test(trimmed) || /catch\s*(\(.*\))?\s*\{\s*\/\*.*\*\/\s*\}/.test(trimmed)) {
+        flag('MED', relPath, lineNum, trimmed, 'Empty or suppressed catch block');
+      }
+
+      // Route handlers with no auth check (req.body used, no userId/token nearby)
+      if (/app\.(post|put|delete|patch)\s*\(/.test(trimmed)) {
+        const routeBlock = lines.slice(i, Math.min(i + 20, lines.length)).join('\n');
+        if (/req\.body/.test(routeBlock) && !/userId|token|auth|bearer|session/i.test(routeBlock)) {
+          flag('MED', relPath, lineNum, trimmed, 'Route modifies data but no auth check found in first 20 lines');
+        }
+      }
+
+      // Function length tracking
+      const isFnStart = /^\s*(?:async\s+)?function\s+\w+|^\s*(?:export\s+)?const\s+\w+\s*=\s*(?:async\s+)?\(/.test(line);
+      if (isFnStart) {
+        currentFn   = (line.match(/function\s+(\w+)/) || line.match(/const\s+(\w+)/))?.[1] || '?';
+        fnStartLine = lineNum;
+        fnBraceDepth = braceDepth;
+        fnLineCount  = 0;
+      }
+      if (fnStartLine > -1) {
+        fnLineCount++;
+        braceDepth += (line.match(/\{/g) || []).length;
+        braceDepth -= (line.match(/\}/g) || []).length;
+        if (braceDepth <= fnBraceDepth && fnLineCount > 5) {
+          if (fnLineCount > 80) flag('MED', relPath, fnStartLine, 'function ' + currentFn, 'Function is ' + fnLineCount + ' lines — consider splitting');
+          fnStartLine = -1; fnLineCount = 0;
+        }
+      } else {
+        braceDepth += (line.match(/\{/g) || []).length;
+        braceDepth -= (line.match(/\}/g) || []).length;
+      }
+    }
+  }
+
+  async function walkDir(dirHandle, pathPrefix) {
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (CODE_EXCLUDE.has(name)) continue;
+      const relPath = pathPrefix ? pathPrefix + '/' + name : name;
+      if (handle.kind === 'directory') { await walkDir(handle, relPath); continue; }
+      const ext = name.split('.').pop().toLowerCase();
+      if (!REPO_EXTS.has(ext)) continue;
+      await scanFile(handle, relPath);
+    }
+  }
+
+  try {
+    await walkDir(projectHandle, '');
+  } catch (err) {
+    output('❌ Scan error: ' + err.message);
+    return null;
+  }
+
+  // Cross-file: duplicate function names
+  for (const [fname, files] of Object.entries(allFunctions)) {
+    if (files.length > 1) {
+      findings.push({ severity: 'MED', file: files.join(' + '), line: '-', code: 'function ' + fname, issue: 'Duplicate function name across files' });
+    }
+  }
+
+  // Sort: HIGH first, then MED, then LOW
+  const order = { HIGH: 0, MED: 1, LOW: 2 };
+  findings.sort((a, b) => order[a.severity] - order[b.severity]);
+
+  return findings;
+}
+
 // ── Code: repo — recursive JS/HTML parser ────────────────────────────────────
 async function generateRepo(projectHandle, projectName, output, outputEl) {
   output('🔍 Scanning ' + projectName + ' files...');
@@ -729,6 +901,7 @@ async function handleCode(args, output, outputEl) {
     if (!repoContent) return;
     const repoName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
     codeSession.repoContent = repoContent;
+    codeSession.repoGeneratedAt = Date.now();
     const sectionCount = (repoContent.match(/^## /gm) || []).length;
     append('✅ .repo generated — ' + sectionCount + ' files, ' + repoContent.length + ' chars');
     offerDownload(outputEl, repoName, repoContent);
@@ -737,10 +910,379 @@ async function handleCode(args, output, outputEl) {
     return;
   }
 
+  // Code: map — AI-generated project overview from .repo
+  if (lower === 'map') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
+
+    // Check repo freshness — prompt if missing or stale (>5 mins)
+    const FIVE_MINS = 5 * 60 * 1000;
+    const repoAge   = codeSession.repoGeneratedAt ? (Date.now() - codeSession.repoGeneratedAt) : Infinity;
+    const repoStale = !codeSession.repoContent || repoAge > FIVE_MINS;
+
+    if (repoStale) {
+      const reason = !codeSession.repoContent ? 'No .repo found in this session.' : '.repo is more than 5 minutes old.';
+      const prompt = document.createElement('div');
+      prompt.style.cssText = 'margin-bottom:10px; color:#4a3728;';
+      prompt.textContent = '⚠️  ' + reason + ' Generate a fresh .repo before mapping?';
+      outputEl.appendChild(prompt);
+
+      const yesBtn = document.createElement('button');
+      yesBtn.textContent = '✅ Yes — run Code: repo first';
+      yesBtn.style.cssText = 'margin-right:8px; padding:4px 12px; background:#4a7c4e; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:13px;';
+
+      const noBtn = document.createElement('button');
+      noBtn.textContent = '⏭️ Use existing';
+      noBtn.style.cssText = 'padding:4px 12px; background:#8d7c64; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:13px;';
+
+      noBtn.onclick = () => { outputEl.innerHTML = ''; runMap(); };
+      yesBtn.onclick = async () => {
+        outputEl.innerHTML = '';
+        const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
+        if (!repoContent) return;
+        const repoName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.repo';
+        codeSession.repoContent = repoContent;
+        codeSession.repoGeneratedAt = Date.now();
+        append('✅ .repo done — ' + repoContent.length + ' chars');
+        offerDownload(outputEl, repoName, repoContent);
+        await saveToMobiusDrive(userId, repoName, repoContent, append);
+        runMap();
+      };
+
+      outputEl.appendChild(yesBtn);
+      outputEl.appendChild(noBtn);
+      document.getElementById('input').value = '';
+
+      // Register Esc handler for global Esc support
+      window._escHandler = () => {
+        outputEl.innerHTML = '❌ Cancelled.';
+        document.getElementById('input').value = '';
+      };
+      return;
+    }
+
+    runMap();
+
+    async function runMap() {
+      window._escHandler = null; // clear any pending Esc handler
+      if (!codeSession.repoContent) { append('❌ No .repo available. Run Code: repo first.'); return; }
+      append('🗺️  Generating map for ' + codeSession.projectName + '...');
+
+    const mapPrompt = 'You are a senior software architect. Analyse this code index and produce a concise project map.\n\n' +
+      'Structure your response with these exact sections:\n' +
+      '# ' + codeSession.projectName + ' — Project Map\n\n' +
+      '## Purpose\nOne paragraph: what this project does and who it is for.\n\n' +
+      '## Architecture\nHow the project is structured — frontend, backend, APIs, data flow. Be specific about files and their roles.\n\n' +
+      '## Key Files\nList the most important files and one sentence on what each does.\n\n' +
+      '## Data Flow\nHow a typical request moves through the system end-to-end.\n\n' +
+      '## External Dependencies\nAPIs, services, and environment variables the project relies on.\n\n' +
+      '## Notes\nAny notable patterns, risks, or things a new developer should know.\n\n' +
+      '---\nCODE INDEX:\n' + codeSession.repoContent;
+
+    try {
+      const res  = await fetch('/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: mapPrompt, FILES: [], CONTEXT: 'None' }, userId })
+      });
+      const data = await res.json();
+      if (data.error) { append('❌ AI error: ' + data.error); return; }
+      const mapName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.map';
+      codeSession.mapContent = data.reply;
+      append('✅ .map generated — ' + data.reply.length + ' chars');
+      offerDownload(outputEl, mapName, data.reply);
+      await saveToMobiusDrive(userId, mapName, data.reply, append);
+    } catch (err) { append('❌ ' + err.message); }
+    document.getElementById('input').value = '';
+    } // end runMap
+    return;
+  }
+
+  // Code: scan — fast static analysis, no AI
+  if (lower === 'scan') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
+
+    const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
+    if (!findings) return;
+
+    document.getElementById('input').value = '';
+
+    if (findings.length === 0) {
+      append('✅ No issues found. Code looks clean.');
+      return;
+    }
+
+    const high = findings.filter(f => f.severity === 'HIGH');
+    const med  = findings.filter(f => f.severity === 'MED');
+    const low  = findings.filter(f => f.severity === 'LOW');
+    append('📊 ' + findings.length + ' issue(s) found — HIGH: ' + high.length + '  MED: ' + med.length + '  LOW: ' + low.length);
+    append('');
+
+    for (const f of findings) {
+      const icon = f.severity === 'HIGH' ? '🔴' : f.severity === 'MED' ? '🟡' : '⚪';
+      append(icon + ' [' + f.severity + '] ' + f.file + ':' + f.line);
+      append('   └ ' + f.issue);
+      append('   │ ' + f.code.slice(0, 80) + (f.code.length > 80 ? '…' : ''));
+      append('');
+    }
+
+    // Store scan findings for potential audit escalation
+    codeSession.scanFindings = findings;
+
+    // Offer AI escalation button
+    const btn = document.createElement('button');
+    btn.textContent = '🧠 Ask AI about these findings (Code: audit)';
+    btn.style.cssText = 'margin-top:10px; padding:6px 14px; background:#4a7c4e; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:13px;';
+    btn.onclick = () => {
+      document.getElementById('input').value = 'Code: audit';
+      document.getElementById('input').focus();
+    };
+    outputEl.appendChild(btn);
+    return;
+  }
+
+  // Code: audit — deep scan, present findings, user selects one, AI analyses it
+  if (lower === 'audit') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
+    append('🔎 Running deep scan for ' + codeSession.projectName + '...');
+
+    // Phase 1: deep static scan (same engine as scan, but also catches deeper issues)
+    const findings = await generateScan(codeSession.projectHandle, codeSession.projectName, append);
+    if (!findings) return;
+
+    document.getElementById('input').value = '';
+
+    if (findings.length === 0) {
+      append('✅ No issues found. Code is clean.');
+      return;
+    }
+
+    const high = findings.filter(f => f.severity === 'HIGH');
+    const med  = findings.filter(f => f.severity === 'MED');
+    const low  = findings.filter(f => f.severity === 'LOW');
+
+    // Phase 2: present findings as a clickable list — user picks one to escalate
+    const summary = document.createElement('div');
+    summary.style.cssText = 'font-weight:bold; margin-bottom:10px; color:#4a3728;';
+    summary.textContent = '📊 ' + findings.length + ' issue(s) found — HIGH: ' + high.length + '  MED: ' + med.length + '  LOW: ' + low.length;
+    outputEl.appendChild(summary);
+
+    const instruction = document.createElement('div');
+    instruction.style.cssText = 'font-size:12px; color:#8d7c64; margin-bottom:10px;';
+    instruction.textContent = 'Click a finding to ask Gemini for an explanation and fix. One at a time.';
+    outputEl.appendChild(instruction);
+
+    // Store file contents cache for context extraction
+    const fileCache = {};
+    async function getFileLines(relPath) {
+      if (fileCache[relPath]) return fileCache[relPath];
+      try {
+        // Walk project handle to find the file
+        async function findFile(dirHandle, parts) {
+          const [head, ...rest] = parts;
+          for await (const [name, handle] of dirHandle.entries()) {
+            if (name !== head) continue;
+            if (rest.length === 0 && handle.kind === 'file') {
+              const f = await handle.getFile();
+              const text = await f.text();
+              fileCache[relPath] = text.split('\n');
+              return fileCache[relPath];
+            }
+            if (handle.kind === 'directory') return findFile(handle, rest);
+          }
+          return null;
+        }
+        const parts = relPath.split('/');
+        return await findFile(codeSession.projectHandle, parts);
+      } catch { return null; }
+    }
+
+    // Exposed handler for finding click
+    window._auditSelectFinding = async function(index, btnEl) {
+      const f = findings[index];
+      btnEl.textContent = '⏳ Asking Gemini...';
+      btnEl.disabled = true;
+
+      // Extract ~15 lines of context around the problem line
+      let codeContext = f.code;
+      if (typeof f.line === 'number') {
+        const fileLines = await getFileLines(f.file);
+        if (fileLines) {
+          const start = Math.max(0, f.line - 8);
+          const end   = Math.min(fileLines.length, f.line + 8);
+          codeContext = fileLines.slice(start, end)
+            .map((l, i) => (start + i + 1) + (start + i + 1 === f.line ? ' ▶ ' : '   ') + l)
+            .join('\n');
+        }
+      }
+
+      // Build full findings summary for context
+      const allFindingsSummary = findings.map((x, i) =>
+        (i + 1) + '. [' + x.severity + '] ' + x.file + ':' + x.line + ' — ' + x.issue
+      ).join('\n');
+
+      const prompt =
+        'You are a senior software engineer reviewing a real project.\n' +
+        'A static analysis scan found the following issues across the codebase:\n\n' +
+        'ALL FINDINGS:\n' + allFindingsSummary + '\n\n' +
+        'The developer wants to address this specific issue first:\n\n' +
+        'FILE: ' + f.file + '\n' +
+        'LINE: ' + f.line + '\n' +
+        'SEVERITY: ' + f.severity + '\n' +
+        'ISSUE: ' + f.issue + '\n\n' +
+        'CODE CONTEXT (line ' + f.line + ' marked with ▶):\n' +
+        '```\n' + codeContext + '\n```\n\n' +
+        'Before suggesting a fix: consider whether any of the other findings are related to this issue ' +
+        'or point to a deeper underlying problem. If so, flag it.\n' +
+        'Then either: (a) confirm the straightforward fix and provide corrected code for this location only, ' +
+        'or (b) recommend a better approach if one exists — and explain the trade-off.\n' +
+        'Do not refactor beyond what is needed to address this issue.';
+
+      try {
+        const res  = await fetch('/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: prompt, FILES: [], CONTEXT: 'None' }, userId: getAuth('mobius_user_id') })
+        });
+        const data = await res.json();
+        if (data.error) { btnEl.textContent = '❌ AI error: ' + data.error; btnEl.disabled = false; return; }
+
+        // Show AI response below the button
+        const respDiv = document.createElement('div');
+        respDiv.style.cssText = 'margin-top:8px; padding:8px; background:#f5eedd; border:1px solid #c9bfae; border-radius:1px; font-size:13px; white-space:pre-wrap; color:#2a2a2a;';
+        respDiv.textContent = data.reply;
+        btnEl.parentNode.insertBefore(respDiv, btnEl.nextSibling);
+        btnEl.textContent = '✅ Done — click again to re-ask';
+        btnEl.disabled = false;
+      } catch (err) {
+        btnEl.textContent = '❌ ' + err.message;
+        btnEl.disabled = false;
+      }
+    };
+
+    // Render each finding as a clickable card
+    for (let i = 0; i < findings.length; i++) {
+      const f    = findings[i];
+      const icon = f.severity === 'HIGH' ? '🔴' : f.severity === 'MED' ? '🟡' : '⚪';
+      const card = document.createElement('div');
+      card.style.cssText = 'margin-bottom:8px; padding:8px 10px; background:#ede5d4; border:1px solid #c9bfae; border-radius:1px; font-size:13px;';
+      card.innerHTML =
+        '<div style="font-weight:bold; margin-bottom:2px;">' + icon + ' [' + f.severity + '] ' + f.file + ':' + f.line + '</div>' +
+        '<div style="color:#4a3728; margin-bottom:4px;">' + f.issue + '</div>' +
+        '<div style="font-family:monospace; font-size:11px; color:#8d7c64; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' +
+          f.code.slice(0, 80) + (f.code.length > 80 ? '…' : '') + '</div>';
+      const btn = document.createElement('button');
+      btn.textContent = '🧠 Ask Gemini to fix this';
+      btn.style.cssText = 'padding:4px 10px; background:#4a7c4e; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:12px;';
+      btn.onclick = (function(idx, b) { return () => window._auditSelectFinding(idx, b); })(i, btn);
+      card.appendChild(btn);
+      outputEl.appendChild(card);
+    }
+    return;
+  }
+
+  // Code: all — run repo, map, audit in sequence
+  if (lower === 'all') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
+    append('⚙️  Running Code: all for ' + codeSession.projectName + '...');
+
+    // Step 1: repo
+    append('\n── Step 1/3: repo ──');
+    const repoContent = await generateRepo(codeSession.projectHandle, codeSession.projectName, append, outputEl);
+    if (!repoContent) { append('❌ repo failed. Stopping.'); return; }
+    const baseName  = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    codeSession.repoContent = repoContent;
+    append('✅ .repo done — ' + repoContent.length + ' chars');
+    offerDownload(outputEl, baseName + '.repo', repoContent);
+    await saveToMobiusDrive(userId, baseName + '.repo', repoContent, append);
+
+    // Step 2: map
+    append('\n── Step 2/3: map ──');
+    try {
+      const mapPrompt = 'You are a senior software architect. Analyse this code index and produce a concise project map.\n\n' +
+        '# ' + codeSession.projectName + ' — Project Map\n\n## Purpose\n## Architecture\n## Key Files\n## Data Flow\n## External Dependencies\n## Notes\n\n---\nCODE INDEX:\n' + repoContent;
+      const mr = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: mapPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+      const md = await mr.json();
+      if (md.error) { append('❌ map error: ' + md.error); }
+      else {
+        codeSession.mapContent = md.reply;
+        append('✅ .map done — ' + md.reply.length + ' chars');
+        offerDownload(outputEl, baseName + '.map', md.reply);
+        await saveToMobiusDrive(userId, baseName + '.map', md.reply, append);
+      }
+    } catch (err) { append('❌ map: ' + err.message); }
+
+    // Step 3: audit
+    append('\n── Step 3/3: audit ──');
+    try {
+      const auditPrompt = 'You are a senior software engineer conducting a code audit. Analyse this code index and produce a concise audit report.\n\n' +
+        '# ' + codeSession.projectName + ' — Audit Report\n\n## Summary\n## Strengths\n## Issues\n## Improvements\n## Security\n## Missing\n\n---\nCODE INDEX:\n' + repoContent;
+      const ar = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: auditPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+      const ad = await ar.json();
+      if (ad.error) { append('❌ audit error: ' + ad.error); }
+      else {
+        codeSession.auditContent = ad.reply;
+        append('✅ .audit done — ' + ad.reply.length + ' chars');
+        offerDownload(outputEl, baseName + '.audit', ad.reply);
+        await saveToMobiusDrive(userId, baseName + '.audit', ad.reply, append);
+      }
+    } catch (err) { append('❌ audit: ' + err.message); }
+
+    append('\n✅ Code: all complete.');
+    document.getElementById('input').value = '';
+    return;
+  }
+
+  // Code: status — snapshot current session state to Drive
+  if (lower === 'status') {
+    if (!codeSession) { output('❌ No active code session. Use Code: [projectname] first.'); return; }
+
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
+    append('📌 Saving status for ' + codeSession.projectName + '...');
+
+    const now     = new Date().toLocaleString('en-AU');
+    const baseName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const statusContent =
+      '# ' + codeSession.projectName + ' — Session Status\n' +
+      '# Saved: ' + now + '\n\n' +
+      '## Loaded\n' +
+      (codeSession.mapContent   ? '✅ .map loaded (' + codeSession.mapContent.length + ' chars)\n'   : '⚠️  .map not loaded\n') +
+      (codeSession.repoContent  ? '✅ .repo loaded (' + codeSession.repoContent.length + ' chars)\n' : '⚠️  .repo not loaded\n') +
+      (codeSession.auditContent ? '✅ .audit loaded (' + codeSession.auditContent.length + ' chars)\n': '⚠️  .audit not loaded\n') +
+      '\n## What was done\n(fill in manually or ask AI to summarise)\n\n' +
+      '## What is next\n(fill in manually or ask AI to suggest)\n';
+
+    const statusName = baseName + '.status';
+    offerDownload(outputEl, statusName, statusContent);
+    await saveToMobiusDrive(userId, statusName, statusContent, append);
+    append('✅ Status saved as ' + statusName);
+    document.getElementById('input').value = '';
+    return;
+  }
+
   // Code: [projectname] — search for matching folders, show selection list
   const projectName = trimmed;
   if (!projectName) {
-    output('Usage: Code: [projectname]  |  Code: repo  |  Code: map  |  Code: audit  |  Code: all  |  Code: show  |  Code: end');
+    output('Usage: Code: [projectname]  |  Code: repo  |  Code: map  |  Code: scan  |  Code: audit  |  Code: all  |  Code: status  |  Code: show  |  Code: end');
     return;
   }
 

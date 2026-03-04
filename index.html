@@ -304,16 +304,7 @@
             });
             textarea.addEventListener('keydown', e => {
                 if (e.key === 'Enter' && e.ctrlKey) handleAsk();
-                if (e.key === 'Escape' && pendingMobiusQuery) {
-                    pendingMobiusQuery = null;
-                    const previews = document.querySelectorAll('.mq-label');
-                    if (previews.length) {
-                        const last = previews[previews.length - 1];
-                        last.textContent = '▸ Cancelled';
-                        last.style.color = '#8d3a3a';
-                        if (last.nextSibling) last.nextSibling.textContent = '';
-                    }
-                }
+                if (e.key === 'Escape') globalEscape();
             });
         });
         document.addEventListener('click', () => hideContextMenu());
@@ -324,6 +315,34 @@
         let attachedFiles    = [];
         let ctxSession       = null;
         let currentNavIndex  = -1;
+
+        // ── Global Esc handler ───────────────────────────────────────────────────────────────
+        function globalEscape() {
+            // 1. Cancel pending Mobius query preview
+            if (pendingMobiusQuery) {
+                pendingMobiusQuery = null;
+                const previews = document.querySelectorAll('.mq-label');
+                if (previews.length) {
+                    const last = previews[previews.length - 1];
+                    last.textContent = '▸ Cancelled';
+                    last.style.color = '#8d3a3a';
+                    if (last.nextSibling) last.nextSibling.textContent = '';
+                }
+                return;
+            }
+            // 2. Fire any registered one-off Esc handler (e.g. Code: map prompt)
+            if (window._escHandler) {
+                window._escHandler();
+                window._escHandler = null;
+                return;
+            }
+            // 3. Clear the input box
+            const input = document.getElementById('input');
+            if (input && input.value.trim()) {
+                input.value = '';
+                return;
+            }
+        }
 
         const modelLabels = {
             groq: 'Groq', gemini: 'Gemini', mistral: 'Mistral',
