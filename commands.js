@@ -1241,7 +1241,17 @@ async function handleCode(args, output, outputEl) {
       const leanScan = formatScanLean(findings);
 
       // Step 3: ask Gemini for briefing + auditplan
-      append('🧠 Asking Gemini for briefing and audit plan...');
+      const thinkingDiv = document.createElement('div');
+      thinkingDiv.style.cssText = 'color:#8d7c64;font-style:italic;margin-top:4px;';
+      thinkingDiv.textContent = '🧠 Asking Gemini for briefing and audit plan…';
+      outputEl.appendChild(thinkingDiv);
+
+      let dots = 0;
+      const thinkingTimer = setInterval(() => {
+        dots = (dots + 1) % 4;
+        thinkingDiv.textContent = '🧠 Asking Gemini for briefing and audit plan' + '.'.repeat(dots) + ' '.repeat(3 - dots);
+      }, 600);
+
       const briefingPrompt =
         'You are a senior software engineer starting a code audit.\n' +
         'Use British English. Be concise and precise.\n\n' +
@@ -1260,6 +1270,8 @@ async function handleCode(args, output, outputEl) {
       try {
         const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: briefingPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+        clearInterval(thinkingTimer);
+        thinkingDiv.textContent = '✅ Gemini responded.';
         const data = await res.json();
         if (data.error) { append('❌ AI error: ' + data.error); return; }
 
@@ -1372,10 +1384,20 @@ async function handleCode(args, output, outputEl) {
       '3. The specific change you recommend for the next file — describe it clearly before I apply anything\n' +
       'Wait for my approval before proceeding.');
 
-    append('🧠 Asking Gemini to resume...');
+    const resumeThinkDiv = document.createElement('div');
+    resumeThinkDiv.style.cssText = 'color:#8d7c64;font-style:italic;margin-top:4px;';
+    resumeThinkDiv.textContent = '🧠 Asking Gemini to resume…';
+    outputEl.appendChild(resumeThinkDiv);
+    let rDots = 0;
+    const resumeTimer = setInterval(() => {
+      rDots = (rDots + 1) % 4;
+      resumeThinkDiv.textContent = '🧠 Asking Gemini to resume' + '.'.repeat(rDots) + ' '.repeat(3 - rDots);
+    }, 600);
     try {
       const res  = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mobius_query: { ASK: 'gemini', INSTRUCTIONS: 'Long', HISTORY: [], QUERY: catchUpPrompt, FILES: [], CONTEXT: 'None' }, userId }) });
+      clearInterval(resumeTimer);
+      resumeThinkDiv.textContent = '✅ Gemini responded.';
       const data = await res.json();
       if (data.error) { append('❌ AI error: ' + data.error); return; }
 

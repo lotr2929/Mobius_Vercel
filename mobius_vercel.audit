@@ -1,0 +1,867 @@
+# Mobius_Vercel — Audit
+# started: 04/03/2026, 1:47:42 pm
+# status: in_progress
+# modified: 04/03/2026, 1:47:42 pm
+
+## REPO
+# Mobius_Vercel — Code Index
+# Generated: 04/03/2026, 1:47:42 pm
+
+## actions.js
+[F] resolveCommand(text)
+[F] resolveLocalData(text, context)
+[F] resolveGoogle(text)
+[F] resolveAction(text, context)
+
+## api/_ai.js
+[F] askGroq(messages)
+[F] askGemini(messages, imageParts = [])
+[F] askMistral(messages)
+[F] askGitHub(messages)
+[F] askWithFallback(messages, imageParts = [], startModel = 'groq')
+[F] askWebSearch(messages)
+[E] GEMINI_API_KEY
+[E] GITHUB_TOKEN
+[E] GROQ_API_KEY
+[E] MISTRAL_API_KEY
+[E] TAVILY_API_KEY
+[<] exports: askGroq, askGemini, askMistral, askGitHub, askWithFallback, askWebSearch, MODEL_FULL_NAMES
+
+## api/_supabase.js
+[F] saveConversation(userId, query, reply, modelUsed, topic)
+[F] getChatHistory(userId, limit = 10000)
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+[<] exports: supabase, saveConversation, getChatHistory
+
+## api/ask.js
+[>] ../google_api.js
+[>] ./_ai.js
+[>] ./_supabase.js
+
+## api/auth/google/callback.js
+[E] BASE_URL
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[>] ../../_supabase.js
+[>] googleapis
+
+## api/auth/google/index.js
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[>] ../../_supabase.js
+[>] googleapis
+
+## api/auth/google/status.js
+[>] ../../_supabase.js
+
+## api/chat-history.js
+[>] ./_supabase.js
+[>] @supabase/supabase-js
+
+## api/focus/[action].js
+[>] ../../google_api.js
+
+## api/google/info.js
+[>] ../../google_api.js
+
+## api/login.js
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+
+## api/signup.js
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] ./_supabase.js
+[>] @supabase/supabase-js
+
+## api/test-google-auth.js
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[>] googleapis
+
+## api/upload.js
+[>] busboy
+
+## commands.js
+[F] getLastModel()
+[F] setLastModel(model)
+[F] nextModelInChain(current)
+[F] openDB()
+[F] saveHandle(handle)
+[F] loadHandle()
+[F] clearHandle()
+[F] ensureAccess(output)
+[F] handleDate(args, output)
+[F] handleTime(args, output)
+[F] handleLocation(args, output)
+[F] handleGoogle(args, output)
+[F] handleDevice(args, output)
+[F] handleAccess(output)
+[F] parseNaturalDate(str)
+[F] parseFindArgs(raw)
+[F] handleFind(args, output)
+[F] searchDirectory(dirHandle, query, ext, from, to, results, path)
+[F] handleList(args, output)
+[F] handleFocus(args, output, outputEl)
+[F] handleNew(args, output)
+[F] saveToMobiusDrive(userId, filename, content, output) — ── Shared: save content to Google Drive Mobius folder ────────────────────────
+[F] offerDownload(outputEl, filename, content) — Right-click → Save link as: works on all browsers/platforms
+[F] generateScan(projectHandle, projectName, output) — ── Code: scan — static analysis engine (no AI) ────────────────────────────────
+[F] generateRepo(projectHandle, projectName, output, outputEl) — ── Code: repo — recursive JS/HTML parser ────────────────────────────────────
+[F] handleCode(args, output, outputEl)
+[F] codeSelectFolder(m, projectName, outputEl) — Internal handler — called directly or from click list
+[F] updateCodeBadge()
+[F] handleChatHistory(args, output)
+[F] detectCommand(text)
+[F] runCommand(command, args, outputFn, outputEl)
+[F] getAskModel(text) — Returns the model for the current Ask and updates saved default if explicit.
+
+## google_api.js
+[F] getGoogleClient(userId)
+[F] getDriveFiles(userId, query)
+[F] getTasks(userId)
+[F] getCalendarEvents(userId)
+[F] getEmails(userId)
+[F] getFilePath(drive, fileId, fileName) — Resolve a file's full path by walking up parent folders
+[F] getMobiusFolderId(drive) — Get or create the Mobius folder in Drive
+[F] findDriveFile(userId, filename)
+[F] copyToMobiusFolder(userId, fileId, mimeType, filename, folderId)
+[F] updateOriginalFile(userId, originalFileId, content)
+[F] readDriveFileContent(userId, fileId, mimeType)
+[F] createDriveFile(userId, filename, folderId)
+[F] writeDriveFileContent(userId, fileId, content)
+[F] getGoogleAccountInfo(userId)
+[E] GOOGLE_CLIENT_ID
+[E] GOOGLE_CLIENT_SECRET
+[E] GOOGLE_REDIRECT_URI
+[E] SUPABASE_KEY
+[E] SUPABASE_URL
+[>] @supabase/supabase-js
+[>] googleapis
+[<] exports: getGoogleClient, getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, copyToMobiusFolder, updateOriginalFile, readDriveFileContent, createDriveFile, writeDriveFileContent, getGoogleAccountInfo
+
+## SCAN
+[MED] api/auth/google/callback.js:20 — await not wrapped in try/catch
+[MED] api/auth/google/callback.js:27 — await not wrapped in try/catch
+[MED] api/focus/[action].js:22 — await not wrapped in try/catch
+[MED] api/focus/[action].js:27 — await not wrapped in try/catch
+[MED] api/focus/[action].js:32 — await not wrapped in try/catch
+[MED] api/focus/[action].js:37 — await not wrapped in try/catch
+[MED] api/focus/[action].js:42 — await not wrapped in try/catch
+[MED] api/focus/[action].js:47 — await not wrapped in try/catch
+[MED] api/focus/[action].js:53 — await not wrapped in try/catch
+[MED] api/focus/[action].js:57 — await not wrapped in try/catch
+[MED] api/focus/[action].js:61 — await not wrapped in try/catch
+[MED] api/focus/[action].js:62 — await not wrapped in try/catch
+[MED] api/ask.js:53 — await not wrapped in try/catch
+[MED] api/ask.js:56 — await not wrapped in try/catch
+[MED] api/ask.js:59 — await not wrapped in try/catch
+[MED] api/ask.js:62 — await not wrapped in try/catch
+[MED] api/chat-history.js:10 — await not wrapped in try/catch
+[MED] api/login.js:22 — await not wrapped in try/catch
+[MED] api/signup.js:22 — await not wrapped in try/catch
+[MED] api/signup.js:33 — await not wrapped in try/catch
+[MED] api/_ai.js:2 — await not wrapped in try/catch
+[MED] api/_ai.js:10 — await not wrapped in try/catch
+[MED] api/_ai.js:17 — Empty or suppressed catch block
+[MED] api/_ai.js:33 — await not wrapped in try/catch
+[MED] api/_ai.js:38 — await not wrapped in try/catch
+[MED] api/_ai.js:45 — await not wrapped in try/catch
+[MED] api/_ai.js:53 — await not wrapped in try/catch
+[MED] api/_ai.js:60 — await not wrapped in try/catch
+[MED] api/_ai.js:68 — await not wrapped in try/catch
+[MED] api/_ai.js:111 — await not wrapped in try/catch
+[MED] api/_ai.js:116 — await not wrapped in try/catch
+[MED] api/_ai.js:130 — await not wrapped in try/catch
+[MED] api/upload.js:15 — await not wrapped in try/catch
+[MED] commands.js:41 — await not wrapped in try/catch
+[MED] commands.js:51 — await not wrapped in try/catch
+[MED] commands.js:61 — await not wrapped in try/catch
+[MED] commands.js:79 — await not wrapped in try/catch
+[MED] commands.js:80 — await not wrapped in try/catch
+[MED] commands.js:83 — Empty or suppressed catch block
+[MED] commands.js:85 — await not wrapped in try/catch
+[MED] commands.js:164 — Empty or suppressed catch block
+[MED] commands.js:198 — Empty or suppressed catch block
+[MED] commands.js:205 — Empty or suppressed catch block
+[MED] commands.js:284 — await not wrapped in try/catch
+[MED] commands.js:297 — await not wrapped in try/catch
+[MED] commands.js:314 — await not wrapped in try/catch
+[MED] commands.js:314 — Empty or suppressed catch block
+[MED] commands.js:331 — Empty or suppressed catch block
+[MED] commands.js:337 — await not wrapped in try/catch
+[MED] commands.js:337 — Empty or suppressed catch block
+[MED] commands.js:345 — await not wrapped in try/catch
+[MED] commands.js:373 — await not wrapped in try/catch
+[MED] commands.js:378 — await not wrapped in try/catch
+[MED] commands.js:384 — await not wrapped in try/catch
+[MED] commands.js:389 — await not wrapped in try/catch
+[MED] commands.js:426 — await not wrapped in try/catch
+[MED] commands.js:450 — await not wrapped in try/catch
+[MED] commands.js:471 — await not wrapped in try/catch
+[MED] commands.js:482 — await not wrapped in try/catch
+[MED] commands.js:487 — await not wrapped in try/catch
+[MED] commands.js:499 — await not wrapped in try/catch
+[MED] commands.js:544 — await not wrapped in try/catch
+[MED] commands.js:579 — await not wrapped in try/catch
+[MED] commands.js:625 — await not wrapped in try/catch
+[MED] commands.js:702 — await not wrapped in try/catch
+[MED] commands.js:745 — await not wrapped in try/catch
+[MED] commands.js:748 — await not wrapped in try/catch
+[MED] commands.js:791 — await not wrapped in try/catch
+[MED] commands.js:929 — await not wrapped in try/catch
+[MED] commands.js:937 — await not wrapped in try/catch
+[MED] commands.js:973 — await not wrapped in try/catch
+[MED] commands.js:980 — await not wrapped in try/catch
+[MED] commands.js:1015 — await not wrapped in try/catch
+[MED] commands.js:1041 — await not wrapped in try/catch
+[MED] commands.js:1200 — await not wrapped in try/catch
+[MED] commands.js:1227 — await not wrapped in try/catch
+[MED] commands.js:1234 — await not wrapped in try/catch
+[MED] commands.js:1261 — await not wrapped in try/catch
+[MED] commands.js:1294 — await not wrapped in try/catch
+[MED] commands.js:1315 — await not wrapped in try/catch
+[MED] commands.js:1319 — await not wrapped in try/catch
+[MED] commands.js:1321 — await not wrapped in try/catch
+[MED] commands.js:1324 — Empty or suppressed catch block
+[MED] commands.js:1344 — await not wrapped in try/catch
+[MED] commands.js:1377 — await not wrapped in try/catch
+[MED] commands.js:1409 — await not wrapped in try/catch
+[MED] commands.js:1428 — await not wrapped in try/catch
+[MED] commands.js:1434 — await not wrapped in try/catch
+[MED] commands.js:1441 — await not wrapped in try/catch
+[MED] commands.js:1449 — await not wrapped in try/catch
+[MED] commands.js:1458 — await not wrapped in try/catch
+[MED] commands.js:1466 — await not wrapped in try/catch
+[MED] commands.js:1498 — await not wrapped in try/catch
+[MED] commands.js:1528 — await not wrapped in try/catch
+[MED] commands.js:1546 — await not wrapped in try/catch
+[MED] commands.js:1613 — await not wrapped in try/catch
+[MED] commands.js:1614 — await not wrapped in try/catch
+[MED] commands.js:1617 — await not wrapped in try/catch
+[MED] commands.js:1662 — await not wrapped in try/catch
+[MED] commands.js:1749 — await not wrapped in try/catch
+[MED] index.html:287 — Empty or suppressed catch block
+[MED] index.html:288 — Empty or suppressed catch block
+[MED] index.html:360 — Empty or suppressed catch block
+[MED] index.html:436 — await not wrapped in try/catch
+[MED] index.html:442 — Empty or suppressed catch block
+[MED] index.html:737 — await not wrapped in try/catch
+[MED] index.html:743 — await not wrapped in try/catch
+[MED] index.html:749 — await not wrapped in try/catch
+[MED] index.html:754 — await not wrapped in try/catch
+[MED] index.html:805 — await not wrapped in try/catch
+[MED] index.html:856 — await not wrapped in try/catch
+[MED] login.html:132 — await not wrapped in try/catch
+[MED] login.html:137 — await not wrapped in try/catch
+[MED] login.html:148 — await not wrapped in try/catch
+[MED] login.html:163 — await not wrapped in try/catch
+[MED] login.html:201 — await not wrapped in try/catch
+[MED] google_api.js:9 — await not wrapped in try/catch
+[MED] google_api.js:31 — await not wrapped in try/catch
+[MED] google_api.js:34 — await not wrapped in try/catch
+[MED] google_api.js:40 — await not wrapped in try/catch
+[MED] google_api.js:60 — await not wrapped in try/catch
+[MED] google_api.js:62 — await not wrapped in try/catch
+[MED] google_api.js:67 — await not wrapped in try/catch
+[MED] google_api.js:79 — await not wrapped in try/catch
+[MED] google_api.js:84 — await not wrapped in try/catch
+[MED] google_api.js:104 — await not wrapped in try/catch
+[MED] google_api.js:107 — await not wrapped in try/catch
+[MED] google_api.js:116 — await not wrapped in try/catch
+[MED] google_api.js:152 — await not wrapped in try/catch
+[MED] google_api.js:159 — await not wrapped in try/catch
+[MED] google_api.js:167 — await not wrapped in try/catch
+[MED] google_api.js:169 — await not wrapped in try/catch
+[MED] google_api.js:173 — await not wrapped in try/catch
+[MED] google_api.js:180 — await not wrapped in try/catch
+[MED] google_api.js:183 — await not wrapped in try/catch
+[MED] google_api.js:189 — await not wrapped in try/catch
+[MED] google_api.js:194 — await not wrapped in try/catch
+[MED] google_api.js:196 — await not wrapped in try/catch
+[MED] google_api.js:202 — await not wrapped in try/catch
+[MED] google_api.js:208 — await not wrapped in try/catch
+[MED] google_api.js:211 — await not wrapped in try/catch
+[MED] google_api.js:214 — Empty or suppressed catch block
+[MED] google_api.js:217 — await not wrapped in try/catch
+[MED] google_api.js:226 — await not wrapped in try/catch
+[MED] google_api.js:228 — await not wrapped in try/catch
+[MED] google_api.js:235 — await not wrapped in try/catch
+[MED] google_api.js:238 — await not wrapped in try/catch
+[MED] google_api.js:241 — await not wrapped in try/catch
+[MED] google_api.js:246 — await not wrapped in try/catch
+[MED] google_api.js:248 — await not wrapped in try/catch
+[MED] google_api.js:249 — await not wrapped in try/catch
+[MED] google_api.js:262 — await not wrapped in try/catch
+[MED] google_api.js:263 — await not wrapped in try/catch
+[MED] google_api.js:276 — await not wrapped in try/catch
+[MED] google_api.js:284 — await not wrapped in try/catch
+[MED] google_api.js:290 — await not wrapped in try/catch
+[MED] google_api.js:292 — await not wrapped in try/catch
+[MED] signup.html:119 — await not wrapped in try/catch
+[MED] login.html + signup.html:- — Duplicate function name across files
+[LOW] api/test-google-auth.js:5 — console.log left in production code
+[LOW] api/test-google-auth.js:12 — console.log left in production code
+[LOW] api/test-google-auth.js:37 — console.log left in production code
+[LOW] api/test-google-auth.js:53 — console.log left in production code
+[LOW] login.html:186 — console.log left in production code
+
+## AUDITPLAN
+Here is the ordered fix list. Each item is marked as [PENDING]. We will work through these grouped by file, ensuring each issue is addressed thoroughly.
+
+### File: `commands.js`
+
+*   [PENDING] Finding: `commands.js:41 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log any caught errors using `console.error` and ensure the function provides a user-friendly error message via the `output` parameter, or returns an appropriate error state.
+    *   **Why**: To prevent unexpected crashes in core command handling logic when asynchronous operations, such as database or file system interactions, fail.
+*   [PENDING] Finding: `commands.js:51 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and handle the failure gracefully, potentially by resetting the last model or indicating a problem.
+    *   **Why**: To ensure the application remains stable even if saving the last model fails, preventing an unhandled promise rejection.
+*   [PENDING] Finding: `commands.js:61 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and handle the failure gracefully, potentially by providing a default value or indicating a problem with DB access.
+    *   **Why**: To prevent crashes if `openDB()` encounters an issue, ensuring persistence operations are robust.
+*   [PENDING] Finding: `commands.js:79 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure user feedback is provided via the `output` parameter.
+    *   **Why**: To prevent command failures when saving an access handle, ensuring smooth operation even if storage fails.
+*   [PENDING] Finding: `commands.js:80 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and provide user feedback via the `output` parameter.
+    *   **Why**: Similar to line 79, ensuring robustness in handle saving.
+*   [PENDING] Finding: `commands.js:83 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error`) within the existing `catch` block. Evaluate if a user notification or fallback action is needed.
+    *   **Why**: To ensure that errors during access handle operations are not silently ignored, which can lead to undetected issues and poor user experience.
+*   [PENDING] Finding: `commands.js:85 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure user feedback is provided via the `output` parameter.
+    *   **Why**: To prevent command failures when loading an access handle, ensuring functionality remains stable.
+*   [PENDING] Finding: `commands.js:164 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging within the existing `catch` block. Consider displaying an error message to the user or providing a fallback for the date handling.
+    *   **Why**: To prevent silent failures during date processing, aiding in debugging and ensuring correct output.
+*   [PENDING] Finding: `commands.js:198 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging within the existing `catch` block. Consider displaying an error message to the user or providing a fallback for the time handling.
+    *   **Why**: To ensure errors during time processing are logged and potentially communicated to the user, improving reliability.
+*   [PENDING] Finding: `commands.js:205 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging within the existing `catch` block. Consider displaying an error message to the user or providing a fallback for location handling.
+    *   **Why**: To prevent silent failures during location processing, which could lead to incorrect or missing information.
+*   [PENDING] Finding: `commands.js:284 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure the output reflects any issues with Google interactions.
+    *   **Why**: To ensure `handleGoogle` command remains stable even if Google API calls fail.
+*   [PENDING] Finding: `commands.js:297 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and update the `output` with an error message.
+    *   **Why**: To prevent crashes during device handling, especially if asynchronous device interactions are involved.
+*   [PENDING] Finding: `commands.js:314 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure the `output` indicates an issue with access handling.
+    *   **Why**: To ensure the `handleAccess` command remains stable if underlying permissions or storage operations fail.
+*   [PENDING] Finding: `commands.js:314 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Populate the `catch` block with explicit error logging (e.g., `console.error`) and provide user feedback through the `output`.
+    *   **Why**: To prevent silent failures in access handling from going unnoticed, making debugging difficult.
+*   [PENDING] Finding: `commands.js:331 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging to the `catch` block and provide an error message to the user via `output`.
+    *   **Why**: To ensure errors during file search parsing are not suppressed, improving the reliability of `handleFind`.
+*   [PENDING] Finding: `commands.js:337 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and update the `output` with a descriptive error message.
+    *   **Why**: To ensure the file search operation does not crash the application due to file system access errors.
+*   [PENDING] Finding: `commands.js:337 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Populate the `catch` block with explicit error logging and ensure user feedback through `output`.
+    *   **Why**: To ensure errors during the `handleFind` command are properly managed and reported.
+*   [PENDING] Finding: `commands.js:345 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with listing directory contents.
+    *   **Why**: To prevent `handleList` from crashing if directory enumeration encounters issues.
+*   [PENDING] Finding: `commands.js:373 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with focus actions.
+    *   **Why**: To ensure `handleFocus` remains stable during asynchronous focus actions.
+*   [PENDING] Finding: `commands.js:378 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with focus actions.
+    *   **Why**: To maintain robustness during focus actions.
+*   [PENDING] Finding: `commands.js:384 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with focus actions.
+    *   **Why**: To maintain robustness during focus actions.
+*   [PENDING] Finding: `commands.js:389 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with focus actions.
+    *   **Why**: To maintain robustness during focus actions.
+*   [PENDING] Finding: `commands.js:426 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with creating new items.
+    *   **Why**: To prevent `handleNew` from crashing if file/resource creation fails.
+*   [PENDING] Finding: `commands.js:450 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with saving to Mobius Drive.
+    *   **Why**: To ensure the `saveToMobiusDrive` function is resilient to Google Drive API errors or network issues.
+*   [PENDING] Finding: `commands.js:471 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with saving to Mobius Drive.
+    *   **Why**: To ensure the `saveToMobiusDrive` function is resilient to Google Drive API errors or network issues.
+*   [PENDING] Finding: `commands.js:482 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with saving to Mobius Drive.
+    *   **Why**: To ensure the `saveToMobiusDrive` function is resilient to Google Drive API errors or network issues.
+*   [PENDING] Finding: `commands.js:487 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with saving to Mobius Drive.
+    *   **Why**: To ensure the `saveToMobiusDrive` function is resilient to Google Drive API errors or network issues.
+*   [PENDING] Finding: `commands.js:499 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with saving to Mobius Drive.
+    *   **Why**: To ensure the `saveToMobiusDrive` function is resilient to Google Drive API errors or network issues.
+*   [PENDING] Finding: `commands.js:544 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and update `output` accordingly.
+    *   **Why**: To prevent crashes during code scanning if file system operations or analysis tools fail.
+*   [PENDING] Finding: `commands.js:579 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and update `output` accordingly.
+    *   **Why**: To prevent crashes during repository generation if file system operations fail.
+*   [PENDING] Finding: `commands.js:625 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and update `output` accordingly.
+    *   **Why**: To prevent `handleCode` from crashing during code-related operations.
+*   [PENDING] Finding: `commands.js:702 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during folder selection.
+    *   **Why**: To prevent `codeSelectFolder` from crashing due to file system access errors.
+*   [PENDING] Finding: `commands.js:745 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with chat history retrieval.
+    *   **Why**: To ensure `handleChatHistory` remains stable if database access fails.
+*   [PENDING] Finding: `commands.js:748 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with chat history retrieval.
+    *   **Why**: To maintain robustness during chat history retrieval.
+*   [PENDING] Finding: `commands.js:791 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with command detection.
+    *   **Why**: To ensure `detectCommand` remains stable if asynchronous processing is involved.
+*   [PENDING] Finding: `commands.js:929 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To ensure `runCommand` remains stable even if the called command's asynchronous operations fail.
+*   [PENDING] Finding: `commands.js:937 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:973 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:980 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1015 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1041 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1200 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1227 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1234 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1261 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1294 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1315 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1319 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1321 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1324 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging to the `catch` block and ensure `output` reflects any issues during command execution.
+    *   **Why**: To prevent silent failures during command execution, improving debuggability.
+*   [PENDING] Finding: `commands.js:1344 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1377 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1409 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1428 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1434 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1441 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1449 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1458 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1466 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1498 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1528 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1546 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues during command execution.
+    *   **Why**: To maintain robustness during command execution.
+*   [PENDING] Finding: `commands.js:1613 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with `getAskModel`.
+    *   **Why**: To prevent crashes if model retrieval or update operations fail.
+*   [PENDING] Finding: `commands.js:1614 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with `getAskModel`.
+    *   **Why**: To prevent crashes if model retrieval or update operations fail.
+*   [PENDING] Finding: `commands.js:1617 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with `getAskModel`.
+    *   **Why**: To prevent crashes if model retrieval or update operations fail.
+*   [PENDING] Finding: `commands.js:1662 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with `getAskModel`.
+    *   **Why**: To prevent crashes if model retrieval or update operations fail.
+*   [PENDING] Finding: `commands.js:1749 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and ensure `output` reflects any issues with `getAskModel`.
+    *   **Why**: To prevent crashes if model retrieval or update operations fail.
+
+### File: `google_api.js`
+
+*   [PENDING] Finding: `google_api.js:9 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error (e.g., `console.error`) and return `null` or throw a more specific error that indicates client initialisation failure.
+    *   **Why**: To ensure `getGoogleClient` is robust against Google API client initialisation failures, preventing unhandled rejections.
+*   [PENDING] Finding: `google_api.js:31 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an empty array or propagate a specific error.
+    *   **Why**: To prevent `getDriveFiles` from crashing if the Google Drive API call fails, ensuring graceful handling of file retrieval.
+*   [PENDING] Finding: `google_api.js:34 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an empty array or propagate a specific error.
+    *   **Why**: Similar to line 31, ensuring robust Drive file retrieval.
+*   [PENDING] Finding: `google_api.js:40 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an empty array or propagate a specific error.
+    *   **Why**: To ensure `getTasks` is resilient to Google Tasks API failures.
+*   [PENDING] Finding: `google_api.js:60 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an empty array or propagate a specific error.
+    *   **Why**: To ensure `getCalendarEvents` is resilient to Google Calendar API failures.
+*   [PENDING] Finding: `google_api.js:62 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an empty array or propagate a specific error.
+    *   **Why**: Similar to line 60, ensuring robust Calendar event retrieval.
+*   [PENDING] Finding: `google_api.js:67 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an empty array or propagate a specific error.
+    *   **Why**: To ensure `getEmails` is resilient to Gmail API failures.
+*   [PENDING] Finding: `google_api.js:79 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `getFilePath` handles failures during Drive API calls, preventing issues with path resolution.
+*   [PENDING] Finding: `google_api.js:84 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 79, ensuring robust path resolution.
+*   [PENDING] Finding: `google_api.js:104 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `getMobiusFolderId` is resilient to Drive API failures when getting or creating the Mobius folder.
+*   [PENDING] Finding: `google_api.js:107 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 104, ensuring robust Mobius folder handling.
+*   [PENDING] Finding: `google_api.js:116 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `findDriveFile` is resilient to Drive API failures when searching for files.
+*   [PENDING] Finding: `google_api.js:152 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `copyToMobiusFolder` is resilient to Drive API failures during file copying.
+*   [PENDING] Finding: `google_api.js:159 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 152, ensuring robust file copying.
+*   [PENDING] Finding: `google_api.js:167 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `updateOriginalFile` is resilient to Drive API failures during file updates.
+*   [PENDING] Finding: `google_api.js:169 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 167, ensuring robust file updates.
+*   [PENDING] Finding: `google_api.js:173 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 167, ensuring robust file updates.
+*   [PENDING] Finding: `google_api.js:180 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `readDriveFileContent` is resilient to Drive API failures when reading file content.
+*   [PENDING] Finding: `google_api.js:183 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 180, ensuring robust file content reading.
+*   [PENDING] Finding: `google_api.js:189 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 180, ensuring robust file content reading.
+*   [PENDING] Finding: `google_api.js:194 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 180, ensuring robust file content reading.
+*   [PENDING] Finding: `google_api.js:196 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 180, ensuring robust file content reading.
+*   [PENDING] Finding: `google_api.js:202 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `createDriveFile` is resilient to Drive API failures when creating new files.
+*   [PENDING] Finding: `google_api.js:208 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 202, ensuring robust file creation.
+*   [PENDING] Finding: `google_api.js:211 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 202, ensuring robust file creation.
+*   [PENDING] Finding: `google_api.js:214 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error`) within the existing `catch` block. Consider returning `null` or re-throwing a more descriptive error.
+    *   **Why**: To prevent critical errors during Drive file creation from being silently ignored, which could lead to data loss or incorrect application state.
+*   [PENDING] Finding: `google_api.js:217 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `writeDriveFileContent` is resilient to Drive API failures when writing content.
+*   [PENDING] Finding: `google_api.js:226 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:228 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:235 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:238 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:241 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:246 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:248 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:249 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 217, ensuring robust file content writing.
+*   [PENDING] Finding: `google_api.js:262 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: To ensure `getGoogleAccountInfo` is resilient to Google API failures when fetching user account details.
+*   [PENDING] Finding: `google_api.js:263 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 262, ensuring robust account info retrieval.
+*   [PENDING] Finding: `google_api.js:276 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 262, ensuring robust account info retrieval.
+*   [PENDING] Finding: `google_api.js:284 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 262, ensuring robust account info retrieval.
+*   [PENDING] Finding: `google_api.js:290 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 262, ensuring robust account info retrieval.
+*   [PENDING] Finding: `google_api.js:292 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or propagate a specific error.
+    *   **Why**: Similar to line 262, ensuring robust account info retrieval.
+
+### File: `api/_ai.js`
+
+*   [PENDING] Finding: `api/_ai.js:2 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response to the caller.
+    *   **Why**: To prevent `askGroq` from crashing if the Groq API call fails, ensuring AI model integration is robust.
+*   [PENDING] Finding: `api/_ai.js:10 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askGemini` from crashing if the Gemini API call fails, especially when handling image parts.
+*   [PENDING] Finding: `api/_ai.js:17 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error(error)`) within the `catch` block. Consider returning a standardised error object or re-throwing an `AppError` specific to AI failures.
+    *   **Why**: To ensure that failures during Gemini API calls are properly logged and not silently ignored, which is crucial for monitoring AI service health.
+*   [PENDING] Finding: `api/_ai.js:33 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askMistral` from crashing if the Mistral API call fails.
+*   [PENDING] Finding: `api/_ai.js:38 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askGitHub` from crashing if the GitHub API call fails.
+*   [PENDING] Finding: `api/_ai.js:45 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askWithFallback` from crashing during initial AI model calls, ensuring the fallback mechanism can engage.
+*   [PENDING] Finding: `api/_ai.js:53 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To ensure the fallback model invocation within `askWithFallback` is also error-handled.
+*   [PENDING] Finding: `api/_ai.js:60 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To ensure the fallback model invocation within `askWithFallback` is also error-handled.
+*   [PENDING] Finding: `api/_ai.js:68 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To ensure the fallback model invocation within `askWithFallback` is also error-handled.
+*   [PENDING] Finding: `api/_ai.js:111 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askWebSearch` from crashing if the Tavily API call fails.
+*   [PENDING] Finding: `api/_ai.js:116 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askWebSearch` from crashing if the Tavily API call fails.
+*   [PENDING] Finding: `api/_ai.js:130 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return `null` or an empty response.
+    *   **Why**: To prevent `askWebSearch` from crashing during final model response generation.
+
+### File: `api/focus/[action].js`
+
+*   [PENDING] Finding: `api/focus/[action].js:22 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response (e.g., 500 Internal Server Error) to the client.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:27 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:32 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:37 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:42 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:47 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:53 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:57 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:61 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+*   [PENDING] Finding: `api/focus/[action].js:62 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Implement a `try...catch` block around the `await` call. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure focus actions are resilient to underlying `google_api.js` failures.
+
+### File: `index.html`
+
+*   [PENDING] Finding: `index.html:287 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error`) within the `catch` block. Consider displaying a user-friendly error message in the UI if the error impacts user interaction.
+    *   **Why**: To prevent client-side errors from being silently ignored, which hinders debugging and user experience.
+*   [PENDING] Finding: `index.html:288 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error`) within the `catch` block. Consider displaying a user-friendly error message in the UI if the error impacts user interaction.
+    *   **Why**: To prevent client-side errors from being silently ignored, which hinders debugging and user experience.
+*   [PENDING] Finding: `index.html:360 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error`) within the `catch` block. Consider displaying a user-friendly error message in the UI if the error impacts user interaction.
+    *   **Why**: To prevent client-side errors from being silently ignored, which hinders debugging and user experience.
+*   [PENDING] Finding: `index.html:436 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error to `console.error` and provide a fallback or error message to the user in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+*   [PENDING] Finding: `index.html:442 — Empty or suppressed catch block`
+    *   **Recommended Approach**: Add explicit error logging (e.g., `console.error`) within the `catch` block. Consider displaying a user-friendly error message in the UI if the error impacts user interaction.
+    *   **Why**: To prevent client-side errors from being silently ignored, which hinders debugging and user experience.
+*   [PENDING] Finding: `index.html:737 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and provide user feedback in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+*   [PENDING] Finding: `index.html:743 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and provide user feedback in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+*   [PENDING] Finding: `index.html:749 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and provide user feedback in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+*   [PENDING] Finding: `index.html:754 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and provide user feedback in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+*   [PENDING] Finding: `index.html:805 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and provide user feedback in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+*   [PENDING] Finding: `index.html:856 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and provide user feedback in the UI.
+    *   **Why**: To prevent UI script crashes from unhandled promise rejections, ensuring a more stable user experience.
+
+### File: `login.html`
+
+*   [PENDING] Finding: `login.html:132 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Display a user-friendly error message on the login form and log the detailed error to `console.error`.
+    *   **Why**: To prevent the login page from breaking during asynchronous authentication operations and provide clear user feedback.
+*   [PENDING] Finding: `login.html:137 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Display a user-friendly error message on the login form and log the detailed error to `console.error`.
+    *   **Why**: To prevent the login page from breaking during asynchronous authentication operations and provide clear user feedback.
+*   [PENDING] Finding: `login.html:148 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Display a user-friendly error message on the login form and log the detailed error to `console.error`.
+    *   **Why**: To prevent the login page from breaking during asynchronous authentication operations and provide clear user feedback.
+*   [PENDING] Finding: `login.html:163 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Display a user-friendly error message on the login form and log the detailed error to `console.error`.
+    *   **Why**: To prevent the login page from breaking during asynchronous authentication operations and provide clear user feedback.
+*   [PENDING] Finding: `login.html:186 — console.log left in production code`
+    *   **Recommended Approach**: Remove the `console.log` statement. If logging is required for production, integrate a dedicated logging library or mechanism.
+    *   **Why**: To avoid exposing potentially sensitive debugging information and maintain a clean console in a production environment.
+*   [PENDING] Finding: `login.html:201 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Display a user-friendly error message on the login form and log the detailed error to `console.error`.
+    *   **Why**: To prevent the login page from breaking during asynchronous authentication operations and provide clear user feedback.
+
+### File: `api/ask.js`
+
+*   [PENDING] Finding: `api/ask.js:53 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an appropriate HTTP error response (e.g., 500 Internal Server Error) to the client.
+    *   **Why**: To ensure the `ask` API endpoint is resilient to failures during AI model interaction.
+*   [PENDING] Finding: `api/ask.js:56 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure the `ask` API endpoint is resilient to failures during AI model interaction.
+*   [PENDING] Finding: `api/ask.js:59 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure the `ask` API endpoint is resilient to failures during AI model interaction.
+*   [PENDING] Finding: `api/ask.js:62 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure the `ask` API endpoint is resilient to failures during AI model interaction or database saving.
+
+### File: `api/test-google-auth.js`
+
+*   [PENDING] Finding: `api/test-google-auth.js:5 — console.log left in production code`
+    *   **Recommended Approach**: Remove the `console.log` statement. If this file is for testing purposes, ensure it is not deployed to production.
+    *   **Why**: To prevent logging of potentially sensitive information in production and maintain a clean console.
+*   [PENDING] Finding: `api/test-google-auth.js:12 — console.log left in production code`
+    *   **Recommended Approach**: Remove the `console.log` statement.
+    *   **Why**: To prevent logging of potentially sensitive information in production and maintain a clean console.
+*   [PENDING] Finding: `api/test-google-auth.js:37 — console.log left in production code`
+    *   **Recommended Approach**: Remove the `console.log` statement.
+    *   **Why**: To prevent logging of potentially sensitive information in production and maintain a clean console.
+*   [PENDING] Finding: `api/test-google-auth.js:53 — console.log left in production code`
+    *   **Recommended Approach**: Remove the `console.log` statement.
+    *   **Why**: To prevent logging of potentially sensitive information in production and maintain a clean console.
+
+### File: `api/auth/google/callback.js`
+
+*   [PENDING] Finding: `api/auth/google/callback.js:20 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an appropriate HTTP error response (e.g., 500 Internal Server Error) to the client.
+    *   **Why**: To ensure robust error handling during Google authentication callback processing, preventing unhandled promise rejections.
+*   [PENDING] Finding: `api/auth/google/callback.js:27 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log the error and return an appropriate HTTP error response.
+    *   **Why**: To ensure robust error handling during Google authentication callback processing, preventing unhandled promise rejections.
+
+### File: `api/signup.js`
+
+*   [PENDING] Finding: `api/signup.js:22 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log errors and return appropriate HTTP error responses (e.g., 500 Internal Server Error or 400 Bad Request).
+    *   **Why**: To ensure robust user registration by handling potential database errors during user creation, improving system reliability.
+*   [PENDING] Finding: `api/signup.js:33 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call in a `try...catch` block. Log errors and return appropriate HTTP error responses.
+    *   **Why**: To ensure robust user registration by handling potential database errors during profile saving.
+
+### File: `api/chat-history.js`
+
+*   [PENDING] Finding: `api/chat-history.js:10 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call on line 10 in a `try...catch` block. Log the error and return an appropriate HTTP error response (e.g., 500 Internal Server Error) if chat history retrieval fails.
+    *   **Why**: To handle potential issues with database access when fetching chat history, ensuring the API remains functional even under database load or errors.
+
+### File: `api/login.js`
+
+*   [PENDING] Finding: `api/login.js:22 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call on line 22 in a `try...catch` block. Log any errors and return a specific error response (e.g., 401 Unauthorized or 500 Internal Server Error) to the client.
+    *   **Why**: To gracefully handle potential authentication or database errors during the login process, preventing crashes and providing clear feedback to the user.
+
+### File: `api/upload.js`
+
+*   [PENDING] Finding: `api/upload.js:15 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call on line 15 in a `try...catch` block. Log the error and return an appropriate HTTP error response (e.g., 500 Internal Server Error).
+    *   **Why**: To handle potential issues during file upload processing, such as storage failures or permission errors, ensuring the upload API remains stable.
+
+### File: `signup.html`
+
+*   [PENDING] Finding: `signup.html:119 — await not wrapped in try/catch`
+    *   **Recommended Approach**: Wrap the `await` call on line 119 in a `try...catch` block. Display a user-friendly error message on the signup form and log the detailed error to `console.error`.
+    *   **Why**: To prevent the signup page from breaking during asynchronous operations and to provide clear feedback to users when the registration process encounters issues.
+
+### Cross-File Issues: `login.html` and `signup.html`
+
+*   [PENDING] Finding: `login.html + signup.html:- — Duplicate function name across files`
+    *   **Recommended Approach**: Identify the duplicated function (e.g., `handleAuth`) and rename one or both instances to be unique (e.g., `handleLoginAuth` in `login.html` and `handleSignupAuth` in `signup.html`). Alternatively, if the functionality is identical and generic, refactor it into a shared utility JavaScript file imported by both HTML pages.
+    *   **Why**: To prevent potential naming conflicts, improve code clarity, and avoid unexpected behaviour, particularly if these functions are in the global scope.
+
+## STATUS
+phase: briefing
+started: 04/03/2026, 1:47:42 pm
+last_action: audit new
+files_changed: none
+deployments: 0
+findings_total: 164
+findings_pending: 164
+findings_resolved: 0
+
+## CHAT
+[04/03/2026, 1:47:42 pm] AUDIT NEW
+Gemini briefing received. Awaiting your approval to proceed.

@@ -38,7 +38,9 @@ async function askGemini(messages, imageParts = []) {
   const data = await r.json();
   if (data.error) throw new Error('Gemini API error: ' + data.error.message);
   if (!data.candidates?.[0]) throw new Error('No candidates in Gemini response: ' + JSON.stringify(data));
-  return data.candidates[0].content.parts[0].text;
+  const text = data.candidates[0].content.parts[0].text;
+  const usage = data.usageMetadata || {};
+  return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0 };
 }
 
 async function askMistral(messages) {
@@ -87,13 +89,17 @@ async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   for (const model of chain) {
     try {
       let result;
-      if (model === 'groq')    result = await askGroq(messages);
+      if (model === 'groq')         result = await askGroq(messages);
       else if (model === 'gemini')  result = await askGemini(messages, imageParts);
       else if (model === 'mistral') result = await askMistral(messages);
       else if (model === 'github')  result = await askGitHub(messages);
-      const fullName = MODEL_FULL_NAMES[model] || model;
+      const fullName  = MODEL_FULL_NAMES[model] || model;
       const startName = MODEL_FULL_NAMES[startModel] || startModel;
-      const label = model === startModel ? fullName : fullName + ' (fallback from ' + startName + ')';
+      const label     = model === startModel ? fullName : fullName + ' (fallback from ' + startName + ')';
+      // Gemini returns { text, tokensIn, tokensOut }, others return a plain string
+      if (result && typeof result === 'object' && result.text !== undefined) {
+        return { reply: result.text, modelUsed: label, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+      }
       return { reply: result, modelUsed: label };
     } catch (err) {
       console.warn('[Mobius] ' + model + ' failed:', err.message);
