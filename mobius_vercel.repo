@@ -1,5 +1,5 @@
 # Mobius_Vercel — Code Index
-# Generated: 03/03/2026, 6:22:39 pm
+# Generated: 04/03/2026, 8:45:12 am
 
 ## actions.js
 [F] resolveCommand(text)
@@ -19,7 +19,6 @@
 [E] GROQ_API_KEY
 [E] MISTRAL_API_KEY
 [E] TAVILY_API_KEY
-[>]  + startName + 
 [<] exports: askGroq, askGemini, askMistral, askGitHub, askWithFallback, askWebSearch, MODEL_FULL_NAMES
 
 ## api/_supabase.js
@@ -31,40 +30,37 @@
 [<] exports: supabase, saveConversation, getChatHistory
 
 ## api/ask.js
-[>]  + MODEL_FULL_NAMES.gemini + 
-[>]  + MODEL_FULL_NAMES.github + 
-[>]  + MODEL_FULL_NAMES.mistral + 
-[>] _ai.js
-[>] _supabase.js
-[>] google_api.js
+[>] ../google_api.js
+[>] ./_ai.js
+[>] ./_supabase.js
 
 ## api/auth/google/callback.js
 [E] BASE_URL
 [E] GOOGLE_CLIENT_ID
 [E] GOOGLE_CLIENT_SECRET
 [E] GOOGLE_REDIRECT_URI
-[>] ../_supabase.js
+[>] ../../_supabase.js
 [>] googleapis
 
 ## api/auth/google/index.js
 [E] GOOGLE_CLIENT_ID
 [E] GOOGLE_CLIENT_SECRET
 [E] GOOGLE_REDIRECT_URI
-[>] ../_supabase.js
+[>] ../../_supabase.js
 [>] googleapis
 
 ## api/auth/google/status.js
-[>] ../_supabase.js
+[>] ../../_supabase.js
 
 ## api/chat-history.js
+[>] ./_supabase.js
 [>] @supabase/supabase-js
-[>] _supabase.js
 
 ## api/focus/[action].js
-[>] ../google_api.js
+[>] ../../google_api.js
 
 ## api/google/info.js
-[>] ../google_api.js
+[>] ../../google_api.js
 
 ## api/login.js
 [E] SUPABASE_KEY
@@ -74,8 +70,8 @@
 ## api/signup.js
 [E] SUPABASE_KEY
 [E] SUPABASE_URL
+[>] ./_supabase.js
 [>] @supabase/supabase-js
-[>] _supabase.js
 
 ## api/test-google-auth.js
 [E] GOOGLE_CLIENT_ID
@@ -110,6 +106,7 @@
 [F] handleNew(args, output)
 [F] saveToMobiusDrive(userId, filename, content, output) — ── Shared: save content to Google Drive Mobius folder ────────────────────────
 [F] offerDownload(outputEl, filename, content) — ── Shared: offer download link ───────────────────────────────────────────────
+[F] generateScan(projectHandle, projectName, output) — ── Code: scan — static analysis engine (no AI) ────────────────────────────────
 [F] generateRepo(projectHandle, projectName, output, outputEl) — ── Code: repo — recursive JS/HTML parser ────────────────────────────────────
 [F] handleCode(args, output, outputEl)
 [F] codeSelectFolder(m, projectName, outputEl) — Internal handler — called directly or from click list
@@ -118,7 +115,6 @@
 [F] detectCommand(text)
 [F] runCommand(command, args, outputFn, outputEl)
 [F] getAskModel(text) — Returns the model for the current Ask and updates saved default if explicit.
-[>]  + from.toLocaleDateString(
 
 ## google_api.js
 [F] getGoogleClient(userId)

@@ -1036,10 +1036,24 @@ async function handleCode(args, output, outputEl) {
     // Store scan findings for potential audit escalation
     codeSession.scanFindings = findings;
 
+    // Build plain-text version for download
+    const scanText =
+      '# ' + codeSession.projectName + ' — Scan Report\n' +
+      '# Generated: ' + new Date().toLocaleString('en-AU') + '\n' +
+      '# HIGH: ' + high.length + '  MED: ' + med.length + '  LOW: ' + low.length + '\n\n' +
+      findings.map(f =>
+        '[' + f.severity + '] ' + f.file + ':' + f.line + '\n' +
+        '  Issue: ' + f.issue + '\n' +
+        '  Code:  ' + f.code
+      ).join('\n\n');
+
+    const scanName = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.scan';
+    offerDownload(outputEl, scanName, scanText);
+
     // Offer AI escalation button
     const btn = document.createElement('button');
     btn.textContent = '🧠 Ask AI about these findings (Code: audit)';
-    btn.style.cssText = 'margin-top:10px; padding:6px 14px; background:#4a7c4e; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:13px;';
+    btn.style.cssText = 'margin-top:6px; padding:6px 14px; background:#4a7c4e; color:#fff; border:none; border-radius:2px; cursor:pointer; font-family:inherit; font-size:13px;';
     btn.onclick = () => {
       document.getElementById('input').value = 'Code: audit';
       document.getElementById('input').focus();
