@@ -73,13 +73,16 @@ async function askGitHub(messages) {
   return content;
 }
 
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github'];
+const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github', 'ollama', 'qwen', 'deepseek'];
 
 const MODEL_FULL_NAMES = {
   groq:    'Groq Llama 3.3 70B',
   gemini:  'Gemini 2.5 Flash',
   mistral: 'Mistral Codestral',
-  github:  'GitHub GPT-4o'
+  github:  'GitHub GPT-4o',
+  ollama:    'Ollama (local)',
+  qwen:      'Ollama Qwen 2.5 Coder',
+  deepseek:  'Ollama DeepSeek R1 7B'
 };
 
 async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
@@ -107,6 +110,18 @@ async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
     }
   }
   throw lastErr || new Error('All models failed');
+}
+
+async function askOllama(messages, model = 'qwen2.5-coder:7b') {
+  const r = await fetch('http://localhost:11434/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages })
+  });
+  const data = await r.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error(JSON.stringify(data));
+  return content;
 }
 
 async function askWebSearch(messages) {
@@ -141,6 +156,7 @@ module.exports = {
   askGemini,
   askMistral,
   askGitHub,
+  askOllama,
   askWithFallback,
   askWebSearch,
   MODEL_FULL_NAMES

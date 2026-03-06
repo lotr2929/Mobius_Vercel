@@ -1,4 +1,4 @@
-const { askGemini, askMistral, askGitHub, askWithFallback, askWebSearch, MODEL_FULL_NAMES } = require('./_ai.js');
+const { askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, MODEL_FULL_NAMES } = require('./_ai.js');
 const { saveConversation } = require('./_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails } = require('../google_api.js');
 
@@ -101,6 +101,36 @@ module.exports = async function handler(req, res) {
         const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'groq');
         reply = fbReply;
         modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
+      }
+
+    } else if (ASK === 'ollama') {
+      try {
+        reply = await askOllama(messages);
+        modelUsed = MODEL_FULL_NAMES.ollama;
+      } catch (err) {
+        console.warn('[Mobius] Ollama failed:', err.message);
+        reply = '❌ Ollama unavailable. Is it running? Try: ollama serve';
+        modelUsed = 'Ollama (local) — offline';
+      }
+
+    } else if (ASK === 'qwen') {
+      try {
+        reply = await askOllama(messages, 'qwen2.5-coder:7b');
+        modelUsed = MODEL_FULL_NAMES.qwen;
+      } catch (err) {
+        console.warn('[Mobius] Qwen failed:', err.message);
+        reply = '❌ Qwen unavailable. Is Ollama running with qwen2.5-coder:7b pulled?';
+        modelUsed = 'Ollama Qwen 2.5 Coder — offline';
+      }
+
+    } else if (ASK === 'deepseek') {
+      try {
+        reply = await askOllama(messages, 'deepseek-r1:7b');
+        modelUsed = MODEL_FULL_NAMES.deepseek;
+      } catch (err) {
+        console.warn('[Mobius] DeepSeek failed:', err.message);
+        reply = '❌ DeepSeek unavailable. Is Ollama running with deepseek-r1:7b pulled?';
+        modelUsed = 'Ollama DeepSeek R1 7B — offline';
       }
 
     } else if (ASK === 'websearch') {

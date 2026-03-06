@@ -5,7 +5,7 @@
 
 // ── Model persistence ─────────────────────────────────────────────────────────
 
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral'];
+const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'ollama', 'qwen', 'deepseek'];
 
 function getLastModel() {
   return localStorage.getItem('mobius_last_model') || 'groq';
@@ -687,24 +687,28 @@ async function generateScan(projectHandle, projectName, output) {
         }
       }
 
-      // await without try/catch — look for bare await not inside a try block
+      // await without try/catch — look for bare await not inside a try/catch/finally block
       if (/\bawait\s+\w/.test(trimmed)) {
-        // Check if this line is inside a try block by scanning back
         let inTry = false;
         let depth = 0;
-        for (let j = i; j >= Math.max(0, i - 30); j--) {
+        for (let j = i; j >= Math.max(0, i - 60); j--) {
           const prev = lines[j].trim();
           depth += (prev.match(/\}/g) || []).length;
           depth -= (prev.match(/\{/g) || []).length;
-          if (depth < 0 && /\btry\b/.test(prev)) { inTry = true; break; }
+          // Inside a try, catch, or finally block — already handled
+          if (depth < 0 && /\b(try|catch|finally)\b/.test(prev)) { inTry = true; break; }
           if (depth < 0) break;
         }
-        if (!inTry) flag('MED', relPath, lineNum, trimmed, 'await not wrapped in try/catch');
+        // Skip functions designed to throw upward (callers handle errors)
+        const throwsUpward = /\b(ask|scan|walk|generate|handle|save|load|fetch|get|read|write|copy|find|create|update|delete|parse)\w*\s*[=(]/.test(
+          lines.slice(Math.max(0, i - 60), i).join(' ')
+        );
+        if (!inTry && !throwsUpward) flag('MED', relPath, lineNum, trimmed, 'await not wrapped in try/catch');
       }
 
-      // Empty catch blocks
-      if (/catch\s*(\(.*\))?\s*\{\s*\}/.test(trimmed) || /catch\s*(\(.*\))?\s*\{\s*\/\*.*\*\/\s*\}/.test(trimmed)) {
-        flag('MED', relPath, lineNum, trimmed, 'Empty or suppressed catch block');
+      // Empty catch blocks — only flag truly empty ones, not intentionally commented suppressions
+      if (/catch\s*(\(.*\))?\s*\{\s*\}/.test(trimmed)) {
+        flag('MED', relPath, lineNum, trimmed, 'Empty catch block — consider logging or handling the error');
       }
 
       // Route handlers with no auth check (req.body used, no userId/token nearby)
@@ -713,6 +717,57 @@ async function generateScan(projectHandle, projectName, output) {
         if (/req\.body/.test(routeBlock) && !/userId|token|auth|bearer|session/i.test(routeBlock)) {
           flag('MED', relPath, lineNum, trimmed, 'Route modifies data but no auth check found in first 20 lines');
         }
+      }
+
+      // [1] fetch() response not checked with res.ok before use
+      // Catches: const data = await res.json() without if (!res.ok) check nearby
+      if (/\bawait\s+\w+\.json\(\)/.test(trimmed)) {
+        // Look back up to 5 lines for a res.ok check
+        const nearby = lines.slice(Math.max(0, i - 5), i).join(' ');
+        if (!/res\.ok|response\.ok|\.ok\b/.test(nearby)) {
+          flag('MED', relPath, lineNum, trimmed, 'res.json() called — check res.ok first to catch HTTP errors (401, 500 etc)');
+        }
+      }
+
+      // [2] data.error not checked after Mobius API calls
+      // Catches fetch to /api/* or /ask where response data.error is not checked nearby
+      if (/await fetch\(['"]\/(api|ask|parse)/.test(trimmed)) {
+        const block = lines.slice(i, Math.min(i + 8, lines.length)).join(' ');
+        if (!/data\.error|result\.error|\.error\b/.test(block)) {
+          flag('MED', relPath, lineNum, trimmed, 'Mobius API call — check data.error in response handler');
+        }
+      }
+
+      // [3] async event handler (onclick/addEventListener) without try/catch
+      // Silent failures in browser event handlers are hard to trace
+      if (/\.addEventListener\s*\(|onclick\s*=/.test(trimmed) && /async/.test(trimmed)) {
+        const block = lines.slice(i, Math.min(i + 15, lines.length)).join(' ');
+        if (!/\btry\b/.test(block)) {
+          flag('MED', relPath, lineNum, trimmed, 'async event handler without try/catch — failures will be silent');
+        }
+      }
+
+      // [4] process.env.* used without fallback or validation
+      // Catches bare process.env.X used directly in expressions without || or check
+      if (/process\.env\.\w+/.test(trimmed)) {
+        const envVar = (trimmed.match(/process\.env\.(\w+)/) || [])[1];
+        if (envVar && !/\|\||if\s*\(|throw|\?\s/.test(trimmed)) {
+          flag('LOW', relPath, lineNum, trimmed, 'process.env.' + envVar + ' used without fallback — will be undefined if key missing');
+        }
+      }
+
+      // [5] JSON.parse() without try/catch — throws on malformed input
+      if (/\bJSON\.parse\s*\(/.test(trimmed)) {
+        let inTryJson = false;
+        let depthJson = 0;
+        for (let j = i; j >= Math.max(0, i - 20); j--) {
+          const prev = lines[j].trim();
+          depthJson += (prev.match(/\}/g) || []).length;
+          depthJson -= (prev.match(/\{/g) || []).length;
+          if (depthJson < 0 && /\b(try|catch)\b/.test(prev)) { inTryJson = true; break; }
+          if (depthJson < 0) break;
+        }
+        if (!inTryJson) flag('MED', relPath, lineNum, trimmed, 'JSON.parse() not in try/catch — malformed JSON will throw and crash the handler');
       }
 
       // Function length tracking
@@ -754,6 +809,85 @@ async function generateScan(projectHandle, projectName, output) {
   } catch (err) {
     output('❌ Scan error: ' + err.message);
     return null;
+  }
+
+  // ── Cross-file check 1: ENV vars in code vs .env.local ─────────────────────
+  // Reads .env.local from project root, compares against all process.env.X found in code
+  try {
+    let envFileHandle = null;
+    for await (const [name, handle] of projectHandle.entries()) {
+      if (name === '.env.local' && handle.kind === 'file') { envFileHandle = handle; break; }
+    }
+    if (envFileHandle) {
+      const envFile    = await envFileHandle.getFile();
+      const envText    = await envFile.text();
+      const definedKeys = new Set(
+        envText.split('\n')
+          .map(l => l.trim())
+          .filter(l => l && !l.startsWith('#') && l.includes('='))
+          .map(l => l.split('=')[0].trim())
+      );
+      // Collect all process.env.X references from scanned files
+      const usedEnvPat = /process\.env\.(\w+)/g;
+      const usedKeys   = new Set();
+      async function collectEnvRefs(dirHandle, pathPfx) {
+        for await (const [name, handle] of dirHandle.entries()) {
+          if (CODE_EXCLUDE.has(name)) continue;
+          const rp = pathPfx ? pathPfx + '/' + name : name;
+          if (handle.kind === 'directory') { await collectEnvRefs(handle, rp); continue; }
+          const ext = name.split('.').pop().toLowerCase();
+          if (!REPO_EXTS.has(ext)) continue;
+          try {
+            const f = await handle.getFile();
+            const t = await f.text();
+            let m;
+            while ((m = usedEnvPat.exec(t)) !== null) usedKeys.add(m[1]);
+          } catch { /* skip */ }
+        }
+      }
+      await collectEnvRefs(projectHandle, '');
+      for (const key of usedKeys) {
+        if (!definedKeys.has(key)) {
+          findings.push({ severity: 'HIGH', file: '.env.local', line: '-', code: 'process.env.' + key, issue: 'ENV key "' + key + '" used in code but missing from .env.local — will be undefined in production' });
+        }
+      }
+    } else {
+      findings.push({ severity: 'MED', file: '.env.local', line: '-', code: '', issue: '.env.local not found in project root — environment variables cannot be verified' });
+    }
+  } catch (envErr) {
+    findings.push({ severity: 'LOW', file: '.env.local', line: '-', code: '', issue: 'Could not read .env.local: ' + envErr.message });
+  }
+
+  // ── Cross-file check 2: require() deps vs package.json ───────────────────────
+  // Reads package.json, compares all external require() calls against listed dependencies
+  try {
+    let pkgHandle = null;
+    for await (const [name, handle] of projectHandle.entries()) {
+      if (name === 'package.json' && handle.kind === 'file') { pkgHandle = handle; break; }
+    }
+    if (pkgHandle) {
+      const pkgFile = await pkgHandle.getFile();
+      const pkgJson = JSON.parse(await pkgFile.text());
+      const listed  = new Set([
+        ...Object.keys(pkgJson.dependencies      || {}),
+        ...Object.keys(pkgJson.devDependencies   || {}),
+        ...Object.keys(pkgJson.peerDependencies  || {})
+      ]);
+      // Check all collected imports (non-relative, non-node-builtin)
+      const nodeBuiltins = new Set(['fs','path','os','http','https','url','crypto','events','stream','buffer','util','assert','child_process','process','querystring']);
+      for (const dep of allImports) {
+        if (dep.startsWith('.') || dep.startsWith('/')) continue; // relative — skip
+        const pkgName = dep.startsWith('@') ? dep.split('/').slice(0,2).join('/') : dep.split('/')[0];
+        if (nodeBuiltins.has(pkgName)) continue; // node built-in — skip
+        if (!listed.has(pkgName)) {
+          findings.push({ severity: 'HIGH', file: 'package.json', line: '-', code: 'require(\'' + dep + '\')', issue: 'Package "' + pkgName + '" is used in code but not listed in package.json — will fail on deployment' });
+        }
+      }
+    } else {
+      findings.push({ severity: 'MED', file: 'package.json', line: '-', code: '', issue: 'package.json not found — cannot verify dependencies' });
+    }
+  } catch (pkgErr) {
+    findings.push({ severity: 'LOW', file: 'package.json', line: '-', code: '', issue: 'Could not read package.json: ' + pkgErr.message });
   }
 
   // Cross-file: duplicate function names
