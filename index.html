@@ -1137,7 +1137,7 @@
             if (getAuth('mobius_google_connected') === '1') return;
             if (sessionStorage.getItem('mobius_google_attempted') === '1') return;
             sessionStorage.setItem('mobius_google_attempted', '1');
-            window.location.href = '/auth/google?userId=' + userId;
+            window.location.href = '/auth/google?userId=' + userId + '&returnTo=' + encodeURIComponent(window.location.origin);
         }
         autoConnectGoogle();
     </script>

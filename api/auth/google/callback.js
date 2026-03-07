@@ -5,8 +5,18 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { code, state: userId } = req.query;
+    const { code, state: rawState } = req.query;
     if (!code) return res.status(400).json({ error: 'Authorization code is required' });
+
+    // Unpack state — supports both new JSON format and legacy plain userId string
+    let userId = '', returnTo = process.env.BASE_URL || '';
+    try {
+      const parsed = JSON.parse(rawState);
+      userId   = parsed.userId   || '';
+      returnTo = parsed.returnTo || returnTo;
+    } catch {
+      userId = rawState || ''; // legacy fallback
+    }
 
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
@@ -39,9 +49,8 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'No userId provided in OAuth state' });
     }
 
-    const baseUrl = process.env.BASE_URL;
-    if (!baseUrl) throw new Error('BASE_URL environment variable is not set.');
-    res.redirect(`${baseUrl}?google_email=${encodeURIComponent(userInfo.email)}`);
+    if (!returnTo) throw new Error('BASE_URL environment variable is not set.');
+    res.redirect(`${returnTo}?google_email=${encodeURIComponent(userInfo.email)}`);
   } catch (err) {
     console.error('Google callback error:', err);
     res.status(500).json({ error: 'Failed to complete Google auth' });
