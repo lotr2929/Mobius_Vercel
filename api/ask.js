@@ -103,16 +103,6 @@ module.exports = async function handler(req, res) {
         modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
       }
 
-    } else if (ASK === 'ollama') {
-      try {
-        reply = await askOllama(messages);
-        modelUsed = MODEL_FULL_NAMES.ollama;
-      } catch (err) {
-        console.warn('[Mobius] Ollama failed:', err.message);
-        reply = '❌ Ollama unavailable. Is it running? Try: ollama serve';
-        modelUsed = 'Ollama (local) — offline';
-      }
-
     } else if (ASK === 'qwen') {
       try {
         reply = await askOllama(messages, 'qwen2.5-coder:7b');

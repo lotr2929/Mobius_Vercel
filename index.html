@@ -906,6 +906,32 @@
             panel.appendChild(wrapper);
             scrollToBottom();
 
+            // ── Local AI path (Ollama or WebLLM) ───────────────────────────────
+            if (mq.ASK === 'webllm') {
+                try {
+                    const messages = [
+                        ...(mq.HISTORY || []),
+                        { role: 'user', content: mq.QUERY }
+                    ];
+                    const { reply, modelUsed } = await window.askLocal(
+                        messages,
+                        msg => { answerDiv.textContent = msg; scrollToBottom(); }
+                    );
+                    answerDiv.className   = 'chat-answer';
+                    answerDiv.innerHTML   = markdownToHtml(reply);
+                    answerLabel.textContent = `A:(${modelUsed})`;
+                    addResponseToolbar(wrapper, reply);
+                    chatHistory.push({ role: 'user',      content: mq.QUERY });
+                    chatHistory.push({ role: 'assistant', content: reply });
+                    document.getElementById('input').value = '';
+                    scrollToBottom();
+                } catch (err) {
+                    answerDiv.className   = 'chat-answer';
+                    answerDiv.textContent = '❌ ' + err.message;
+                }
+                return;
+            }
+
             try {
                 const res  = await fetch('/ask', {
                     method: 'POST',
@@ -1080,6 +1106,135 @@
             window.location.href = '/auth/google?userId=' + userId;
         }
         autoConnectGoogle();
+    </script>
+
+    <script type="module">
+      import * as webllm from 'https://esm.run/@mlc-ai/web-llm';
+
+      // ── Local AI state ────────────────────────────────────────────────────
+      let webllmEngine  = null;
+      let webllmLoading = false;
+      let webllmReady   = false;
+      let webllmModel   = null;
+
+      // ── Model selection: Qwen2.5-Coder, size by device ───────────────────
+      function selectWebLLMModel() {
+        const mem    = navigator.deviceMemory || 4;
+        const mobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+        return (mobile || mem <= 4)
+          ? 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC'
+          : 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC';
+      }
+
+      // ── Detect Ollama on localhost ────────────────────────────────────────
+      async function detectOllama() {
+        try {
+          const r = await fetch('http://localhost:11434/api/tags',
+            { signal: AbortSignal.timeout(1500) });
+          return r.ok;
+        } catch { return false; }
+      }
+
+      // ── Ask Ollama directly (bypass /ask serverless) ──────────────────────
+      async function askOllamaLocal(messages) {
+        const r = await fetch('http://localhost:11434/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'qwen2.5-coder:7b', messages })
+        });
+        if (!r.ok) throw new Error('Ollama returned ' + r.status);
+        const data = await r.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error('No content from Ollama');
+        return { reply: content, modelUsed: 'Ollama Qwen 2.5 Coder (local)' };
+      }
+
+      // ── Init WebLLM engine (downloads model on first use) ────────────────
+      async function initWebLLM(onProgress) {
+        if (webllmReady) return true;
+        if (webllmLoading) return false;
+        webllmLoading = true;
+        webllmModel   = selectWebLLMModel();
+        try {
+          webllmEngine = await webllm.CreateMLCEngine(webllmModel, {
+            initProgressCallback: info => {
+              if (onProgress) onProgress(info.text || String(info));
+            }
+          });
+          webllmReady   = true;
+          webllmLoading = false;
+          return true;
+        } catch (err) {
+          webllmLoading = false;
+          throw err;
+        }
+      }
+
+      // ── Ask WebLLM ────────────────────────────────────────────────────────
+      async function askWebLLMLocal(messages) {
+        if (!webllmReady) throw new Error('WebLLM not ready');
+        const result  = await webllmEngine.chat.completions.create({ messages });
+        const content = result.choices?.[0]?.message?.content;
+        if (!content) throw new Error('No content from WebLLM');
+        return { reply: content, modelUsed: 'WebLLM ' + webllmModel };
+      }
+
+      // ── Install consent prompt ────────────────────────────────────────────
+      window.promptWebLLMInstall = function() {
+        return new Promise(resolve => {
+          if (sessionStorage.getItem('webllm_consent') === '1') { resolve(true); return; }
+          const overlay = document.createElement('div');
+          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;';
+          const box = document.createElement('div');
+          box.style.cssText = 'background:#f5eedd;border:1px solid #8d7c64;border-radius:2px;padding:24px 28px;max-width:420px;width:90%;font-family:"Century Gothic","Avenir","Segoe UI",sans-serif;color:#3a2e22;';
+          box.innerHTML = `
+            <div style="font-size:17px;font-weight:bold;margin-bottom:12px;">Enable Offline AI?</div>
+            <div style="font-size:14px;line-height:1.6;margin-bottom:18px;">
+              Would you like to enable Mobius to run offline? This will require a one-time download of a local AI model, approximately 1.5\u20134.5 GB depending on your device. The model is stored in your browser \u2014 clearing browser data will remove it.
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+              <button id="wllm-cancel" style="padding:6px 18px;background:transparent;border:1px solid #8d7c64;border-radius:1px;color:#8d7c64;cursor:pointer;font-family:inherit;font-size:14px;">Cancel</button>
+              <button id="wllm-ok" style="padding:6px 18px;background:#4a7c4e;border:none;border-radius:1px;color:#fff;cursor:pointer;font-family:inherit;font-size:14px;">Download &amp; Enable</button>
+            </div>`;
+          overlay.appendChild(box);
+          document.body.appendChild(overlay);
+          document.getElementById('wllm-ok').onclick = () => {
+            sessionStorage.setItem('webllm_consent', '1');
+            document.body.removeChild(overlay);
+            resolve(true);
+          };
+          document.getElementById('wllm-cancel').onclick = () => {
+            document.body.removeChild(overlay);
+            resolve(false);
+          };
+        });
+      };
+
+      // ── Main entry: called by executeQuery() when ASK === 'webllm' ────────
+      window.askLocal = async function(messages, onStatus) {
+        // 1. Try Ollama first (desktop with IPEX-LLM)
+        onStatus('\uD83D\uDD0D Checking for local Ollama...');
+        const ollamaAvailable = await detectOllama();
+        if (ollamaAvailable) {
+          onStatus('\u26A1 Using Ollama (local)...');
+          return await askOllamaLocal(messages);
+        }
+        // 2. Check WebGPU
+        if (!navigator.gpu) {
+          throw new Error('No local AI available. Ollama not running and WebGPU not supported on this device. Try Ask: Groq or another cloud model.');
+        }
+        // 3. First use \u2014 prompt for download consent
+        if (!webllmReady && !webllmLoading) {
+          const consent = await window.promptWebLLMInstall();
+          if (!consent) throw new Error('Offline AI install cancelled. Try Ask: Groq or another cloud model.');
+        }
+        // 4. Init / load WebLLM (may download model)
+        if (!webllmReady) {
+          await initWebLLM(msg => onStatus('\u2B07\uFE0F ' + msg));
+        }
+        onStatus('\uD83E\uDDE0 Running local AI...');
+        return await askWebLLMLocal(messages);
+      };
     </script>
 
     <script src="commands.js"></script>

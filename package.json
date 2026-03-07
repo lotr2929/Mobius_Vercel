@@ -2,7 +2,7 @@
   "name": "mobius-vercel",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "node server.js",
     "deploy": "vercel --prod"
   },
   "dependencies": {

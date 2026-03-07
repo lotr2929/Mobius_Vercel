@@ -5,7 +5,7 @@
 
 // ── Model persistence ─────────────────────────────────────────────────────────
 
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'ollama', 'qwen', 'deepseek'];
+const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github', 'qwen', 'deepseek', 'webllm'];
 
 function getLastModel() {
   return localStorage.getItem('mobius_last_model') || 'groq';
@@ -1907,13 +1907,15 @@ async function runCommand(command, args, outputFn, outputEl) {
 }
 
 // Returns the model for the current Ask and updates saved default if explicit.
+// 'local' is an alias for 'webllm'.
 function getAskModel(text) {
   const match = text.match(/^Ask:\s*(\w+)/i);
   if (match) {
-    const model = match[1].toLowerCase();
-    if (MODEL_CHAIN.includes(model)) {
-      setLastModel(model);
-      return model;
+    const model    = match[1].toLowerCase();
+    const resolved = model === 'local' ? 'webllm' : model;
+    if (MODEL_CHAIN.includes(resolved)) {
+      setLastModel(resolved);
+      return resolved;
     }
   }
   return getLastModel();
