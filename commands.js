@@ -13,9 +13,11 @@ function getLastModel() {
 }
 
 function setLastModel(model) {
-  if (MODEL_CHAIN.includes(model)) {
-    localStorage.setItem('mobius_last_model', model);
-  }
+  if (!MODEL_CHAIN.includes(model)) return;
+  // 'local' and 'webllm' are always session-only — never the persistent default
+  // Default is always groq (cloud). Use Ask: local explicitly for local AI.
+  if (model === 'local' || model === 'webllm') return;
+  localStorage.setItem('mobius_last_model', model);
 }
 
 function nextModelInChain(current) {

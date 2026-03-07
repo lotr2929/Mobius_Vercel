@@ -1236,7 +1236,7 @@
       // ── Install consent prompt ────────────────────────────────────────────
       window.promptWebLLMInstall = function() {
         return new Promise(resolve => {
-          if (sessionStorage.getItem('webllm_consent') === '1') { resolve(true); return; }
+          if (localStorage.getItem('webllm_consent') === '1') { resolve(true); return; }
           const overlay = document.createElement('div');
           overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;';
           const box = document.createElement('div');
@@ -1253,7 +1253,7 @@
           overlay.appendChild(box);
           document.body.appendChild(overlay);
           document.getElementById('wllm-ok').onclick = () => {
-            sessionStorage.setItem('webllm_consent', '1');
+            localStorage.setItem('webllm_consent', '1');
             document.body.removeChild(overlay);
             resolve(true);
           };
@@ -1266,16 +1266,24 @@
 
       // ── Main entry: called by executeQuery() when ASK === 'webllm' ────────
       window.askLocal = async function(messages, onStatus) {
-        // 1. Try Ollama first (desktop with IPEX-LLM)
-        onStatus('\uD83D\uDD0D Checking for local Ollama...');
-        const ollamaAvailable = await detectOllama();
-        if (ollamaAvailable) {
-          onStatus('\u26A1 Using Ollama (local)...');
-          return await askOllamaLocal(messages);
+        const isMobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+
+        // 1. Try Ollama first \u2014 desktop only (not available on mobile)
+        if (!isMobile) {
+          onStatus('\uD83D\uDD0D Checking for Ollama (desktop local AI)...');
+          const ollamaAvailable = await detectOllama();
+          if (ollamaAvailable) {
+            onStatus('\u26A1 Using Ollama...');
+            return await askOllamaLocal(messages);
+          }
+          onStatus('\u26A0\uFE0F Ollama not running \u2014 trying WebGPU...');
         }
+
         // 2. Check WebGPU
         if (!navigator.gpu) {
-          throw new Error('No local AI available. Ollama not running and WebGPU not supported on this device. Try Ask: Groq or another cloud model.');
+          throw new Error(isMobile
+            ? 'WebGPU not supported on this device. Try Ask: Groq or another cloud model.'
+            : 'No local AI available. Ollama not running and WebGPU not supported. Try Ask: Groq or another cloud model.');
         }
         // 3. First use \u2014 prompt for download consent
         if (!webllmReady && !webllmLoading) {
