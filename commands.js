@@ -1841,6 +1841,206 @@ function updateCodeBadge() {
   }
 }
 
+// ── Status (self-diagnosis) ─────────────────────────────────────────────────────
+
+async function handleStatus(args, output, outputEl) {
+  const isLocal   = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const userId    = getAuth('mobius_user_id');
+  const vercelUrl = 'https://mobius-vercel.vercel.app';
+
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+
+  // ── Render helpers ────────────────────────────────────────────────────────
+  function row(icon, label, status, detail) {
+    const colour = status === 'ok' ? '#4a7c4e' : status === 'warn' ? '#a06800' : '#8d3a3a';
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex; align-items:baseline; gap:8px; padding:3px 0; font-size:13px; border-bottom:1px solid #e2dccd;';
+    d.innerHTML =
+      '<span style="width:16px;text-align:center;flex-shrink:0;">' + icon + '</span>' +
+      '<span style="flex:1;color:#3a2e22;">' + label + '</span>' +
+      '<span style="color:' + colour + ';font-weight:bold;flex-shrink:0;">' + detail + '</span>';
+    outputEl.appendChild(d);
+  }
+
+  function section(title) {
+    const d = document.createElement('div');
+    d.style.cssText = 'font-size:11px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px;';
+    d.textContent = title;
+    outputEl.appendChild(d);
+  }
+
+  function header() {
+    const d = document.createElement('div');
+    d.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:6px;';
+    d.textContent = '⚙️  Mobius Status — ' + new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    outputEl.appendChild(d);
+  }
+
+  function placeholder(label) {
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex; align-items:baseline; gap:8px; padding:3px 0; font-size:13px; border-bottom:1px solid #e2dccd; color:#8d7c64; font-style:italic;';
+    d.innerHTML = '<span style="width:16px;text-align:center;">⏳</span><span style="flex:1;">' + label + '</span><span>checking…</span>';
+    outputEl.appendChild(d);
+    return d;
+  }
+
+  // ── Check helper: resolves { ok, detail } ────────────────────────────────
+  async function ping(url, opts = {}) {
+    const start = Date.now();
+    try {
+      const r = await fetch(url, { method: opts.method || 'GET', signal: AbortSignal.timeout(5000), ...opts.fetchOpts });
+      const ms = Date.now() - start;
+      return { ok: r.ok || r.status < 500, status: r.status, ms };
+    } catch (e) {
+      return { ok: false, status: 0, ms: Date.now() - start, err: e.message };
+    }
+  }
+
+  header();
+
+  // ── 1. Environment ────────────────────────────────────────────────────────
+  section('Environment');
+  const env    = isLocal ? 'localhost:' + window.location.port : window.location.hostname;
+  const envIcon = isLocal ? '🏠' : '☁️';
+  row(envIcon, 'Running on', 'ok', env);
+
+  // ── 2. Network checks (all in parallel) ─────────────────────────────────
+  section('Connectivity');
+
+  const checks = {};
+
+  // Vercel — always checked
+  const pLocal       = placeholder('Local server (localhost:3000)');
+  const pVercel      = placeholder('Vercel deployment');
+  const pGoogleAuth  = placeholder('Google OAuth');
+  const pGoogleInfo  = placeholder('Google APIs');
+  const pSupabase    = placeholder('Supabase / Chat History');
+  const pOllama      = isLocal ? placeholder('Ollama (local AI)') : null;
+  const pSW          = placeholder('Service Worker (PWA)');
+
+  // Fire all async checks
+  const tasks = [
+    // Local server — only meaningful from localhost
+    (async () => {
+      if (!isLocal) {
+        pLocal.innerHTML = '<span style="width:16px;text-align:center;">—</span><span style="flex:1;color:#8d7c64;">Local server (localhost:3000)</span><span style="color:#8d7c64;">N/A (not on localhost)</span>';
+        return;
+      }
+      const r = await ping('http://localhost:3000/');
+      pLocal.innerHTML = '';
+      row('🖥️', 'Local server (localhost:3000)', r.ok ? 'ok' : 'err',
+        r.ok ? '✅ up (' + r.ms + ' ms)' : '❌ unreachable');
+      pLocal.remove();
+    })(),
+
+    // Vercel
+    (async () => {
+      const r = await ping(vercelUrl + '/');
+      pVercel.innerHTML = '';
+      row('☁️', 'Vercel (' + vercelUrl.replace('https://','') + ')', r.ok ? 'ok' : 'err',
+        r.ok ? '✅ up (' + r.ms + ' ms)' : '❌ unreachable (' + (r.err || r.status) + ')');
+      pVercel.remove();
+    })(),
+
+    // Google OAuth status
+    (async () => {
+      if (!userId) {
+        pGoogleAuth.innerHTML = '<span style="width:16px;">—</span><span style="flex:1;">Google OAuth</span><span style="color:#8d3a3a;">❌ not logged in</span>';
+        return;
+      }
+      const r = await ping('/api/auth/google/status?userId=' + encodeURIComponent(userId));
+      let detail = '❌ not connected';
+      let status = 'err';
+      if (r.ok) {
+        try {
+          const res  = await fetch('/api/auth/google/status?userId=' + encodeURIComponent(userId), { signal: AbortSignal.timeout(5000) });
+          const data = await res.json();
+          if (data.connected) { detail = '✅ connected (' + (data.email || 'unknown') + ')'; status = 'ok'; }
+          else                 { detail = '⚠️  not connected'; status = 'warn'; }
+        } catch { detail = '⚠️  parse error'; status = 'warn'; }
+      }
+      pGoogleAuth.innerHTML = '';
+      row('🔑', 'Google OAuth', status, detail);
+      pGoogleAuth.remove();
+      // Update header dot silently
+      updateGoogleDot(status === 'ok');
+    })(),
+
+    // Google API info
+    (async () => {
+      if (!userId) { pGoogleInfo.innerHTML = '<span style="width:16px;">—</span><span style="flex:1;">Google APIs</span><span style="color:#8d3a3a;">❌ not logged in</span>'; return; }
+      try {
+        const res  = await fetch('/api/google/info?userId=' + encodeURIComponent(userId), { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        pGoogleInfo.innerHTML = '';
+        if (data.email) row('📂', 'Google APIs (Drive/Gmail)', 'ok', '✅ ' + data.email);
+        else            row('📂', 'Google APIs (Drive/Gmail)', 'warn', '⚠️  ' + (data.error || 'no account'));
+        pGoogleInfo.remove();
+      } catch (e) {
+        pGoogleInfo.innerHTML = '';
+        row('📂', 'Google APIs (Drive/Gmail)', 'err', '❌ ' + e.message);
+        pGoogleInfo.remove();
+      }
+    })(),
+
+    // Supabase via chat-history endpoint
+    (async () => {
+      if (!userId) { pSupabase.innerHTML = '<span style="width:16px;">—</span><span style="flex:1;">Supabase / Chat History</span><span style="color:#8d3a3a;">❌ not logged in</span>'; return; }
+      const r = await ping('/api/chat-history?userId=' + encodeURIComponent(userId));
+      pSupabase.innerHTML = '';
+      row('🗄️', 'Supabase / Chat History', r.ok ? 'ok' : 'err',
+        r.ok ? '✅ reachable (' + r.ms + ' ms)' : '❌ error (status ' + r.status + ')');
+      pSupabase.remove();
+    })(),
+
+    // Ollama — localhost only
+    (async () => {
+      if (!isLocal || !pOllama) return;
+      try {
+        const res  = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+        const data = await res.json();
+        const models = (data.models || []).map(m => m.name).join(', ') || 'none';
+        pOllama.innerHTML = '';
+        row('🧠', 'Ollama (local AI)', 'ok', '✅ running — ' + models);
+        pOllama.remove();
+      } catch {
+        pOllama.innerHTML = '';
+        row('🧠', 'Ollama (local AI)', 'warn', '⚠️  not running');
+        pOllama.remove();
+      }
+    })(),
+
+    // Service Worker
+    (async () => {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        const active = regs.filter(r => r.active);
+        pSW.innerHTML = '';
+        row('📦', 'Service Worker (PWA)', active.length ? 'ok' : 'warn',
+          active.length ? '✅ active (' + active.length + ')' : '⚠️  not registered');
+        pSW.remove();
+      } catch {
+        pSW.innerHTML = '';
+        row('📦', 'Service Worker (PWA)', 'warn', '⚠️  unavailable');
+        pSW.remove();
+      }
+    })()
+  ];
+
+  await Promise.allSettled(tasks);
+
+  // ── 3. Session summary ───────────────────────────────────────────────────
+  section('Session');
+  row('💬', 'Chat history (this session)', 'ok', chatHistory.length / 2 + ' exchange(s)');
+  const cs = window.getCodeSession ? window.getCodeSession() : null;
+  row('⌨️', 'Code mode', cs ? 'ok' : 'ok', cs ? '✅ ' + cs.projectName : 'off');
+  const ff = window.getFocusFile ? window.getFocusFile() : null;
+  row('📎', 'Focus file', ff ? 'ok' : 'ok', ff ? '✅ ' + ff.name : 'none');
+
+  document.getElementById('input').value = '';
+}
+
 // ── Chat History ──────────────────────────────────────────────────────────────
 
 async function handleChatHistory(args, output) {
@@ -1872,6 +2072,7 @@ const COMMANDS = {
   'find':     { requiresAccess: true,  isAI: false, handler: handleFind },
   'list':     { requiresAccess: true,  isAI: false, handler: handleList },
   'history':  { requiresAccess: false, isAI: false, handler: handleChatHistory },
+  'status':   { requiresAccess: false, isAI: false, handler: handleStatus },
   'new':      { requiresAccess: false, isAI: false, handler: handleNew },
   'focus':    { requiresAccess: false, isAI: false, handler: handleFocus },
   'code':     { requiresAccess: false, isAI: false, handler: handleCode },
@@ -1879,7 +2080,7 @@ const COMMANDS = {
 };
 
 // Commands that work as a single word with no colon needed
-const SINGLE_WORD_COMMANDS = new Set(['date','time','location','device','access','list','history','google']);
+const SINGLE_WORD_COMMANDS = new Set(['date','time','location','device','access','list','history','google','status']);
 
 // ── Public API (called by index.html) ─────────────────────────────────────────
 

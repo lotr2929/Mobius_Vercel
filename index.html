@@ -223,6 +223,7 @@
         <!-- Desktop: single row; Mobile: two rows -->
         <div id="headerRight" style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px; justify-content:flex-end;">
             <span id="userLabel" style="font-size:14px; color:#4a3728; white-space:nowrap;"></span>
+            <span id="googleDot" title="Google not connected — type 'status' for details" style="display:none; width:8px; height:8px; background:#c07800; border-radius:50%; flex-shrink:0; cursor:default;"></span>
             <div style="display:flex; gap:6px; flex-shrink:0;">
                 <a href="/help" target="_blank" style="font-size:13px; color:#8d7c64; text-decoration:none; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; white-space:nowrap;">Help</a>
                 <button onclick="logout()" style="font-size:13px; background:transparent; color:#8d7c64; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; cursor:pointer; height:auto; white-space:nowrap;">Log Out</button>
@@ -283,6 +284,25 @@
         function getAuth(key) {
             return localStorage.getItem(key) || sessionStorage.getItem(key) || getCookie(key) || null;
         }
+
+        // ── Google dot: updated by status command and startup ping ──────────────────────
+        function updateGoogleDot(connected) {
+            const dot = document.getElementById('googleDot');
+            if (!dot) return;
+            dot.style.display = connected ? 'none' : 'inline-block';
+        }
+        window.updateGoogleDot = updateGoogleDot;
+
+        // Silent startup ping — Google OAuth only, no UI noise
+        (async () => {
+            try {
+                const uid = getAuth('mobius_user_id');
+                if (!uid) return;
+                const res  = await fetch('/api/auth/google/status?userId=' + encodeURIComponent(uid), { signal: AbortSignal.timeout(5000) });
+                const data = await res.json();
+                updateGoogleDot(!!data.connected);
+            } catch { /* silent — don't surface startup errors */ }
+        })();
         function setAuth(key, value) {
             try { localStorage.setItem(key, value); } catch(e) {}
             try { sessionStorage.setItem(key, value); } catch(e) {}
