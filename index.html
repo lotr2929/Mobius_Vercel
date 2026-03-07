@@ -907,6 +907,40 @@
             scrollToBottom();
 
             // ── Local AI path (Ollama or WebLLM) ───────────────────────────────
+            if (mq.ASK === 'qwen' || mq.ASK === 'deepseek') {
+                try {
+                    const ollamaModel = mq.ASK === 'qwen' ? 'qwen2.5-coder:7b' : 'deepseek-r1:7b';
+                    const modelLabel  = mq.ASK === 'qwen' ? 'Ollama Qwen 2.5 Coder (local)' : 'Ollama DeepSeek R1 7B (local)';
+                    answerDiv.textContent = '⚡ Connecting to Ollama...';
+                    const r = await fetch('http://localhost:11434/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: ollamaModel,
+                            messages: [...(mq.HISTORY || []), { role: 'user', content: mq.QUERY }]
+                        })
+                    });
+                    if (!r.ok) throw new Error('Ollama returned ' + r.status);
+                    const data    = await r.json();
+                    const content = data.choices?.[0]?.message?.content;
+                    if (!content) throw new Error('No content from Ollama');
+                    answerDiv.className     = 'chat-answer';
+                    answerDiv.innerHTML     = markdownToHtml(content);
+                    answerLabel.textContent = `A:(${modelLabel})`;
+                    addResponseToolbar(wrapper, content);
+                    chatHistory.push({ role: 'user',      content: mq.QUERY });
+                    chatHistory.push({ role: 'assistant', content });
+                    document.getElementById('input').value = '';
+                    scrollToBottom();
+                } catch (err) {
+                    answerDiv.className   = 'chat-answer';
+                    answerDiv.textContent = '❌ ' + (err.message.includes('Failed to fetch') || err.message.includes('Ollama')
+                        ? 'Ollama unavailable. Is it running? Start it with start-ollama.bat'
+                        : err.message);
+                }
+                return;
+            }
+
             if (mq.ASK === 'webllm') {
                 try {
                     const messages = [

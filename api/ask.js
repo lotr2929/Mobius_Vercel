@@ -103,26 +103,6 @@ module.exports = async function handler(req, res) {
         modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
       }
 
-    } else if (ASK === 'qwen') {
-      try {
-        reply = await askOllama(messages, 'qwen2.5-coder:7b');
-        modelUsed = MODEL_FULL_NAMES.qwen;
-      } catch (err) {
-        console.warn('[Mobius] Qwen failed:', err.message);
-        reply = '❌ Qwen unavailable. Is Ollama running with qwen2.5-coder:7b pulled?';
-        modelUsed = 'Ollama Qwen 2.5 Coder — offline';
-      }
-
-    } else if (ASK === 'deepseek') {
-      try {
-        reply = await askOllama(messages, 'deepseek-r1:7b');
-        modelUsed = MODEL_FULL_NAMES.deepseek;
-      } catch (err) {
-        console.warn('[Mobius] DeepSeek failed:', err.message);
-        reply = '❌ DeepSeek unavailable. Is Ollama running with deepseek-r1:7b pulled?';
-        modelUsed = 'Ollama DeepSeek R1 7B — offline';
-      }
-
     } else if (ASK === 'websearch') {
       appendFileTexts();
       try {
