@@ -17,7 +17,7 @@ module.exports = async function handler(req, res) {
   try {
     // Rebuild system instruction from INSTRUCTIONS mode label
     const systemPrompts = {
-      'Brief': 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 200 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.',
+      'Brief': 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 500 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.',
       'Long':  'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.',
       'Code':  'You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
     };

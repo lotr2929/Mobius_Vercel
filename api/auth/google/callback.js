@@ -39,7 +39,8 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'No userId provided in OAuth state' });
     }
 
-    const baseUrl = process.env.BASE_URL || 'https://mobius-plum.vercel.app';
+    const baseUrl = process.env.BASE_URL;
+    if (!baseUrl) throw new Error('BASE_URL environment variable is not set.');
     res.redirect(`${baseUrl}?google_email=${encodeURIComponent(userInfo.email)}`);
   } catch (err) {
     console.error('Google callback error:', err);

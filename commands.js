@@ -5,7 +5,8 @@
 
 // ── Model persistence ─────────────────────────────────────────────────────────
 
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github', 'qwen', 'deepseek', 'webllm'];
+// Cloud models + local aliases. 'local' routes to Ollama → WebLLM automatically.
+const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github', 'local', 'qwen', 'deepseek', 'webllm'];
 
 function getLastModel() {
   return localStorage.getItem('mobius_last_model') || 'groq';

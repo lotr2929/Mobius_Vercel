@@ -73,7 +73,8 @@ async function askGitHub(messages) {
   return content;
 }
 
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github', 'ollama', 'qwen', 'deepseek'];
+// Cloud-only fallback chain — local models (Ollama, WebLLM) are client-side only
+const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github'];
 
 const MODEL_FULL_NAMES = {
   groq:    'Groq Llama 3.3 70B',
