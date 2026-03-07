@@ -1,13 +1,15 @@
 // ── Mobius Local Server ───────────────────────────────────────────────────────
 // Serves the Mobius static shell on http://localhost:3000.
-// Vercel /api/* endpoints are called directly from the client as external APIs.
+// Proxies /api/* requests to Vercel (cloud API gateway).
 // Start: node server.js  (or via npm run dev)
 
-const http   = require('http');
-const fs     = require('fs');
-const path   = require('path');
+const http  = require('http');
+const https = require('https');
+const fs    = require('fs');
+const path  = require('path');
 
-const PORT = process.env.PORT || 3000;
+const PORT        = process.env.PORT || 3000;
+const VERCEL_HOST = 'mobius-vercel.vercel.app';
 
 const MIME = {
   '.html': 'text/html',
@@ -20,19 +22,42 @@ const MIME = {
 };
 
 http.createServer((req, res) => {
-  // Normalise URL — strip query string, default to index.html
-  let urlPath = req.url.split('?')[0];
-  if (urlPath === '/' || urlPath === '')    urlPath = '/index.html';
-  if (urlPath === '/login')                 urlPath = '/login.html';
-  if (urlPath === '/signup')                urlPath = '/signup.html';
+  const urlPath = req.url.split('?')[0];
 
-  const filePath = path.join(__dirname, urlPath);
-  const ext      = path.extname(filePath);
+  // ── Proxy /api/* to Vercel ──────────────────────────────────────────────────
+  if (urlPath.startsWith('/api/') || urlPath.startsWith('/auth/') || urlPath === '/ask' || urlPath === '/parse' || urlPath === '/upload') {
+    const options = {
+      hostname: VERCEL_HOST,
+      path:     req.url,
+      method:   req.method,
+      headers:  { ...req.headers, host: VERCEL_HOST }
+    };
+    const proxy = https.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
+    proxy.on('error', (err) => {
+      console.error('[Proxy error]', err.message);
+      res.writeHead(502);
+      res.end('Proxy error: ' + err.message);
+    });
+    req.pipe(proxy);
+    return;
+  }
+
+  // ── Serve static files ──────────────────────────────────────────────────────
+  let filePath = urlPath;
+  if (filePath === '/' || filePath === '') filePath = '/index.html';
+  if (filePath === '/login')              filePath = '/login.html';
+  if (filePath === '/signup')             filePath = '/signup.html';
+
+  const fullPath = path.join(__dirname, filePath);
+  const ext      = path.extname(fullPath);
   const mimeType = MIME[ext] || 'text/plain';
 
-  fs.readFile(filePath, (err, data) => {
+  fs.readFile(fullPath, (err, data) => {
     if (err) {
-      // Any unresolved path falls back to index.html (SPA behaviour)
+      // SPA fallback — any unresolved path serves index.html
       fs.readFile(path.join(__dirname, 'index.html'), (e2, d2) => {
         if (e2) { res.writeHead(500); res.end('Server error'); return; }
         res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -43,6 +68,8 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': mimeType });
     res.end(data);
   });
+
 }).listen(PORT, () => {
   console.log('Mobius running at http://localhost:' + PORT);
+  console.log('API proxying to https://' + VERCEL_HOST);
 });
