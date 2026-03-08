@@ -570,7 +570,7 @@ function offerDownload(outputEl, filename, content) {
   link.textContent = '⬇️  Save ' + filename;
   link.href        = url;
   link.download    = filename;
-  link.title       = 'Left-click: Save As dialog  |  Right-click: Save link as';
+  link.title       = 'Save into the documents/ folder of your project  |  Left-click: Save As  |  Right-click: Save link as';
   link.style.cssText = 'display:block; margin-top:8px; color:#4a7c4e; font-weight:bold; cursor:pointer;';
 
   link.onclick = async e => {
@@ -578,11 +578,20 @@ function offerDownload(outputEl, filename, content) {
     if (window.showSaveFilePicker) {
       e.preventDefault();
       try {
-        const ext    = filename.split('.').pop();
-        const handle = await window.showSaveFilePicker({
+        const ext = filename.split('.').pop();
+        // Try to open picker inside the project documents/ subfolder
+        let startDir = null;
+        if (window.getCodeSession && window.getCodeSession()?.projectHandle) {
+          try {
+            startDir = await window.getCodeSession().projectHandle.getDirectoryHandle('documents', { create: false });
+          } catch { /* documents/ doesn't exist — fall through */ }
+        }
+        const opts = {
           suggestedName: filename,
           types: [{ description: 'Text file', accept: { 'text/plain': ['.' + ext] } }]
-        });
+        };
+        if (startDir) opts.startIn = startDir;
+        const handle = await window.showSaveFilePicker(opts);
         const writable = await handle.createWritable();
         await writable.write(content);
         await writable.close();
@@ -970,12 +979,12 @@ async function generateRepo(projectHandle, projectName, output, outputEl) {
         }
       }
 
-      // [E] process.env references
+      // [V] process.env references
       const envPat = /process\.env\.([A-Z0-9_]+)/g;
       const envVars = new Set();
       let em;
       while ((em = envPat.exec(text)) !== null) envVars.add(em[1]);
-      for (const v of [...envVars].sort()) lines.push('[E] ' + v);
+      for (const v of [...envVars].sort()) lines.push('[V] ' + v);
 
       // [>] require/import — skip template literals and expressions
       const reqPat = /require\s*\(\s*['"]([^'"]+)['"]\s*\)|from\s+['"]([^'"]+)['"]/g;
@@ -1018,8 +1027,16 @@ async function generateRepo(projectHandle, projectName, output, outputEl) {
   }
 
   const timestamp  = new Date().toLocaleString('en-AU');
+  const legend =
+    '# Classifier Legend\n' +
+    '# [F] Function        — named function or arrow function\n' +
+    '# [V] Env variable    — process.env.* reference\n' +
+    '# [>] Import          — require() or import from\n' +
+    '# [<] Export          — module.exports entry\n' +
+    '# [R] Route           — Express app.get/post/put/delete/patch endpoint\n';
   const repoContent = '# ' + projectName + ' — Code Index\n' +
-    '# Generated: ' + timestamp + '\n\n' +
+    '# Generated: ' + timestamp + '\n' +
+    legend + '\n' +
     sections.join('\n\n');
 
   return repoContent;
@@ -1137,16 +1154,45 @@ async function handleCode(args, output, outputEl) {
       if (!codeSession.repoContent) { append('❌ No .repo available. Run Code: repo first.'); return; }
       append('🗺️  Generating map for ' + codeSession.projectName + '...');
 
-    const mapPrompt = 'You are a senior software architect. Analyse this code index and produce a concise project map.\n\n' +
-      'Structure your response with these exact sections:\n' +
-      '# ' + codeSession.projectName + ' — Project Map\n\n' +
-      '## Purpose\nOne paragraph: what this project does and who it is for.\n\n' +
-      '## Architecture\nHow the project is structured — frontend, backend, APIs, data flow. Be specific about files and their roles.\n\n' +
-      '## Key Files\nList the most important files and one sentence on what each does.\n\n' +
-      '## Data Flow\nHow a typical request moves through the system end-to-end.\n\n' +
-      '## External Dependencies\nAPIs, services, and environment variables the project relies on.\n\n' +
-      '## Notes\nAny notable patterns, risks, or things a new developer should know.\n\n' +
-      '---\nCODE INDEX:\n' + codeSession.repoContent;
+      // ── Read README and old .map from project folder (optional context) ──
+      let readmeContent = '';
+      let oldMapContent = '';
+      try {
+        const readmeHandle = await codeSession.projectHandle.getFileHandle('README.md', { create: false });
+        const readmeFile   = await readmeHandle.getFile();
+        readmeContent      = await readmeFile.text();
+        append('📄 README.md loaded (' + readmeContent.length + ' chars)');
+      } catch { append('ℹ️  No README.md found — skipping.'); }
+      try {
+        const docsHandle   = await codeSession.projectHandle.getDirectoryHandle('documents', { create: false });
+        const mapName      = codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '.map';
+        const mapHandle    = await docsHandle.getFileHandle(mapName, { create: false });
+        const mapFile      = await mapHandle.getFile();
+        oldMapContent      = await mapFile.text();
+        append('🗺️  Previous .map loaded (' + oldMapContent.length + ' chars)');
+      } catch { append('ℹ️  No previous .map found — generating fresh.'); }
+
+      const mapPrompt =
+        'You are a senior software architect generating a living project map.\n' +
+        'Use British English. Be concise and precise.\n\n' +
+        'You have been given three inputs:\n' +
+        '1. CODE INDEX (.repo) — the current state of the codebase, auto-generated\n' +
+        '2. README — human-facing documentation describing the project\n' +
+        '3. PREVIOUS MAP — the last .map file (may be empty if this is the first run)\n\n' +
+        'Your task:\n' +
+        '- Produce an updated .map that reflects the current codebase\n' +
+        '- Preserve and refine design decisions and architecture thinking from the previous .map\n' +
+        '- Where the previous .map contains decisions or principles that are still valid, keep them\n' +
+        '- Where the code has changed or the previous .map is outdated, update it\n' +
+        '- You may respectfully disagree with or refine decisions in the previous .map if the code evidence suggests a better framing\n' +
+        '- Use [D] prefix for design decisions and principles, [E] prefix for external facts (URLs, keys, services)\n\n' +
+        'Structure your response with these sections (add others if the project warrants it):\n' +
+        '# ' + codeSession.projectName + ' — Project Map\n\n' +
+        '## Purpose\n## Architecture\n## Key Files\n## Data Flow\n## AI Models\n## External Dependencies\n## Design Principles\n\n' +
+        '---\n' +
+        '## CODE INDEX (.repo)\n' + codeSession.repoContent + '\n\n' +
+        '## README\n' + (readmeContent || '(not found)') + '\n\n' +
+        '## PREVIOUS MAP\n' + (oldMapContent || '(none — first run)');
 
     try {
       const res  = await fetch('/ask', {
@@ -1766,15 +1812,23 @@ async function codeSelectFolder(m, projectName, outputEl) {
   const auditName = baseName + '.audit';
 
   async function findDocFile(dirHandle, filename, depth) {
-    if (depth > 3) return null;
+    if (depth > 2) return null;
+    // Check documents/ subfolder first (preferred location)
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind === 'directory' && name.toLowerCase() === 'documents') {
+        for await (const [dname, dhandle] of handle.entries()) {
+          if (dhandle.kind === 'file' && dname.toLowerCase() === filename) {
+            const file = await dhandle.getFile();
+            return { content: await file.text(), date: new Date(file.lastModified) };
+          }
+        }
+      }
+    }
+    // Fallback: check root of project (legacy / stray files)
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === 'file' && name.toLowerCase() === filename) {
         const file = await handle.getFile();
         return { content: await file.text(), date: new Date(file.lastModified) };
-      }
-      if (handle.kind === 'directory' && name.toLowerCase() === 'documents') {
-        const found = await findDocFile(handle, filename, depth + 1);
-        if (found) return found;
       }
     }
     return null;
