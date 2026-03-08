@@ -36,8 +36,12 @@ module.exports = async function handler(req, res) {
       m => !SYSTEM_PREFIXES.some(p => m.content?.startsWith(p))
     );
 
+    // Normalise web aliases
+    const webAliases = { 'websearch': 'web', 'web': 'web', 'web2': 'web2', 'web3': 'web3' };
+    const resolvedModel = webAliases[model?.toLowerCase()] || model || 'groq';
+
     const mobius_query = {
-      ASK: model || 'groq',
+      ASK: resolvedModel,
       INSTRUCTIONS: instructionMode,
       HISTORY: history_clean,
       QUERY: cleanText,

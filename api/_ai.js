@@ -125,26 +125,64 @@ async function askOllama(messages, model = 'qwen2.5-coder:7b') {
   return content;
 }
 
-async function askWebSearch(messages) {
+// Phrases that indicate the AI lacks current/live data
+const CUTOFF_PHRASES = [
+  'knowledge cutoff', 'training cutoff', 'training data',
+  'as of my last update', 'as of my knowledge', 'i don\'t have access to real-time',
+  'i cannot browse', 'i can\'t browse', 'no internet access',
+  'i don\'t have internet', 'i cannot access the internet',
+  'my information may be outdated', 'i don\'t have current',
+  'i cannot provide real-time', 'not able to access current'
+];
+
+function detectsCutoff(text) {
+  const lower = text.toLowerCase();
+  return CUTOFF_PHRASES.some(p => lower.includes(p));
+}
+
+// depth: 1=web (basic,5), 2=web2 (advanced,8,+answer), 3=web3 (advanced,12,+raw)
+async function askWebSearch(messages, depth = 1) {
   const tavilyKey = process.env.TAVILY_API_KEY;
   if (!tavilyKey) throw new Error('TAVILY_API_KEY is not set on the server.');
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
   const query = lastUserMsg ? lastUserMsg.content : '';
+
+  const searchDepth  = depth === 1 ? 'basic' : 'advanced';
+  const maxResults   = depth === 1 ? 5 : depth === 2 ? 8 : 12;
+  const includeAnswer     = depth >= 2;
+  const includeRawContent = depth >= 3;
+
   const searchRes = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: tavilyKey, query, max_results: 5, include_answer: false })
+    body: JSON.stringify({
+      api_key: tavilyKey,
+      query,
+      search_depth: searchDepth,
+      max_results: maxResults,
+      include_answer: includeAnswer,
+      include_raw_content: includeRawContent
+    })
   });
   const searchData = await searchRes.json();
-  if (searchData.error) throw new Error('Tavily error: ' + searchData.error);
-  const context = searchData.results
-    .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}\nSource: ${r.url}`)
+  if (searchData.error) throw new Error('Tavily: ' + (searchData.error.message || JSON.stringify(searchData.error)));
+
+  let context = searchData.results
+    .map((r, i) => {
+      const raw = includeRawContent && r.raw_content ? '\nFull content: ' + r.raw_content.slice(0, 1500) : '';
+      return `[${i + 1}] ${r.title}\n${r.content}${raw}\nSource: ${r.url}`;
+    })
     .join('\n\n');
+
+  if (includeAnswer && searchData.answer) {
+    context = 'Tavily summary: ' + searchData.answer + '\n\n' + context;
+  }
+
   const augmented = messages.map((m, i) => {
     if (i === messages.length - 1 && m.role === 'user') {
       return {
         role: 'user',
-        content: `Answer using web search results. Be concise and cite sources.\n\nQuestion: ${m.content}\n\nSearch Results:\n${context}`
+        content: `Answer using the web search results below. Be concise and cite sources where relevant.\n\nQuestion: ${m.content}\n\nSearch Results:\n${context}`
       };
     }
     return m;
@@ -160,5 +198,6 @@ module.exports = {
   askOllama,
   askWithFallback,
   askWebSearch,
+  detectsCutoff,
   MODEL_FULL_NAMES
 };

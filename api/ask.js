@@ -1,4 +1,4 @@
-const { askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, MODEL_FULL_NAMES } = require('./_ai.js');
+const { askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('./_ai.js');
 const { saveConversation } = require('./_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails } = require('../google_api.js');
 
@@ -103,17 +103,30 @@ module.exports = async function handler(req, res) {
         modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
       }
 
-    } else if (ASK === 'websearch') {
+    } else if (ASK === 'websearch' || ASK === 'web' || ASK === 'web2' || ASK === 'web3') {
       appendFileTexts();
+      const webDepth = ASK === 'web3' ? 3 : ASK === 'web2' ? 2 : 1;
+      const webLabel = ASK === 'web3' ? 'Ask: web3' : ASK === 'web2' ? 'Ask: web2' : 'Ask: web';
+      const statusLines = [];
       try {
-        const { reply: wsReply, modelUsed: wsModel } = await askWebSearch(messages);
-        reply = wsReply;
+        const { reply: wsReply, modelUsed: wsModel } = await askWebSearch(messages, webDepth);
+        reply = (statusLines.length ? statusLines.join('\n') + '\n\n' : '') + wsReply;
         modelUsed = wsModel;
       } catch (err) {
-        console.warn('[Mobius] Websearch failed, falling back:', err.message);
-        const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'groq');
-        reply = fbReply;
-        modelUsed = fbModel + ' (fallback from websearch)';
+        // Tavily hard fail — try Gemini without web context
+        statusLines.push(`${webLabel}: ${err.message} → trying Gemini...`);
+        console.warn('[Mobius] Websearch failed:', err.message);
+        try {
+          const geminiResult = await askGemini(messages);
+          reply = statusLines.join('\n') + '\n\n' + geminiResult.text;
+          modelUsed = MODEL_FULL_NAMES.gemini + ' (fallback from ' + webLabel + ')';
+          tokensIn  = geminiResult.tokensIn;
+          tokensOut = geminiResult.tokensOut;
+        } catch (err2) {
+          statusLines.push(`Gemini: ${err2.message} → no more fallbacks.`);
+          reply = statusLines.join('\n');
+          modelUsed = 'failed';
+        }
       }
 
     } else {
@@ -122,6 +135,17 @@ module.exports = async function handler(req, res) {
         const { reply: fallbackReply, modelUsed: fallbackModel } = await askWithFallback(messages, [], ASK);
         reply = fallbackReply;
         modelUsed = fallbackModel;
+        // Detect soft fail: AI answered but has no current data — auto-retry with web2
+        if (detectsCutoff(reply)) {
+          const cutoffStatus = `${modelUsed}: knowledge cutoff detected (no live data) → trying Ask: web2...`;
+          try {
+            const { reply: wsReply, modelUsed: wsModel } = await askWebSearch(messages, 2);
+            reply = cutoffStatus + '\n\n' + wsReply;
+            modelUsed = wsModel;
+          } catch (wsErr) {
+            reply = cutoffStatus + `\nAsk: web2: ${wsErr.message} → showing original answer.\n\n` + fallbackReply;
+          }
+        }
       } catch (err) {
         throw new Error('All models failed. Last error: ' + err.message);
       }
