@@ -5,11 +5,12 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-async function getGoogleClient(userId) {
+async function getGoogleClient(userId, label = 'personal') {
   const { data } = await supabase
     .from('google_tokens')
     .select('access_token, refresh_token, expiry_date')
     .eq('user_id', userId)
+    .eq('label', label)
     .single();
   if (!data) throw new Error('Google not connected for this user.');
   const client = new google.auth.OAuth2(

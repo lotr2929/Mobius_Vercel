@@ -22,7 +22,8 @@ module.exports = async function handler(req, res) {
 
     // Pack userId + returnTo into state so callback can redirect correctly
     const returnTo = req.query.returnTo || process.env.BASE_URL || '';
-    const state = JSON.stringify({ userId: req.query.userId || '', returnTo });
+    const label = req.query.label || 'personal';
+    const state = JSON.stringify({ userId: req.query.userId || '', returnTo, label });
 
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',

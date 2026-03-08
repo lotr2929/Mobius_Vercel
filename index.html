@@ -224,6 +224,7 @@
         <div id="headerRight" style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px; justify-content:flex-end;">
             <span id="userLabel" style="font-size:14px; color:#4a3728; white-space:nowrap;"></span>
             <span id="googleDot" title="Google not connected — type 'status' for details" style="display:none; width:8px; height:8px; background:#c07800; border-radius:50%; flex-shrink:0; cursor:default;"></span>
+            <span id="syncIndicator" title="Sync status" style="font-size:11px; color:#8d7c64; white-space:nowrap; cursor:default;"></span>
             <div style="display:flex; gap:6px; flex-shrink:0;">
                 <a href="/help" target="_blank" style="font-size:13px; color:#8d7c64; text-decoration:none; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; white-space:nowrap;">Help</a>
                 <button onclick="logout()" style="font-size:13px; background:transparent; color:#8d7c64; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; cursor:pointer; height:auto; white-space:nowrap;">Log Out</button>
@@ -293,14 +294,14 @@
         }
         window.updateGoogleDot = updateGoogleDot;
 
-        // Silent startup ping — Google OAuth only, no UI noise
+        // Silent startup ping — check personal Google connection status
         (async () => {
             try {
                 const uid = getAuth('mobius_user_id');
                 if (!uid) return;
-                const res  = await fetch('/api/auth/google/status?userId=' + encodeURIComponent(uid), { signal: AbortSignal.timeout(5000) });
+                const res  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(uid), { signal: AbortSignal.timeout(5000) });
                 const data = await res.json();
-                updateGoogleDot(!!data.connected);
+                updateGoogleDot(!!(data.accounts && data.accounts.length > 0));
             } catch { /* silent — don't surface startup errors */ }
         })();
         function setAuth(key, value) {
@@ -1150,16 +1151,68 @@
             history.replaceState({}, '', '/');
         }
 
-        // Only auto-connect Google once per login session
+        // Handle returning from Dropbox OAuth
+        if (window.location.search.includes('dropbox_connected')) {
+            history.replaceState({}, '', '/');
+        }
+
+        // ── Sync indicator helpers ─────────────────────────────────────
+        function setSyncStatus(text, color) {
+            const el = document.getElementById('syncIndicator');
+            if (!el) return;
+            el.textContent = text;
+            el.style.color = color || '#8d7c64';
+            el.title       = text;
+        }
+        window.setSyncStatus = setSyncStatus;
+
+        // ── Background sync ──────────────────────────────────────────────
+        async function backgroundSync(userId, incremental) {
+            setSyncStatus('⟳ syncing', '#a06800');
+            try {
+                const body = { userId, type: 'all' };
+                if (incremental) body.since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+                const res  = await fetch('/api/sync', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.error) { setSyncStatus('⚠ sync error', '#8d3a3a'); return; }
+                const now = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+                setSyncStatus('✓ ' + now, '#4a7c4e');
+            } catch {
+                setSyncStatus('⚠ offline', '#8d3a3a');
+            }
+        }
+
+        // ── 5-minute incremental poll ──────────────────────────────────────
+        let syncInterval = null;
+        function startSyncPoll(userId) {
+            if (syncInterval) return;
+            syncInterval = setInterval(() => backgroundSync(userId, true), 5 * 60 * 1000);
+        }
+
+        // Auto-connect personal Google account (first login only)
         async function autoConnectGoogle() {
             const userId = getAuth('mobius_user_id');
             if (!userId) return;
             if (getAuth('mobius_google_connected') === '1') return;
             if (sessionStorage.getItem('mobius_google_attempted') === '1') return;
             sessionStorage.setItem('mobius_google_attempted', '1');
-            window.location.href = '/auth/google?userId=' + userId + '&returnTo=' + encodeURIComponent(window.location.origin);
+            window.location.href = '/auth/google?userId=' + userId +
+                '&label=personal' +
+                '&returnTo=' + encodeURIComponent(window.location.origin);
         }
-        autoConnectGoogle();
+
+        // ── Startup sequence ──────────────────────────────────────────────
+        (async () => {
+            const userId = getAuth('mobius_user_id');
+            if (!userId) return;
+            await autoConnectGoogle();
+            backgroundSync(userId, false);   // full sync on startup, non-blocking
+            startSyncPoll(userId);           // start 5-min incremental poll
+        })();
     </script>
 
     <script type="module">

@@ -1,6 +1,10 @@
 {
   "version": 2,
   "routes": [
+    {"src": "/auth/dropbox/callback", "dest": "/api/auth/dropbox/callback"},
+    {"src": "/auth/dropbox", "dest": "/api/auth/dropbox"},
+    {"src": "/api/dropbox", "dest": "/api/dropbox"},
+    {"src": "/api/sync", "dest": "/api/sync"},
     {"src": "/auth/google/callback", "dest": "/api/auth/google/callback"},
     {"src": "/auth/google/status", "dest": "/api/auth/google/status"},
     {"src": "/auth/google", "dest": "/api/auth/google"},
@@ -12,6 +16,9 @@
     {"src": "/api/signup", "dest": "/api/signup"},
     {"src": "/api/google/info", "dest": "/api/google/info"},
     {"src": "/api/focus/(.*)", "dest": "/api/focus/$1"},
+    {"src": "/api/google/accounts",   "dest": "/api/google/accounts"},
+    {"src": "/api/google/disconnect", "dest": "/api/google/disconnect"},
+    {"src": "/api/sync/status",       "dest": "/api/sync/status"},
     {"src": "/login", "dest": "/login.html"},
     {"src": "/signup", "dest": "/signup.html"},
     {"src": "/help/(.*)", "dest": "/help/$1"},

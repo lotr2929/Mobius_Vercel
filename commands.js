@@ -2116,6 +2116,164 @@ async function handleChatHistory(args, output) {
   }
 }
 
+// ── Google: connect / disconnect / status ───────────────────────────────────────
+
+async function handleGoogleConnect(args, output, outputEl) {
+  const userId = getAuth('mobius_user_id');
+  if (!userId) { output('❌ Not logged in.'); return; }
+
+  const trimmed = args.trim().toLowerCase();
+  const LABELS  = ['personal', 'family', 'work'];
+
+  // Google: status — show all connected accounts
+  if (!trimmed || trimmed === 'status') {
+    output('🔍 Checking Google accounts...');
+    try {
+      const res  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId));
+      const data = await res.json();
+      if (data.error) { output('❌ ' + data.error); return; }
+      const lines = ['🔗 Google Accounts'];
+      for (const label of LABELS) {
+        const acc = (data.accounts || []).find(a => a.label === label);
+        lines.push(acc
+          ? '✅ ' + label + ' — ' + acc.email
+          : '⚪ ' + label + ' — not connected');
+      }
+      document.getElementById('input').value = '';
+      output(lines.join('\n'));
+    } catch (err) { output('❌ ' + err.message); }
+    return;
+  }
+
+  // Google: connect [label]
+  if (trimmed.startsWith('connect')) {
+    const label = trimmed.replace('connect', '').trim() || 'personal';
+    if (!LABELS.includes(label)) {
+      output('❌ Unknown label "' + label + '". Use: personal, family, or work.');
+      return;
+    }
+    const returnTo = window.location.origin;
+    const url = '/auth/google?userId=' + encodeURIComponent(userId) +
+                '&label=' + label +
+                '&returnTo=' + encodeURIComponent(returnTo);
+    document.getElementById('input').value = '';
+    output('🔑 Opening Google sign-in for "' + label + '" account...');
+    window.location.href = url;
+    return;
+  }
+
+  // Google: disconnect [label]
+  if (trimmed.startsWith('disconnect')) {
+    const label = trimmed.replace('disconnect', '').trim();
+    if (!label || !LABELS.includes(label)) {
+      output('❌ Specify which account to disconnect: personal, family, or work.');
+      return;
+    }
+    output('🔄 Disconnecting ' + label + '...');
+    try {
+      const res  = await fetch('/api/google/disconnect', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId, label })
+      });
+      const data = await res.json();
+      if (data.error) { output('❌ ' + data.error); return; }
+      document.getElementById('input').value = '';
+      output('✅ ' + label + ' account disconnected.');
+    } catch (err) { output('❌ ' + err.message); }
+    return;
+  }
+
+  output('Usage: Google: status  |  Google: connect [personal|family|work]  |  Google: disconnect [label]');
+}
+
+// ── Sync: calendars / emails / drive / dropbox / all / status ─────────────────
+
+async function handleSync(args, output, outputEl) {
+  const userId = getAuth('mobius_user_id');
+  if (!userId) { output('❌ Not logged in.'); return; }
+
+  const trimmed = args.trim().toLowerCase();
+
+  // Sync: status — show last synced timestamps
+  if (!trimmed || trimmed === 'status') {
+    output('🔍 Checking sync status...');
+    try {
+      const res  = await fetch('/api/sync/status?userId=' + encodeURIComponent(userId));
+      const data = await res.json();
+      if (data.error) { output('❌ ' + data.error); return; }
+      const lines = ['🔄 Sync Status'];
+      for (const entry of (data.status || [])) {
+        const ago = entry.synced_at ? timeSince(new Date(entry.synced_at)) : 'never';
+        lines.push('  ' + entry.label + ' / ' + entry.type + ' — ' + ago);
+      }
+      document.getElementById('input').value = '';
+      output(lines.join('\n'));
+    } catch (err) { output('❌ ' + err.message); }
+    return;
+  }
+
+  // Sync: dropbox
+  if (trimmed === 'dropbox') {
+    output('🔄 Syncing Dropbox...');
+    try {
+      const res  = await fetch('/api/dropbox', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId })
+      });
+      const data = await res.json();
+      if (data.error) { output('❌ ' + data.error); return; }
+      document.getElementById('input').value = '';
+      output('✅ Dropbox synced — ' + data.files + ' files indexed.');
+    } catch (err) { output('❌ ' + err.message); }
+    return;
+  }
+
+  // Sync: calendars | emails | drive | all
+  const validTypes = ['calendars', 'emails', 'drive', 'all'];
+  const type = validTypes.includes(trimmed) ? trimmed : 'all';
+
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+  const append = msg => {
+    const d = document.createElement('div');
+    d.textContent = msg;
+    outputEl.appendChild(d);
+  };
+
+  append('🔄 Syncing ' + type + '...');
+  try {
+    const res  = await fetch('/api/sync', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId, type })
+    });
+    const data = await res.json();
+    if (data.error) { append('❌ ' + data.error); return; }
+
+    if (type === 'all') {
+      const r = data.result || {};
+      append('✅ Sync complete:');
+      append('  📅 Calendars — ' + (r.calendars?.ok ? r.calendars.events + ' entries' : '❌ ' + r.calendars?.error));
+      append('  📧 Emails    — ' + (r.emails?.ok    ? r.emails.messages  + ' entries' : '❌ ' + r.emails?.error));
+      append('  📁 Drive     — ' + (r.drive?.ok     ? r.drive.files      + ' entries' : '❌ ' + r.drive?.error));
+    } else {
+      append('✅ ' + type + ' synced.');
+    }
+    document.getElementById('input').value = '';
+  } catch (err) { append('❌ ' + err.message); }
+}
+
+// Helper — human-readable time since a date
+function timeSince(date) {
+  const secs = Math.floor((Date.now() - date) / 1000);
+  if (secs < 60)    return secs + 's ago';
+  if (secs < 3600)  return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
 // ── Command registry ──────────────────────────────────────────────────────────
 
 const COMMANDS = {
@@ -2123,7 +2281,8 @@ const COMMANDS = {
   'time':     { requiresAccess: false, isAI: false, handler: handleTime },
   'location': { requiresAccess: false, isAI: false, handler: handleLocation },
   'device':   { requiresAccess: false, isAI: false, handler: handleDevice },
-  'google':   { requiresAccess: false, isAI: false, handler: handleGoogle },
+  'google':   { requiresAccess: false, isAI: false, handler: handleGoogleConnect },
+  'sync':     { requiresAccess: false, isAI: false, handler: handleSync },
   'access':   { requiresAccess: false, isAI: false, handler: function(args, out) { return handleAccess(out); } },
   'find':     { requiresAccess: true,  isAI: false, handler: handleFind },
   'list':     { requiresAccess: true,  isAI: false, handler: handleList },

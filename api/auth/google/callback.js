@@ -9,11 +9,12 @@ module.exports = async function handler(req, res) {
     if (!code) return res.status(400).json({ error: 'Authorization code is required' });
 
     // Unpack state — supports both new JSON format and legacy plain userId string
-    let userId = '', returnTo = process.env.BASE_URL || '';
+    let userId = '', returnTo = process.env.BASE_URL || '', label = 'personal';
     try {
       const parsed = JSON.parse(rawState);
       userId   = parsed.userId   || '';
       returnTo = parsed.returnTo || returnTo;
+      label    = parsed.label    || 'personal';
     } catch {
       userId = rawState || ''; // legacy fallback
     }
@@ -36,10 +37,12 @@ module.exports = async function handler(req, res) {
     if (userId) {
       const { error: upsertError } = await supabase.from('google_tokens').upsert({
         user_id: userId,
+        label,
+        email: userInfo.email,
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         expiry_date: tokens.expiry_date
-      }, { onConflict: 'user_id' });
+      }, { onConflict: 'user_id, label' });
       if (upsertError) {
         console.error('Supabase upsert error:', upsertError);
         return res.status(500).json({ error: 'Failed to save tokens: ' + upsertError.message, userId, hasAccessToken: !!tokens.access_token });
