@@ -1208,6 +1208,8 @@
         if (webllmReady) return true;
         if (webllmLoading) return false;
         webllmLoading = true;
+        // Request persistent storage so Chrome won't evict the model cache
+        if (navigator.storage?.persist) await navigator.storage.persist();
         webllmModel   = selectWebLLMModel();
         try {
           webllmEngine = await webllm.CreateMLCEngine(webllmModel, {
