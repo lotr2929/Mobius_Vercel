@@ -20,7 +20,6 @@
             display: flex;
             flex-direction: column;
         }
-        /* ── Navigation bar ── */
         .nav {
             position: fixed;
             bottom: 0;
@@ -42,21 +41,9 @@
             align-items: center;
         }
         .nav-btn:disabled { opacity: 0.25; cursor: default; }
-        .nav-triangle {
-            width: 0;
-            height: 0;
-            display: inline-block;
-        }
-        .tri-left {
-            border-top: 18px solid transparent;
-            border-bottom: 18px solid transparent;
-            border-right: 28px solid #f5eedd;
-        }
-        .tri-right {
-            border-top: 18px solid transparent;
-            border-bottom: 18px solid transparent;
-            border-left: 28px solid #f5eedd;
-        }
+        .nav-triangle { width: 0; height: 0; display: inline-block; }
+        .tri-left  { border-top: 18px solid transparent; border-bottom: 18px solid transparent; border-right: 28px solid #f5eedd; }
+        .tri-right { border-top: 18px solid transparent; border-bottom: 18px solid transparent; border-left:  28px solid #f5eedd; }
         .nav-contents {
             color: #f5eedd;
             font-size: 14px;
@@ -69,13 +56,9 @@
         }
         .nav-contents:hover { background: #6b4f3a; }
         .nav-hidden { display: none; }
-
-        /* ── Page container ── */
         .pages { flex: 1; overflow: hidden; padding-bottom: 60px; }
         .page { display: none; padding: 24px; max-width: 860px; margin: 0 auto; }
         .page.active { display: block; }
-
-        /* ── Content styles ── */
         .page-inner {
             background: #ffffff;
             border: 1px solid #8d7c64;
@@ -99,8 +82,6 @@
         td { border: 1px solid #8d7c64; padding: 6px 12px; }
         tr:nth-child(even) { background: #ede5d4; }
         .note { background: #ede5d4; border-left: 3px solid #8d7c64; padding: 8px 12px; margin: 10px 0; font-size: 13px; font-style: italic; }
-
-        /* ── TOC ── */
         .toc-list { list-style: none; padding: 0; margin: 10px 0; }
         .toc-list li { margin: 6px 0; }
         .toc-list a { text-decoration: none; font-size: 15px; color: #4a3728; }
@@ -108,386 +89,542 @@
         .toc-sub { list-style: none; padding-left: 20px; margin: 4px 0; }
         .toc-sub li { margin: 3px 0; }
         .toc-sub a { font-size: 14px; }
-
-        /* ── Commands scrollable ── */
         .commands-scroll { max-height: calc(100vh - 200px); overflow-y: auto; }
         .cmd-entry { border-bottom: 1px solid #c9bfae; padding: 14px 0; }
         .cmd-entry:last-child { border-bottom: none; }
-
-
-
     </style>
 </head>
-
 <body>
-    <div class="pages" id="pages">
+<div class="pages" id="pages">
 
-        <!-- PAGE 0: COVER / TOC -->
-        <div class="page active" id="page-0">
-            <div class="page-inner">
-                <h1>Mobius Help</h1>
-                <div class="subtitle">Version 1.1 &nbsp;|&nbsp; February 2026</div>
-                <h2>Contents</h2>
-                <ol class="toc-list">
-                    <li><a href="#" onclick="goTo(1)">1. Overview</a></li>
-                    <li><a href="#" onclick="goTo(2)">2. Accessing Mobius</a></li>
-                    <li><a href="#" onclick="goTo(3)">3. Interface</a></li>
-                    <li><a href="#" onclick="goTo(4)">4. Asking a Question</a></li>
-                    <li><a href="#" onclick="goTo(5)">5. Choosing an AI Model</a></li>
-                    <li><a href="#" onclick="goTo(6)">6. Attaching Files</a></li>
-                    <li><a href="#" onclick="goTo(7)">7. Mobius Commands</a>
-                        <ol class="toc-sub">
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-access').scrollIntoView({behavior:'smooth'}),50)">Access:</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-ask').scrollIntoView({behavior:'smooth'}),50)">Ask:</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-date').scrollIntoView({behavior:'smooth'}),50)">Date</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-device').scrollIntoView({behavior:'smooth'}),50)">Device</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-find').scrollIntoView({behavior:'smooth'}),50)">Find:</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-history').scrollIntoView({behavior:'smooth'}),50)">History</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-list').scrollIntoView({behavior:'smooth'}),50)">List</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-location').scrollIntoView({behavior:'smooth'}),50)">Location</a></li>
-                            <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-time').scrollIntoView({behavior:'smooth'}),50)">Time</a></li>
-                        </ol>
-                    </li>
-                    <li><a href="#" onclick="goTo(8)">8. History</a></li>
-                    <li><a href="#" onclick="goTo(9)">9. Searching the Response Panel</a></li>
-                    <li><a href="#" onclick="goTo(10)">10. Google Integration</a></li>
-                    <li><a href="#" onclick="goTo(11)">11. Environment Awareness</a></li>
-                    <li><a href="#" onclick="goTo(12)">12. Tips</a></li>
-                </ol>
-            </div>
+    <!-- PAGE 0: COVER / TOC -->
+    <div class="page active" id="page-0">
+        <div class="page-inner">
+            <h1>Mobius Help</h1>
+            <div class="subtitle">Version 1.2 &nbsp;|&nbsp; March 2026</div>
+            <h2>Contents</h2>
+            <ol class="toc-list">
+                <li><a href="#" onclick="goTo(1)">1. Overview</a></li>
+                <li><a href="#" onclick="goTo(2)">2. Accessing Mobius</a></li>
+                <li><a href="#" onclick="goTo(3)">3. Interface</a></li>
+                <li><a href="#" onclick="goTo(4)">4. Asking a Question</a></li>
+                <li><a href="#" onclick="goTo(5)">5. Choosing an AI Model</a></li>
+                <li><a href="#" onclick="goTo(6)">6. Attaching Files</a></li>
+                <li><a href="#" onclick="goTo(7)">7. Commands Reference</a>
+                    <ol class="toc-sub">
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-access').scrollIntoView({behavior:'smooth'}),50)">Access</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-ask').scrollIntoView({behavior:'smooth'}),50)">Ask:</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-code').scrollIntoView({behavior:'smooth'}),50)">Code:</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-date').scrollIntoView({behavior:'smooth'}),50)">Date</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-device').scrollIntoView({behavior:'smooth'}),50)">Device</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-find').scrollIntoView({behavior:'smooth'}),50)">Find:</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-focus').scrollIntoView({behavior:'smooth'}),50)">Focus:</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-google').scrollIntoView({behavior:'smooth'}),50)">Google:</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-history').scrollIntoView({behavior:'smooth'}),50)">History</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-list').scrollIntoView({behavior:'smooth'}),50)">List</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-location').scrollIntoView({behavior:'smooth'}),50)">Location</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-new').scrollIntoView({behavior:'smooth'}),50)">New</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-status').scrollIntoView({behavior:'smooth'}),50)">Status</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-sync').scrollIntoView({behavior:'smooth'}),50)">Sync:</a></li>
+                        <li><a href="#" onclick="goTo(7); setTimeout(()=>document.getElementById('cmd-time').scrollIntoView({behavior:'smooth'}),50)">Time</a></li>
+                    </ol>
+                </li>
+                <li><a href="#" onclick="goTo(8)">8. Chat History</a></li>
+                <li><a href="#" onclick="goTo(9)">9. Searching the Response Panel</a></li>
+                <li><a href="#" onclick="goTo(10)">10. Google Integration</a></li>
+                <li><a href="#" onclick="goTo(11)">11. Sync &amp; Dropbox</a></li>
+                <li><a href="#" onclick="goTo(12)">12. Code Mode</a></li>
+                <li><a href="#" onclick="goTo(13)">13. Environment Awareness</a></li>
+                <li><a href="#" onclick="goTo(14)">14. Tips</a></li>
+            </ol>
         </div>
-
-        <!-- PAGE 1: OVERVIEW -->
-        <div class="page" id="page-1">
-            <div class="page-inner">
-                <h2>1. Overview</h2>
-                <p>Mobius is a personal AI assistant deployed as a Progressive Web App (PWA). It routes queries to multiple AI models, integrates with Google services, and can access local files on your device.</p>
-                <p>Mobius runs in the browser and can be installed on desktop and mobile as a standalone app.</p>
-            </div>
-        </div>
-
-        <!-- PAGE 2: ACCESSING MOBIUS -->
-        <div class="page" id="page-2">
-            <div class="page-inner">
-                <h2>2. Accessing Mobius</h2>
-                <ul>
-                    <li><strong>Web:</strong> <a href="https://mobius-8e5m.onrender.com" target="_blank">https://mobius-8e5m.onrender.com</a></li>
-                    <li><strong>Login:</strong> Enter your username and password on the login screen.</li>
-                    <li><strong>PWA Install:</strong> On Chrome/Edge, click the install icon in the address bar to install Mobius as a desktop or mobile app.</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- PAGE 3: INTERFACE -->
-        <div class="page" id="page-3">
-            <div class="page-inner">
-                <h2>3. Interface</h2>
-                <p>The Mobius interface has three main areas:</p>
-                <ul>
-                    <li><strong>Input area</strong> — The text box at the top where you type your query or command.</li>
-                    <li><strong>Toolbar</strong> — The row of controls below the input area. Contains the + (attach file), Ask button, navigation arrows, and Search box.</li>
-                    <li><strong>Response panel</strong> — The area below the toolbar where queries and AI responses are displayed.</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- PAGE 4: ASKING A QUESTION -->
-        <div class="page" id="page-4">
-            <div class="page-inner">
-                <h2>4. Asking a Question</h2>
-                <p>Mobius uses a two-step process for AI queries:</p>
-                <ul>
-                    <li><strong>Step 1 — First Ask:</strong> Type your question and press Ask. Mobius prepares and displays a query package showing what will be sent to the AI. Review it before sending.</li>
-                    <li><strong>Step 2 — Second Ask:</strong> Press Ask again to send the query to the AI and receive a response.</li>
-                </ul>
-                <div class="note">Ctrl+Enter can also be used instead of clicking Ask.</div>
-            </div>
-        </div>
-
-        <!-- PAGE 5: CHOOSING A MODEL -->
-        <div class="page" id="page-5">
-            <div class="page-inner">
-                <h2>5. Choosing an AI Model</h2>
-                <p>Mobius remembers the last model you used and applies it automatically to subsequent queries. The default on first use is Groq.</p>
-                <p>To switch models, use the <code>Ask:</code> prefix. This both routes the current query <em>and</em> saves that model as your new default:</p>
-                <table>
-                    <tr><th>Command</th><th>Routes to</th></tr>
-                    <tr><td><code>Ask: Groq</code></td><td>Groq (initial default)</td></tr>
-                    <tr><td><code>Ask: Gemini</code></td><td>Google Gemini 2.5 Flash</td></tr>
-                    <tr><td><code>Ask: Mistral</code></td><td>Mistral Codestral (coding)</td></tr>
-                    <tr><td><code>Ask: Websearch</code></td><td>Tavily web search + Groq</td></tr>
-                </table>
-                <p><strong>Example:</strong> <code>Ask: Gemini. What are the best AI models available today?</code></p>
-                <h3>Automatic Fallback</h3>
-                <p>If a model returns an error or runs out of tokens, Mobius automatically tries the next model in the chain:</p>
-                <p style="text-align:center; font-family:monospace; font-size:14px;">Groq &rarr; Gemini &rarr; Mistral</p>
-                <p>The chain wraps from your current model, so starting on Gemini gives: Gemini &rarr; Mistral &rarr; Groq. The response panel shows which model was actually used, e.g. <code>A:(Gemini — fallback from Groq)</code>. A fallback does not change your saved default.</p>
-                <div class="note">The Ask: prefix and model name are stripped before sending — only your actual question reaches the AI.</div>
-            </div>
-        </div>
-
-        <!-- PAGE 6: ATTACHING FILES -->
-        <div class="page" id="page-6">
-            <div class="page-inner">
-                <h2>6. Attaching Files</h2>
-                <ul>
-                    <li>Click the <strong>+</strong> button in the toolbar to open the file picker.</li>
-                    <li>Supported types: images (jpg, png, gif), PDF, text files (txt, md, csv, js, py, html, json).</li>
-                    <li>Attached files appear as chips in the toolbar. Click a chip to remove it.</li>
-                    <li>If an image is attached, Mobius automatically routes to Gemini for vision processing.</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- PAGE 7: COMMANDS (scrollable, alphabetical) -->
-        <div class="page" id="page-7">
-            <div class="page-inner">
-                <h2>7. Mobius Commands</h2>
-                <p>Colon-prefix commands are handled by Mobius before any AI is involved. They do not go to the AI.</p>
-                <p style="font-size:13px; color:#6b4f3a; margin-bottom:12px;">Single-word commands (Date, Time, Location, Device, Access, List, History) work without a colon — just type the word and press Ask.</p>
-                <div class="commands-scroll">
-
-                    <div class="cmd-entry" id="cmd-access">
-                        <h3><span class="cmd">Access</span></h3>
-                        <p>Grants Mobius read access to a folder on your device. Required before using Find or List.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>Access</code> or <code>Access:</code> and press Ask.</li>
-                            <li>A folder picker opens. Navigate to your root folder and click Select Folder.</li>
-                            <li>Access is saved between sessions. Run again to change folder.</li>
-                            <li>After granting access, folder contents are automatically listed.</li>
-                            <li><strong>Browser support:</strong> Chrome and Edge on desktop and Android only.</li>
-                        </ul>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-ask">
-                        <h3><span class="cmd">Ask:</span></h3>
-                        <p>Routes your query to a specific AI model and saves it as your new default.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> <code>Ask: modelname. your question</code></li>
-                            <li><strong>Example:</strong> <code>Ask: Gemini. What are the best AI models today?</code></li>
-                            <li>Without a model name, uses your last saved model.</li>
-                        </ul>
-                        <table>
-                            <tr><th>Model</th><th>Routes to</th></tr>
-                            <tr><td><code>Groq</code></td><td>Groq (initial default)</td></tr>
-                            <tr><td><code>Gemini</code></td><td>Google Gemini 2.5 Flash</td></tr>
-                            <tr><td><code>Mistral</code></td><td>Mistral Codestral (coding)</td></tr>
-                            <tr><td><code>Websearch</code></td><td>Tavily web search + Groq</td></tr>
-                        </table>
-                        <div class="note">The Ask: prefix is stripped before sending to the AI.</div>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-date">
-                        <h3><span class="cmd">Date</span></h3>
-                        <p>Displays the current date.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>Date</code> or <code>Date:</code> and press Ask.</li>
-                            <li><strong>Example output:</strong> Monday, 24 February 2026</li>
-                        </ul>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-device">
-                        <h3><span class="cmd">Device</span></h3>
-                        <p>Displays detailed information about the current device and browser.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>Device</code> or <code>Device:</code> and press Ask.</li>
-                            <li>Shows OS, browser version, device type, screen resolution, CPU cores, RAM, storage, connection type, bandwidth, latency, language, dark mode, and touch support.</li>
-                            <li>RAM is only available in Chrome/Edge. Storage quota is an estimate.</li>
-                        </ul>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-find">
-                        <h3><span class="cmd">Find:</span></h3>
-                        <p>Searches for files and folders by name within the current root folder. Supports optional sub-argument filters.</p>
-                        <ul>
-                            <li><strong>Basic usage:</strong> <code>Find: filename</code></li>
-                            <li><strong>With filters:</strong> <code>Find: filename Ext: pdf From: last month To: today</code></li>
-                            <li>Case-insensitive. Returns up to 200 results with full relative paths.</li>
-                            <li>If no access granted, automatically runs Access first.</li>
-                        </ul>
-                        <table>
-                            <tr><th>Sub-argument</th><th>Purpose</th><th>Example</th></tr>
-                            <tr><td><code>Ext:</code></td><td>Filter by file extension</td><td><code>Ext: pdf</code></td></tr>
-                            <tr><td><code>From:</code></td><td>Modified on or after this date</td><td><code>From: last month</code></td></tr>
-                            <tr><td><code>To:</code></td><td>Modified on or before this date</td><td><code>To: today</code></td></tr>
-                        </table>
-                        <p>Supported natural date values: <code>today</code>, <code>yesterday</code>, <code>last week</code>, <code>last month</code>, <code>last year</code>, or any specific date (e.g. <code>1 Jan 2025</code>).</p>
-                        <div class="note">Date filters apply to files only — folders have no reliable modified date via the browser File System API.</div>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-history">
-                        <h3><span class="cmd">History</span></h3>
-                        <p>Displays your past conversation sessions from the database.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>History</code> or <code>History:</code> and press Ask.</li>
-                            <li>Sessions are grouped by 30-minute gaps and listed with title and date.</li>
-                            <li>Click a session to open it. Right-click for options: Open chat, Copy summary, Copy full chat, Copy as context.</li>
-                        </ul>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-list">
-                        <h3><span class="cmd">List</span></h3>
-                        <p>Lists the top-level contents of the current root folder.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>List</code> or <code>List:</code> and press Ask.</li>
-                            <li>If no access granted, automatically runs Access first.</li>
-                        </ul>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-location">
-                        <h3><span class="cmd">Location</span></h3>
-                        <p>Displays your current location based on IP geolocation.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>Location</code> or <code>Location:</code> and press Ask.</li>
-                            <li><strong>Example output:</strong> Perth, Western Australia, Australia (AU) · Timezone: Australia/Perth</li>
-                            <li>Uses ipapi.co. Accuracy depends on your ISP — VPNs will show the VPN location.</li>
-                        </ul>
-                    </div>
-
-                    <div class="cmd-entry" id="cmd-time">
-                        <h3><span class="cmd">Time</span></h3>
-                        <p>Displays the current local time.</p>
-                        <ul>
-                            <li><strong>Usage:</strong> Type <code>Time</code> or <code>Time:</code> and press Ask.</li>
-                            <li><strong>Example output:</strong> 3:45 PM</li>
-                        </ul>
-                    </div>
-
-                </div>
-            </div>
-        </div>
-
-        <!-- PAGE 8: CHAT HISTORY -->
-        <div class="page" id="page-8">
-            <div class="page-inner">
-                <h2>8. Chat History</h2>
-                <p>Mobius saves all conversations to a database. To view past sessions, type <code>History:</code> and press Ask. This is a Mobius command — it does not go to the AI.</p>
-                <p>Right-clicking a session gives four options:</p>
-                <ul>
-                    <li><strong>Open chat</strong> — Loads the full session into the response panel.</li>
-                    <li><strong>Copy summary</strong> — Copies a brief summary (first 3 exchanges) to the clipboard.</li>
-                    <li><strong>Copy full chat</strong> — Copies the entire session to the clipboard.</li>
-                    <li><strong>Copy as context</strong> — Attaches the session summary as a file chip for your next query.</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- PAGE 9: SEARCH -->
-        <div class="page" id="page-9">
-            <div class="page-inner">
-                <h2>9. Searching the Response Panel</h2>
-                <ul>
-                    <li>Use the <strong>Search</strong> box in the toolbar to find text within the current response panel.</li>
-                    <li>Use the <strong>▲▼ navigation arrows</strong> to move between previous and next queries in the current session.</li>
-                </ul>
-            </div>
-        </div>
-
-        <!-- PAGE 10: GOOGLE INTEGRATION -->
-        <div class="page" id="page-10">
-            <div class="page-inner">
-                <h2>10. Google Integration</h2>
-                <p>Mobius can connect to your Google account to access Drive, Gmail, Calendar, and Tasks. To route a query to a Google service, use the <code>Ask:</code> command with the service name:</p>
-                <table>
-                    <tr><th>Command</th><th>Service</th></tr>
-                    <tr><td><code>Ask: google_drive</code></td><td>Google Drive file listing</td></tr>
-                    <tr><td><code>Ask: google_tasks</code></td><td>Google Tasks</td></tr>
-                    <tr><td><code>Ask: google_calendar</code></td><td>Google Calendar events</td></tr>
-                    <tr><td><code>Ask: google_gmail</code></td><td>Gmail inbox</td></tr>
-                </table>
-                <div class="note">Google routing is explicit — use the Ask: command above. Mobius no longer guesses from keywords in your query.</div>
-            </div>
-        </div>
-
-        <!-- PAGE 11: ENVIRONMENT AWARENESS -->
-        <div class="page" id="page-11">
-            <div class="page-inner">
-                <h2>11. Environment Awareness</h2>
-                <p>Mobius automatically detects and sends your environment context with every query. The AI is aware of:</p>
-                <ul>
-                    <li>Current date, time, timezone and UTC offset</li>
-                    <li>Your location (city, region, country) via IP geolocation</li>
-                    <li>Local currency</li>
-                    <li>Operating system and browser</li>
-                    <li>Device type (desktop, tablet, mobile)</li>
-                    <li>Network connection type, bandwidth, and latency (where available)</li>
-                    <li>Dark/light mode preference</li>
-                </ul>
-                <div class="note">This context is visible in the Mobius Query preview box before sending.</div>
-            </div>
-        </div>
-
-        <!-- PAGE 12: TIPS -->
-        <div class="page" id="page-12">
-            <div class="page-inner">
-                <h2>12. Tips</h2>
-                <ul>
-                    <li>Use <strong>Ctrl+Enter</strong> to trigger Ask without clicking the button.</li>
-                    <li>The query preview box shows exactly what Mobius will send — check it before the second Ask.</li>
-                    <li>Single-word commands (<code>Date</code>, <code>Time</code>, <code>Location</code>, <code>Device</code>, <code>Access</code>, <code>List</code>, <code>History</code>) work without a colon — just type the word and press Ask.</li>
-                    <li>Switch AI models with <code>Ask: Gemini</code> — Mobius remembers your choice for all future queries.</li>
-                    <li>If a model fails, Mobius automatically falls back through the chain (Groq → Gemini → Mistral) and shows which model was actually used.</li>
-                    <li><code>Access</code> only needs to be run once per browser — permission is remembered via IndexedDB.</li>
-                    <li>Run <code>Access</code> again to change to a different root folder.</li>
-                    <li>Use <code>Find: report Ext: pdf From: last month</code> to narrow file searches by type and date.</li>
-                    <li>Use <strong>Copy as context</strong> from chat history to carry a previous session into a new query.</li>
-                </ul>
-            </div>
-        </div>
-
-    </div><!-- end pages -->
-
-    <!-- FIXED NAVIGATION BAR -->
-    <div class="nav nav-hidden">
-        <button class="nav-btn" id="btnPrev" onclick="navigate(-1)" disabled>
-            <span class="nav-triangle tri-left"></span>
-        </button>
-        <button class="nav-contents" id="btnContents" onclick="goTo(0)">Contents</button>
-        <button class="nav-btn" id="btnNext" onclick="navigate(1)">
-            <span class="nav-triangle tri-right"></span>
-        </button>
     </div>
 
-    <script>
-        const TOTAL = 13; // pages 0-12
-        let current = 0;
+    <!-- PAGE 1: OVERVIEW -->
+    <div class="page" id="page-1">
+        <div class="page-inner">
+            <h2>1. Overview</h2>
+            <p>Mobius is a personal AI assistant and coordinator deployed as a Progressive Web App (PWA). It routes queries across multiple AI models, integrates with Google Workspace and Dropbox, and includes a structured coding assistant framework.</p>
+            <p>Mobius is designed around three principles:</p>
+            <ul>
+                <li><strong>Manual control</strong> — you review every query before it goes to an AI.</li>
+                <li><strong>Need-to-know context</strong> — only relevant information is sent to the AI, not your entire history.</li>
+                <li><strong>Read-only everywhere</strong> — Mobius reads from your accounts but only writes to its own dedicated folder in your personal Google Drive.</li>
+            </ul>
+            <p>Mobius runs in the browser and can be installed on desktop and mobile as a standalone app.</p>
+        </div>
+    </div>
 
-        const labels = [
-            'Contents', 'Overview', 'Accessing Mobius', 'Interface',
-            'Asking a Question', 'Choosing an AI Model', 'Attaching Files',
-            'Commands', 'History', 'Searching', 'Google Integration',
-            'Environment Awareness', 'Tips'
-        ];
+    <!-- PAGE 2: ACCESSING MOBIUS -->
+    <div class="page" id="page-2">
+        <div class="page-inner">
+            <h2>2. Accessing Mobius</h2>
+            <ul>
+                <li><strong>Production:</strong> <a href="https://mobius-vercel.vercel.app" target="_blank">https://mobius-vercel.vercel.app</a></li>
+                <li><strong>Stable:</strong> <a href="https://mobius-plum.vercel.app" target="_blank">https://mobius-plum.vercel.app</a></li>
+                <li><strong>Login:</strong> Enter your username and password on the login screen.</li>
+                <li><strong>PWA Install:</strong> On Chrome or Edge, click the install icon in the address bar to install Mobius as a desktop or mobile app.</li>
+            </ul>
+            <h3>First Login</h3>
+            <p>On first login, Mobius will automatically prompt you to connect your personal Google account. After connecting, it will begin syncing your calendars, emails, and Drive file listings in the background.</p>
+            <p>To connect additional Google accounts (family, work) or Dropbox, use the <code>Google: connect</code> and <code>Sync: dropbox</code> commands.</p>
+        </div>
+    </div>
 
-        function goTo(n) {
-            const nav = document.querySelector(".nav");
-            nav.classList.toggle("nav-hidden", n === 0);
-            document.getElementById('page-' + current).classList.remove('active');
-            current = n;
-            document.getElementById('page-' + current).classList.add('active');
-            
-            document.getElementById('btnPrev').disabled = current === 0;
-            document.getElementById('btnNext').disabled = current === TOTAL - 1;
-            window.scrollTo(0, 0);
-            return false;
-        }
+    <!-- PAGE 3: INTERFACE -->
+    <div class="page" id="page-3">
+        <div class="page-inner">
+            <h2>3. Interface</h2>
+            <p>The Mobius interface has three main areas:</p>
+            <ul>
+                <li><strong>Header</strong> — Shows the Mobius logo, your username, a sync status indicator (✓ HH:MM when synced, ⟳ syncing, ⚠ offline), and Log Out button.</li>
+                <li><strong>Input area</strong> — The text box where you type queries or commands. Supports ↑/↓ arrow keys to cycle through input history (PowerShell-style).</li>
+                <li><strong>Toolbar</strong> — Contains the + (attach file), Ask button, ▲▼ navigation arrows, and Search box.</li>
+                <li><strong>Response panel</strong> — Displays queries and AI responses. Each response has a toolbar with copy, thumbs up/down, and navigation buttons.</li>
+            </ul>
+            <h3>Sync Indicator</h3>
+            <p>The small text next to your username in the header shows sync status:</p>
+            <ul>
+                <li><strong>⟳ syncing</strong> — sync in progress</li>
+                <li><strong>✓ HH:MM</strong> — last successful sync time</li>
+                <li><strong>⚠ sync error</strong> — sync failed (check Google connection)</li>
+                <li><strong>⚠ offline</strong> — no network connection</li>
+            </ul>
+        </div>
+    </div>
 
-        function navigate(dir) {
-            const next = current + dir;
-            if (next >= 0 && next < TOTAL) goTo(next);
-        }
+    <!-- PAGE 4: ASKING A QUESTION -->
+    <div class="page" id="page-4">
+        <div class="page-inner">
+            <h2>4. Asking a Question</h2>
+            <p>Mobius uses a two-step process for AI queries:</p>
+            <ul>
+                <li><strong>Step 1 — First Ask:</strong> Type your question and press Ask. Mobius prepares and displays a query package showing exactly what will be sent to the AI. Review it before sending.</li>
+                <li><strong>Step 2 — Second Ask:</strong> Press Ask again to send the query to the AI and receive a response.</li>
+            </ul>
+            <div class="note">Ctrl+Enter can be used instead of clicking Ask. Press Escape to cancel a pending query or clear the input box.</div>
+            <h3>Query Preview</h3>
+            <p>The preview box shows the full query package: the model selected (ASK), instruction mode (INSTRUCTIONS), conversation history count (HISTORY), your query (QUERY), any attached files (FILES), and whether environment context is included (CONTEXT).</p>
+            <h3>Input History</h3>
+            <p>Use ↑ and ↓ arrow keys in the input box to cycle through your previous queries, similar to a terminal. History is saved across sessions.</p>
+        </div>
+    </div>
 
-        // Keyboard arrow support
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowRight') navigate(1);
-            if (e.key === 'ArrowLeft') navigate(-1);
-        });
-    </script>
+    <!-- PAGE 5: CHOOSING A MODEL -->
+    <div class="page" id="page-5">
+        <div class="page-inner">
+            <h2>5. Choosing an AI Model</h2>
+            <p>Mobius remembers the last model you used. The default on first use is Groq. To switch models, use the <code>Ask:</code> prefix — this routes the current query and saves that model as your new default.</p>
+            <table>
+                <tr><th>Command</th><th>Routes to</th></tr>
+                <tr><td><code>Ask: Groq</code></td><td>Groq — Llama 3.3 70B (fast, general)</td></tr>
+                <tr><td><code>Ask: Gemini</code></td><td>Google Gemini 2.5 Flash (long context, vision)</td></tr>
+                <tr><td><code>Ask: Mistral</code></td><td>Mistral Codestral (coding)</td></tr>
+                <tr><td><code>Ask: GitHub</code></td><td>GPT-4o via GitHub Models</td></tr>
+                <tr><td><code>Ask: Web</code></td><td>Tavily web search + AI summary</td></tr>
+                <tr><td><code>Ask: Qwen</code></td><td>Local Ollama — Qwen 2.5 Coder 7B (coding, private)</td></tr>
+                <tr><td><code>Ask: DeepSeek</code></td><td>Local Ollama — DeepSeek R1 7B (reasoning, private)</td></tr>
+                <tr><td><code>Ask: Local</code></td><td>Local Ollama — default local model</td></tr>
+            </table>
+            <div class="note">Local models (Qwen, DeepSeek) run entirely on your device via Ollama. No data leaves your machine. Ollama must be running via start-ollama.bat on the laptop.</div>
+            <h3>Automatic Fallback</h3>
+            <p>If a model fails, Mobius automatically tries the next in the chain: Groq → Gemini → Mistral → GitHub. The response shows which model was actually used. A fallback does not change your saved default.</p>
+            <h3>Example</h3>
+            <p><code>Ask: Gemini. Summarise the key points of green infrastructure planning.</code></p>
+        </div>
+    </div>
 
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/help/sw.js');
-        }
-    </script>
+    <!-- PAGE 6: ATTACHING FILES -->
+    <div class="page" id="page-6">
+        <div class="page-inner">
+            <h2>6. Attaching Files</h2>
+            <ul>
+                <li>Click the <strong>+</strong> button in the toolbar to open the file picker.</li>
+                <li>Supported types: images (jpg, png, gif, webp), PDF, text files (txt, md, csv, js, py, html, json).</li>
+                <li>Multiple files can be attached at once. Each appears as a chip — click ✕ to remove.</li>
+                <li>Images are automatically routed to Gemini for vision processing (OCR, analysis, description).</li>
+                <li>Non-image files are appended as text content to your query.</li>
+            </ul>
+            <div class="note">File uploads are processed server-side and not stored permanently — they exist only for the duration of your query.</div>
+        </div>
+    </div>
+
+    <!-- PAGE 7: COMMANDS REFERENCE -->
+    <div class="page" id="page-7">
+        <div class="page-inner">
+            <h2>7. Commands Reference</h2>
+            <p>Commands are handled by Mobius before any AI is involved. They use a colon-prefix format: <code>Command: argument</code>. Single-word commands (Date, Time, Location, Device, Access, List, History, Status) work without a colon.</p>
+            <div class="commands-scroll">
+
+                <div class="cmd-entry" id="cmd-access">
+                    <h3><span class="cmd">Access</span></h3>
+                    <p>Grants Mobius read access to a local folder on your device. Required before using Find or List.</p>
+                    <ul>
+                        <li>A folder picker opens. Navigate to your root folder and click Select Folder.</li>
+                        <li>Access is saved between sessions via IndexedDB. Run again to change folder.</li>
+                        <li><strong>Browser support:</strong> Chrome and Edge on desktop and Android only.</li>
+                    </ul>
+                </div>
+
+                <div class="cmd-entry" id="cmd-ask">
+                    <h3><span class="cmd">Ask:</span></h3>
+                    <p>Routes your query to a specific AI model and saves it as your new default.</p>
+                    <ul>
+                        <li><strong>Usage:</strong> <code>Ask: modelname. your question</code></li>
+                        <li>Without a model name, uses your last saved model.</li>
+                    </ul>
+                    <p>See page 5 for the full model list.</p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-code">
+                    <h3><span class="cmd">Code:</span></h3>
+                    <p>Activates Code Mode — a structured coding assistant for software projects. See page 12 for full details.</p>
+                    <table>
+                        <tr><th>Command</th><th>What it does</th></tr>
+                        <tr><td><code>Code: projectname</code></td><td>Open a project folder and start a code session</td></tr>
+                        <tr><td><code>Code: repo</code></td><td>Generate a code index of all JS/HTML files</td></tr>
+                        <tr><td><code>Code: map</code></td><td>Generate an AI architectural summary</td></tr>
+                        <tr><td><code>Code: scan</code></td><td>Run static analysis (no AI) — secrets, errors, patterns</td></tr>
+                        <tr><td><code>Code: audit new</code></td><td>Start a new audit session with Gemini briefing</td></tr>
+                        <tr><td><code>Code: audit</code></td><td>Resume an existing audit</td></tr>
+                        <tr><td><code>Code: audit end</code></td><td>Close the audit with a final summary</td></tr>
+                        <tr><td><code>Code: all</code></td><td>Run repo → map → audit in sequence</td></tr>
+                        <tr><td><code>Code: status</code></td><td>Save session state to Drive</td></tr>
+                        <tr><td><code>Code: show</code></td><td>Display loaded session content</td></tr>
+                        <tr><td><code>Code: end</code></td><td>End the code session</td></tr>
+                    </table>
+                </div>
+
+                <div class="cmd-entry" id="cmd-date">
+                    <h3><span class="cmd">Date</span></h3>
+                    <p>Displays the current date. Example output: <em>Monday, 10 March 2026</em></p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-device">
+                    <h3><span class="cmd">Device</span></h3>
+                    <p>Displays detailed information about your current device and browser — OS, browser version, device type, screen resolution, CPU cores, RAM, GPU, storage, connection type, bandwidth, and touch support.</p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-find">
+                    <h3><span class="cmd">Find:</span></h3>
+                    <p>Searches for files and folders by name within the current local root folder.</p>
+                    <ul>
+                        <li><strong>Basic:</strong> <code>Find: filename</code></li>
+                        <li><strong>With filters:</strong> <code>Find: report Ext: pdf From: last month To: today</code></li>
+                    </ul>
+                    <table>
+                        <tr><th>Sub-argument</th><th>Purpose</th><th>Example</th></tr>
+                        <tr><td><code>Ext:</code></td><td>Filter by file extension</td><td><code>Ext: pdf</code></td></tr>
+                        <tr><td><code>From:</code></td><td>Modified on or after</td><td><code>From: last month</code></td></tr>
+                        <tr><td><code>To:</code></td><td>Modified on or before</td><td><code>To: today</code></td></tr>
+                    </table>
+                    <p>Natural date values: <code>today</code>, <code>yesterday</code>, <code>last week</code>, <code>last month</code>, <code>last year</code>, or a specific date.</p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-focus">
+                    <h3><span class="cmd">Focus:</span></h3>
+                    <p>Loads a Google Drive file as persistent context for the current session. The file is attached to every AI query until you end the focus.</p>
+                    <table>
+                        <tr><th>Command</th><th>What it does</th></tr>
+                        <tr><td><code>Focus: filename</code></td><td>Search Drive and load a file as context</td></tr>
+                        <tr><td><code>Focus: add [text]</code></td><td>Append a timestamped entry to the focused file</td></tr>
+                        <tr><td><code>Focus: update</code></td><td>Write the Mobius copy back to the original Drive file</td></tr>
+                        <tr><td><code>Focus: end</code></td><td>Detach the file from the session</td></tr>
+                    </table>
+                    <div class="note">If the file is not found in your Mobius Drive folder, Mobius searches your whole Drive. If still not found, it creates a new file in the Mobius folder.</div>
+                </div>
+
+                <div class="cmd-entry" id="cmd-google">
+                    <h3><span class="cmd">Google:</span></h3>
+                    <p>Manages connected Google accounts. Mobius supports up to three accounts: personal, family, and work.</p>
+                    <table>
+                        <tr><th>Command</th><th>What it does</th></tr>
+                        <tr><td><code>Google: status</code></td><td>Show which accounts are connected</td></tr>
+                        <tr><td><code>Google: connect personal</code></td><td>Connect your personal Gmail account</td></tr>
+                        <tr><td><code>Google: connect family</code></td><td>Connect your shared family Gmail account</td></tr>
+                        <tr><td><code>Google: connect work</code></td><td>Connect your work Gmail account</td></tr>
+                        <tr><td><code>Google: disconnect [label]</code></td><td>Remove a connected account</td></tr>
+                    </table>
+                    <div class="note">Each account requires a separate OAuth sign-in. You will be redirected to Google and then returned to Mobius automatically.</div>
+                </div>
+
+                <div class="cmd-entry" id="cmd-history">
+                    <h3><span class="cmd">History</span></h3>
+                    <p>Displays your past conversation sessions. Sessions are grouped by 30-minute gaps. Click a session to open it. Right-click for options: Open chat, Copy summary, Copy full chat, Copy as context.</p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-list">
+                    <h3><span class="cmd">List</span></h3>
+                    <p>Lists the top-level contents of the current local root folder. Runs Access first if no folder is granted.</p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-location">
+                    <h3><span class="cmd">Location</span></h3>
+                    <p>Displays your current location based on IP geolocation (city, region, country, timezone). Uses ipapi.co. VPNs will show the VPN location.</p>
+                </div>
+
+                <div class="cmd-entry" id="cmd-new">
+                    <h3><span class="cmd">New</span></h3>
+                    <p>Starts a fresh chat session — clears the response panel and resets the conversation history. Optionally accepts a topic to start the new session with a query.</p>
+                    <ul>
+                        <li><code>New</code> — clear and start fresh</li>
+                        <li><code>New: summarise this week's calendar</code> — clear and immediately ask a question</li>
+                    </ul>
+                </div>
+
+                <div class="cmd-entry" id="cmd-status">
+                    <h3><span class="cmd">Status</span></h3>
+                    <p>Runs a live health check of all Mobius systems and displays results in the response panel.</p>
+                    <ul>
+                        <li>Server availability (local and Vercel)</li>
+                        <li>Google account connections (all three labels)</li>
+                        <li>Supabase / chat history</li>
+                        <li>Ollama (local AI, desktop only)</li>
+                        <li>Service Worker (PWA)</li>
+                        <li>Current session state (code mode, focus file)</li>
+                    </ul>
+                </div>
+
+                <div class="cmd-entry" id="cmd-sync">
+                    <h3><span class="cmd">Sync:</span></h3>
+                    <p>Manually triggers a sync of your account data into the Mobius index files. Sync also runs automatically on login and every 5 minutes for Google accounts.</p>
+                    <table>
+                        <tr><th>Command</th><th>What it syncs</th></tr>
+                        <tr><td><code>Sync: all</code></td><td>All Google accounts — calendars, emails, Drive</td></tr>
+                        <tr><td><code>Sync: calendars</code></td><td>Calendar events (all Google accounts)</td></tr>
+                        <tr><td><code>Sync: emails</code></td><td>Unread email metadata (all Google accounts)</td></tr>
+                        <tr><td><code>Sync: drive</code></td><td>Drive file listings (all Google accounts)</td></tr>
+                        <tr><td><code>Sync: dropbox</code></td><td>Full Dropbox file listing</td></tr>
+                        <tr><td><code>Sync: status</code></td><td>Show last synced timestamps for all sources</td></tr>
+                    </table>
+                    <div class="note">Sync stores metadata only — no email content, no file content, no calendar notes. Index files are saved to the Mobius Drive folder.</div>
+                </div>
+
+                <div class="cmd-entry" id="cmd-time">
+                    <h3><span class="cmd">Time</span></h3>
+                    <p>Displays the current local time. Example output: <em>3:45 PM</em></p>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE 8: CHAT HISTORY -->
+    <div class="page" id="page-8">
+        <div class="page-inner">
+            <h2>8. Chat History</h2>
+            <p>Mobius saves all conversations to Supabase. To browse past sessions, type <code>History</code> and press Ask.</p>
+            <p>Right-clicking a session gives four options:</p>
+            <ul>
+                <li><strong>Open chat</strong> — Loads the full session into the response panel and restores it as context for follow-up queries.</li>
+                <li><strong>Copy summary</strong> — Copies a brief summary (first 3 exchanges) to the clipboard.</li>
+                <li><strong>Copy full chat</strong> — Copies the entire session to the clipboard.</li>
+                <li><strong>Copy as context</strong> — Attaches the session summary as a file chip, ready to send with your next query.</li>
+            </ul>
+            <div class="note">Sessions are grouped by 30-minute gaps. The session title is the first query of that session.</div>
+        </div>
+    </div>
+
+    <!-- PAGE 9: SEARCH -->
+    <div class="page" id="page-9">
+        <div class="page-inner">
+            <h2>9. Searching the Response Panel</h2>
+            <ul>
+                <li>Use the <strong>Search</strong> box in the toolbar to highlight matching text anywhere in the current response panel.</li>
+                <li>Use the <strong>▲▼ navigation arrows</strong> in the toolbar to jump between query/response pairs in the current session.</li>
+                <li>Each response also has its own ▲▼ buttons in the response toolbar for the same navigation.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- PAGE 10: GOOGLE INTEGRATION -->
+    <div class="page" id="page-10">
+        <div class="page-inner">
+            <h2>10. Google Integration</h2>
+            <p>Mobius connects to up to three Google accounts simultaneously, identified by label:</p>
+            <table>
+                <tr><th>Label</th><th>Account type</th><th>Access</th></tr>
+                <tr><td><code>personal</code></td><td>Main personal Gmail</td><td>Calendar, Email metadata, Drive</td></tr>
+                <tr><td><code>family</code></td><td>Shared family Gmail</td><td>Calendar, Email metadata, Drive</td></tr>
+                <tr><td><code>work</code></td><td>Work Gmail (boon.curtin)</td><td>Calendar, Email metadata, Drive</td></tr>
+            </table>
+            <h3>Connecting accounts</h3>
+            <p>Your personal account connects automatically on first login. To connect additional accounts:</p>
+            <ul>
+                <li><code>Google: connect family</code> — redirects to Google sign-in, then returns automatically</li>
+                <li><code>Google: connect work</code> — same process for your work account</li>
+                <li><code>Google: status</code> — check which accounts are connected</li>
+            </ul>
+            <h3>What Mobius reads</h3>
+            <ul>
+                <li><strong>Calendars</strong> — upcoming events for the next 60 days (title, time, location)</li>
+                <li><strong>Email</strong> — unread message metadata only (sender, subject, date — no content)</li>
+                <li><strong>Drive</strong> — file listings (filename, modified date)</li>
+            </ul>
+            <h3>What Mobius never does</h3>
+            <ul>
+                <li>Never reads email content</li>
+                <li>Never writes to calendars, Gmail, or Drive</li>
+                <li>Never creates, modifies, or deletes any file outside the Mobius folder</li>
+            </ul>
+            <h3>The Mobius Drive folder</h3>
+            <p>Mobius maintains a single folder called <strong>Mobius</strong> in your personal Google Drive. This is the only location Mobius writes to. It contains index files, code documents, and Focus working files.</p>
+            <h3>Focus: command</h3>
+            <p>Use <code>Focus: filename</code> to load a Google Drive file as persistent context for your session. See the Commands Reference (page 7) for full details.</p>
+        </div>
+    </div>
+
+    <!-- PAGE 11: SYNC & DROPBOX -->
+    <div class="page" id="page-11">
+        <div class="page-inner">
+            <h2>11. Sync &amp; Dropbox</h2>
+            <h3>How sync works</h3>
+            <p>Mobius maintains four lightweight index files in your Mobius Drive folder. These are plain-text metadata files — no content, only identifiers. AI queries run against these local indexes rather than hitting live APIs each time.</p>
+            <table>
+                <tr><th>Index file</th><th>Contents</th></tr>
+                <tr><td><code>calendar.index</code></td><td>Events from all 3 Google calendars — date, time, title, account label</td></tr>
+                <tr><td><code>email.index</code></td><td>Unread email metadata from all 3 inboxes — date, sender, subject, label</td></tr>
+                <tr><td><code>drive.index</code></td><td>File listings from all 3 Google Drives — filename, modified date, label</td></tr>
+                <tr><td><code>dropbox.index</code></td><td>Full Dropbox file listing — filename, path, size, modified date</td></tr>
+            </table>
+            <h3>Sync schedule</h3>
+            <ul>
+                <li><strong>On login</strong> — full sync of all Google accounts (automatic, runs in background)</li>
+                <li><strong>Every 5 minutes</strong> — incremental Google sync while the tab is open (fetches only changes since last sync)</li>
+                <li><strong>Dropbox</strong> — syncs on login and on demand only (<code>Sync: dropbox</code>)</li>
+            </ul>
+            <h3>Sync indicator</h3>
+            <p>Watch the header for sync status: <strong>⟳ syncing</strong> while active, <strong>✓ HH:MM</strong> when done, <strong>⚠ offline</strong> if unreachable.</p>
+            <h3>Connecting Dropbox</h3>
+            <p>Dropbox connects via OAuth the same way as Google. Once connected, run <code>Sync: dropbox</code> to build the initial index. Subsequent logins will sync it automatically.</p>
+            <div class="note">Mobius has read-only access to Dropbox. It never writes to, modifies, or deletes any Dropbox file.</div>
+            <h3>Manual sync commands</h3>
+            <ul>
+                <li><code>Sync: all</code> — full refresh of all Google indexes</li>
+                <li><code>Sync: dropbox</code> — refresh Dropbox index</li>
+                <li><code>Sync: status</code> — show last synced timestamps for all sources</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- PAGE 12: CODE MODE -->
+    <div class="page" id="page-12">
+        <div class="page-inner">
+            <h2>12. Code Mode</h2>
+            <p>Code Mode is a structured coding assistant framework built into Mobius. It ensures AI always works from accurate, verified project context before generating or editing code.</p>
+            <h3>Starting a session</h3>
+            <p>Type <code>Code: projectname</code> and press Ask. A folder picker opens — navigate to the parent folder containing your project. Mobius finds the matching project folder and loads any existing <code>.map</code>, <code>.repo</code>, and <code>.audit</code> files from the project's <code>documents/</code> subfolder.</p>
+            <h3>The command pipeline</h3>
+            <table>
+                <tr><th>Command</th><th>What it does</th><th>Output</th></tr>
+                <tr><td><code>Code: repo</code></td><td>Parses all JS/HTML files — functions, imports, exports, routes</td><td><code>projectname.repo</code></td></tr>
+                <tr><td><code>Code: map</code></td><td>Sends repo + README + previous map to Gemini for an architectural summary</td><td><code>projectname.map</code></td></tr>
+                <tr><td><code>Code: scan</code></td><td>nAI static analysis — no AI involved. Detects secrets, bare awaits, empty catches, missing res.ok, large functions, ENV mismatches</td><td><code>projectname.scan</code></td></tr>
+                <tr><td><code>Code: audit new</code></td><td>Runs repo + scan, asks Gemini for a briefing and ordered fix plan</td><td><code>projectname.audit</code></td></tr>
+                <tr><td><code>Code: audit</code></td><td>Resumes an existing audit — re-scans, reloads context, continues with Gemini</td><td>Updated <code>.audit</code></td></tr>
+                <tr><td><code>Code: audit end</code></td><td>Closes the audit with a Gemini final summary</td><td>Final <code>.audit</code></td></tr>
+                <tr><td><code>Code: all</code></td><td>Runs repo → map → audit in sequence</td><td>All three files</td></tr>
+                <tr><td><code>Code: status</code></td><td>Saves session state snapshot</td><td><code>projectname.status</code></td></tr>
+                <tr><td><code>Code: show</code></td><td>Displays all loaded session content in the panel</td><td>Display only</td></tr>
+                <tr><td><code>Code: end</code></td><td>Ends the session</td><td>—</td></tr>
+            </table>
+            <h3>Output files</h3>
+            <p>All output files are saved to two places: the <strong>Mobius Google Drive folder</strong> (automatic) and a local download link. Save local downloads into the project's <code>documents/</code> subfolder — Mobius opens the save dialog there automatically.</p>
+            <h3>AI + nAI</h3>
+            <p>Code Mode distinguishes between <strong>AI tools</strong> (Claude, Gemini — for architecture and novel logic) and <strong>nAI tools</strong> (ESLint, Prettier, Vitest — deterministic checks with no hallucinations). <code>Code: scan</code> is entirely nAI — it never calls an AI model.</p>
+            <h3>Edit protocol</h3>
+            <p>When asking AI to modify code, always request the FIND/REPLACE format to ensure changes are surgical:</p>
+            <p><code>FILE: filename.js</code><br><code>FIND: [exact existing code]</code><br><code>REPLACE: [new code]</code></p>
+            <div class="note">Code Mode reads from your local file system. The project folder must be selected each session via the folder picker.</div>
+        </div>
+    </div>
+
+    <!-- PAGE 13: ENVIRONMENT AWARENESS -->
+    <div class="page" id="page-13">
+        <div class="page-inner">
+            <h2>13. Environment Awareness</h2>
+            <p>Mobius automatically detects and sends your environment context with every AI query. The AI is aware of:</p>
+            <ul>
+                <li>Current date, time, timezone and UTC offset</li>
+                <li>Your location (city, region, country) via IP geolocation</li>
+                <li>Local currency</li>
+                <li>Operating system and browser version</li>
+                <li>Device type (desktop, tablet, mobile)</li>
+                <li>Screen resolution</li>
+                <li>Network connection type, bandwidth, and latency (where available)</li>
+                <li>Dark/light mode preference</li>
+                <li>Online status</li>
+            </ul>
+            <div class="note">This context is visible in the Mobius Query preview box before sending. It is sent as a virtual file attachment, not as part of your visible query text.</div>
+        </div>
+    </div>
+
+    <!-- PAGE 14: TIPS -->
+    <div class="page" id="page-14">
+        <div class="page-inner">
+            <h2>14. Tips</h2>
+            <ul>
+                <li>Use <strong>Ctrl+Enter</strong> to trigger Ask. Use <strong>Escape</strong> to cancel a pending query or clear the input box.</li>
+                <li>Use <strong>↑/↓ arrow keys</strong> in the input box to cycle through your previous queries.</li>
+                <li>Single-word commands (<code>Date</code>, <code>Time</code>, <code>Location</code>, <code>Device</code>, <code>Access</code>, <code>List</code>, <code>History</code>, <code>Status</code>) work without a colon.</li>
+                <li>The query preview box shows exactly what Mobius will send — always check it before the second Ask.</li>
+                <li>Switch AI models with <code>Ask: Gemini</code> — Mobius remembers your choice for all future queries.</li>
+                <li>Use <code>Ask: Qwen</code> or <code>Ask: DeepSeek</code> for privacy-sensitive coding tasks — runs entirely on your device.</li>
+                <li><code>Access</code> only needs to be run once per browser — permission is saved via IndexedDB. Run again to change root folder.</li>
+                <li>Use <code>Find: report Ext: pdf From: last month</code> to narrow file searches by type and date.</li>
+                <li>Use <strong>Copy as context</strong> from chat history to carry a previous session into a new query.</li>
+                <li>After connecting a Google account, run <code>Sync: all</code> to build fresh indexes immediately.</li>
+                <li>Run <code>Google: status</code> to check which accounts are connected, or <code>Sync: status</code> to see last sync times.</li>
+                <li>For coding sessions, run <code>Code: all</code> at the start of each session to get a fresh repo, map, and audit in one step.</li>
+                <li>Save Code Mode output files into your project's <code>documents/</code> subfolder — Mobius opens the save dialog there automatically when a Code session is active.</li>
+            </ul>
+        </div>
+    </div>
+
+</div><!-- end pages -->
+
+<!-- FIXED NAVIGATION BAR -->
+<div class="nav nav-hidden">
+    <button class="nav-btn" id="btnPrev" onclick="navigate(-1)" disabled>
+        <span class="nav-triangle tri-left"></span>
+    </button>
+    <button class="nav-contents" id="btnContents" onclick="goTo(0)">Contents</button>
+    <button class="nav-btn" id="btnNext" onclick="navigate(1)">
+        <span class="nav-triangle tri-right"></span>
+    </button>
+</div>
+
+<script>
+    const TOTAL = 15; // pages 0-14
+    let current = 0;
+
+    function goTo(n) {
+        const nav = document.querySelector('.nav');
+        nav.classList.toggle('nav-hidden', n === 0);
+        document.getElementById('page-' + current).classList.remove('active');
+        current = n;
+        document.getElementById('page-' + current).classList.add('active');
+        document.getElementById('btnPrev').disabled = current === 0;
+        document.getElementById('btnNext').disabled = current === TOTAL - 1;
+        window.scrollTo(0, 0);
+        return false;
+    }
+
+    function navigate(dir) {
+        const next = current + dir;
+        if (next >= 0 && next < TOTAL) goTo(next);
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight') navigate(1);
+        if (e.key === 'ArrowLeft')  navigate(-1);
+    });
+</script>
+
+<script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/help/sw.js');
+    }
+</script>
 </body>
 </html>

@@ -69,6 +69,38 @@ A browser-based AI assistant deployed on Vercel. Routes queries across multiple 
 
 All `Code:` output files are saved to **Google Drive (Mobius folder)** and offered as a local download. Save local copies into the project's `documents/` subfolder.
 
+### Google: commands (account management)
+| Command | What it does |
+|---|---|
+| `Google: status` | Show which accounts are connected |
+| `Google: connect personal` | OAuth flow for personal account |
+| `Google: connect family` | OAuth flow for family account |
+| `Google: connect work` | OAuth flow for work account |
+| `Google: disconnect [label]` | Remove tokens for that label |
+
+### Sync: commands
+| Command | What it does |
+|---|---|
+| `Sync: all` | Full refresh — all Google indexes |
+| `Sync: calendars` | calendar.index only |
+| `Sync: emails` | email.index only |
+| `Sync: drive` | drive.index only |
+| `Sync: dropbox` | dropbox.index only |
+| `Sync: status` | Show last synced timestamps |
+
+#### Classifier Legend
+
+`.map` files:
+- `[D]` Design decision or principle
+- `[E]` External fact — URLs, API keys, service names, table names
+
+`.repo` files:
+- `[F]` Function — named function or arrow function
+- `[V]` Environment variable — `process.env.*` reference
+- `[>]` Import — `require()` or `import from`
+- `[<]` Export — `module.exports` entry
+- `[R]` Route — Express endpoint
+
 #### Classifier Legend
 
 `.map` files:
@@ -147,6 +179,9 @@ TAVILY_API_KEY
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
 GOOGLE_REDIRECT_URI
+DROPBOX_APP_KEY
+DROPBOX_APP_SECRET
+DROPBOX_REDIRECT_URI  ← https://mobius-vercel.vercel.app/auth/dropbox/callback
 OLLAMA_BASE_URL       ← local only (http://localhost:11434)
 ```
 
