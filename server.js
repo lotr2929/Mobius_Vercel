@@ -1,4 +1,4 @@
-// ── Mobius Local Server (Debug Edition) ───────────────────────────────────────
+// ── Mobius Local Server (Final Pilot Edition) ──────────────────────────────────
 const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
@@ -17,21 +17,21 @@ const MIME = {
 http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
 
-  // --- NEW: THE PACKING STATION (With Debugging) ---
+  // --- THE PACKING STATION (Customized for Boon's Machine) ---
   if (urlPath === '/api/system/pack' && req.method === 'POST') {
     console.log("▶️ [SERVER] Received Pack request...");
     
     const docDir = path.join(__dirname, 'documents');
-    if (!fs.existsSync(docDir)){
-        console.log("📁 [SERVER] Creating missing 'documents' folder...");
-        fs.mkdirSync(docDir);
-    }
+    if (!fs.existsSync(docDir)) fs.mkdirSync(docDir);
 
     const outputPath = path.join(docDir, 'repomix-output.xml');
-    console.log(`📦 [SERVER] Running Repomix to: ${outputPath}`);
+    
+    // We use the exact path found by where.exe npm
+    const npxPath = `"C:\\Program Files\\nodejs\\npx.cmd"`;
+    
+    console.log(`📦 [SERVER] Packing with: ${npxPath}`);
 
-    // We use --yes to skip any "Do you want to install?" prompts
-    exec(`npx --yes repomix --output "${outputPath}" --format xml`, (error, stdout, stderr) => {
+    exec(`${npxPath} --yes repomix --output "${outputPath}" --format xml`, (error) => {
       if (error) {
         console.error(`❌ [SERVER] Repomix Error: ${error.message}`);
         res.writeHead(500);
@@ -84,5 +84,5 @@ http.createServer((req, res) => {
     res.end(data);
   });
 }).listen(PORT, () => {
-  console.log(`🚀 Debug Mobius Factory running at http://localhost:${PORT}`);
+  console.log(`🚀 Mobius Factory running at http://localhost:${PORT}`);
 });
