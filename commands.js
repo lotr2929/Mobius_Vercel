@@ -2265,6 +2265,24 @@ async function handleSync(args, output, outputEl) {
   } catch (err) { append('❌ ' + err.message); }
 }
 
+// ── Dropbox ───────────────────────────────────────────────────────────────────
+
+async function handleDropbox(args, output) {
+  const userId = getAuth('mobius_user_id');
+  if (!userId) { output('❌ Not logged in.'); return; }
+  const trimmed = (args || '').trim().toLowerCase();
+  if (!trimmed || trimmed === 'connect') {
+    const returnTo = window.location.origin;
+    const url = '/auth/dropbox?service=dropbox&action=index&userId=' + encodeURIComponent(userId) +
+                '&returnTo=' + encodeURIComponent(returnTo);
+    document.getElementById('input').value = '';
+    output('🔑 Opening Dropbox sign-in...');
+    window.location.href = url;
+    return;
+  }
+  output('Usage: Dropbox: connect');
+}
+
 // Helper — human-readable time since a date
 function timeSince(date) {
   const secs = Math.floor((Date.now() - date) / 1000);
