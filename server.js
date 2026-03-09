@@ -1,47 +1,56 @@
-// ── Mobius Local Server (Hybrid Edition) ───────────────────────────────────────
+// ── Mobius Local Server (Debug Edition) ───────────────────────────────────────
 const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
-const { exec } = require('child_process'); // Added for Repomix
+const { exec } = require('child_process');
 
 const PORT        = process.env.PORT || 3000;
 const VERCEL_HOST = 'mobius-vercel.vercel.app';
 
 const MIME = {
-  '.html': 'text/html',
-  '.js':   'text/javascript',
-  '.css':  'text/css',
-  '.json': 'application/json',
-  '.png':  'image/png',
-  '.ico':  'image/x-icon',
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon',
   '.webmanifest': 'application/manifest+json',
 };
 
 http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
 
-  // --- NEW: THE PACKING STATION (Repomix) ---
+  // --- NEW: THE PACKING STATION (With Debugging) ---
   if (urlPath === '/api/system/pack' && req.method === 'POST') {
-    const outputPath = path.join(__dirname, 'documents', 'repomix-output.xml');
-    exec(`npx repomix --output ${outputPath} --format xml`, (error) => {
+    console.log("▶️ [SERVER] Received Pack request...");
+    
+    const docDir = path.join(__dirname, 'documents');
+    if (!fs.existsSync(docDir)){
+        console.log("📁 [SERVER] Creating missing 'documents' folder...");
+        fs.mkdirSync(docDir);
+    }
+
+    const outputPath = path.join(docDir, 'repomix-output.xml');
+    console.log(`📦 [SERVER] Running Repomix to: ${outputPath}`);
+
+    // We use --yes to skip any "Do you want to install?" prompts
+    exec(`npx --yes repomix --output "${outputPath}" --format xml`, (error, stdout, stderr) => {
       if (error) {
+        console.error(`❌ [SERVER] Repomix Error: ${error.message}`);
         res.writeHead(500);
-        return res.end(JSON.stringify({ error: 'Failed to pack' }));
+        return res.end(JSON.stringify({ error: error.message }));
       }
+      console.log("✅ [SERVER] Factory Packed Successfully!");
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ message: 'Factory Packed!', path: 'documents/repomix-output.xml' }));
     });
     return;
   }
 
-  // ── Proxy /api/* to Vercel (YOUR ORIGINAL LOGIC) ─────────────────────────────
+  // ── Proxy /api/* to Vercel (Original Logic) ─────────────────────────────
   if (urlPath.startsWith('/api/') || urlPath.startsWith('/auth/') || urlPath === '/ask' || urlPath === '/parse' || urlPath === '/upload') {
     const options = {
       hostname: VERCEL_HOST,
-      path:     req.url,
-      method:   req.method,
-      headers:  { ...req.headers, host: VERCEL_HOST }
+      path: req.url,
+      method: req.method,
+      headers: { ...req.headers, host: VERCEL_HOST }
     };
     const proxy = https.request(options, (proxyRes) => {
       res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -55,11 +64,11 @@ http.createServer((req, res) => {
     return;
   }
 
-  // ── Serve static files (YOUR ORIGINAL LOGIC) ────────────────────────────────
+  // ── Serve static files (Original Logic) ────────────────────────────────
   let filePath = urlPath;
   if (filePath === '/' || filePath === '') filePath = '/index.html';
   const fullPath = path.join(__dirname, filePath);
-  const ext      = path.extname(fullPath);
+  const ext = path.extname(fullPath);
   const mimeType = MIME[ext] || 'text/plain';
 
   fs.readFile(fullPath, (err, data) => {
@@ -75,5 +84,5 @@ http.createServer((req, res) => {
     res.end(data);
   });
 }).listen(PORT, () => {
-  console.log(`🚀 Hybrid Mobius Factory running at http://localhost:${PORT}`);
+  console.log(`🚀 Debug Mobius Factory running at http://localhost:${PORT}`);
 });
