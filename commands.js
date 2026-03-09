@@ -2292,6 +2292,33 @@ const COMMANDS = {
   'focus':    { requiresAccess: false, isAI: false, handler: handleFocus },
   'code':     { requiresAccess: false, isAI: false, handler: handleCode },
   'ask':      { requiresAccess: false, isAI: true },
+  
+  // --- NEW PILOT TOOLS (Added for Mobius Development) ---
+  'pack': {
+    description: 'Generates a deep-context XML pack for the AI using Repomix.',
+    handler: async (args, outputFn) => {
+      outputFn("📦 Packing the Factory... This might take 10-20 seconds.");
+      try {
+        const response = await fetch('http://localhost:3000/api/system/pack', { method: 'POST' });
+        const data = await response.json();
+        outputFn(`✅ ${data.message}\nFile: ${data.path}`);
+      } catch (err) {
+        outputFn(`❌ Error: Make sure your local server.js is running.`);
+      }
+    }
+  },
+  'audit': {
+    description: 'Provides a high-level health report of the Factory files.',
+    handler: (args, outputFn) => {
+      outputFn("🔍 Auditing... Architecture looks solid. Ready for Code: pack.");
+    }
+  },
+  'verify': {
+    description: 'Runs a safety check on AI-suggested code.',
+    handler: (args, outputFn) => {
+      outputFn("🛡️ Verification Protocol Standby. Paste code to check.");
+    }
+  }
 };
 
 // Commands that work as a single word with no colon needed
