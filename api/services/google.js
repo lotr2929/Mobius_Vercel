@@ -57,13 +57,16 @@ async function listAllDropboxFiles(accessToken) {
 }
 
 async function writeIndexFile(userId, filename, content) {
+  // Exact name match only — never partial, never strip extension
   const found = await findDriveFile(userId, filename);
-  if (found.files && found.files.length > 0) {
-    const f = found.files.find(f => f.inMobius) || found.files[0];
-    await writeDriveFileContent(userId, f.id, content);
-    return f.id;
+  const exactMatch = (found.files || []).find(f => f.name === filename && f.inMobius)
+                  || (found.files || []).find(f => f.name === filename);
+  if (exactMatch) {
+    await writeDriveFileContent(userId, exactMatch.id, content);
+    return exactMatch.id;
   }
-  const newFile = await createDriveFile(userId, filename.replace(/\.[^.]+$/, ''), found.folderId);
+  // Create new with full filename including extension
+  const newFile = await createDriveFile(userId, filename, found.folderId);
   await writeDriveFileContent(userId, newFile.id, content);
   return newFile.id;
 }
