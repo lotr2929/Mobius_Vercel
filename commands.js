@@ -3116,19 +3116,324 @@ async function handleSyncQuery(args, output, outputEl) {
   document.getElementById('input').value = '';
 }
 
-// ── Register new commands ─────────────────────────────────────────────────────
+// ── Mobius: refine — AI-powered rulebook refinement via Gemini ──────────────
+async function handleRefine(args, output, outputEl) {
+  const userId  = getAuth('mobius_user_id');
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:10px;';
+  hdr.textContent = '🔬 Mobius: refine — loading rulebook...';
+  outputEl.appendChild(hdr);
+
+  const append = msg => {
+    const d = document.createElement('div');
+    d.style.cssText = 'font-size:13px;color:#8d7c64;margin-bottom:4px;';
+    d.textContent = msg;
+    outputEl.appendChild(d);
+  };
+
+  // ── Step 1: Load mobius.json from Drive ───────────────────────────────────
+  append('📥 Loading mobius.json from Drive...');
+  const loaded = await loadMobiusJson(userId);
+  if (!loaded) {
+    hdr.textContent = '❌ Could not load mobius.json from Drive.';
+    return;
+  }
+  const { data } = loaded;
+  const guidelines = data.refinement_guidelines;
+  if (!guidelines) {
+    append('❌ No refinement_guidelines found in mobius.json. Cannot proceed.');
+    return;
+  }
+
+  // ── Step 2: Count total rules ─────────────────────────────────────────────
+  const allItems  = flattenMobius(data);
+  const totalRules = allItems.length;
+  append('📋 ' + totalRules + ' rules loaded across ' + ['preferences','rules','routing_rules','corrections','do_not'].filter(k => data[k]?.length).length + ' sections.');
+
+  // ── Step 3: Build Gemini prompt from guidelines in the file itself ────────
+  const checksText  = (guidelines.checks_to_run  || []).map((c,i) => (i+1) + '. ' + c).join('\n');
+  const formatText  = (guidelines.output_format  || []).map((f,i) => (i+1) + '. ' + f).join('\n');
+  const principlesText = (guidelines.refinement_principles || []).map((p,i) => (i+1) + '. ' + p).join('\n');
+
+  const mobiusJson = JSON.stringify(data, null, 2);
+
+  const prompt =
+    'You are refining mobius.json — the deterministic rulebook for an AI assistant called Mobius.\n\n' +
+    'REFINEMENT PRINCIPLES:\n' + principlesText + '\n\n' +
+    'CHECKS TO RUN (apply every check to every entry in preferences, rules, routing_rules, corrections, do_not):\n' + checksText + '\n\n' +
+    'OUTPUT FORMAT (follow exactly):\n' + formatText + '\n\n' +
+    'IMPORTANT: Present no more than 5 proposed changes in this response. ' +
+    'Number each proposal. I will ask for more when ready by saying "Mobius: refine next".\n\n' +
+    'If you find no issues, say so clearly and suggest any gaps you noticed.\n\n' +
+    'Here is the full mobius.json:\n\n' + mobiusJson;
+
+  // ── Step 4: Send to Gemini ────────────────────────────────────────────────
+  const thinkDiv = document.createElement('div');
+  thinkDiv.style.cssText = 'color:#8d7c64;font-style:italic;margin:8px 0;font-size:13px;';
+  thinkDiv.textContent = '🧠 Asking Gemini to analyse rulebook...';
+  outputEl.appendChild(thinkDiv);
+
+  let dots = 0;
+  const timer = setInterval(() => {
+    dots = (dots + 1) % 4;
+    thinkDiv.textContent = '🧠 Asking Gemini to analyse rulebook' + '.'.repeat(dots) + ' '.repeat(3 - dots);
+  }, 600);
+
+  let geminiReply = '';
+  try {
+    const res  = await fetch('/ask', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        mobius_query: {
+          ASK:          'gemini',
+          INSTRUCTIONS: 'Long',
+          HISTORY:      [],
+          QUERY:        prompt,
+          FILES:        [],
+          CONTEXT:      'None'
+        },
+        userId,
+        session_id: window.getCurrentSessionId ? window.getCurrentSessionId() : null,
+        topic: 'refine'
+      })
+    });
+    clearInterval(timer);
+    const result = await res.json();
+    if (result.error) { thinkDiv.textContent = '❌ Gemini error: ' + result.error; return; }
+    geminiReply = result.reply || '';
+    thinkDiv.textContent = '✅ Gemini analysis complete.';
+  } catch (err) {
+    clearInterval(timer);
+    thinkDiv.textContent = '❌ ' + err.message;
+    return;
+  }
+
+  // ── Step 5: Display Gemini proposals ─────────────────────────────────────
+  const replyDiv = document.createElement('div');
+  replyDiv.style.cssText = 'margin-top:10px;padding:10px;background:#f5eedd;border:1px solid #c9bfae;border-radius:1px;font-size:13px;line-height:1.6;';
+  replyDiv.classList.add('html-content');
+  replyDiv.innerHTML = window.markdownToHtml ? window.markdownToHtml(geminiReply) : geminiReply.replace(/\n/g,'<br>');
+  outputEl.appendChild(replyDiv);
+
+  // Store reply for 'Mobius: refine next' pagination
+  window._refineSession = { data, reply: geminiReply, page: 1 };
+
+  // ── Step 6: Action buttons ────────────────────────────────────────────────
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;';
+
+  // Apply a correction manually
+  const applyBtn = document.createElement('button');
+  applyBtn.textContent = '✏️ Apply a change (Amend: or Forget:)';
+  applyBtn.style.cssText = 'padding:6px 14px;background:#4a3728;color:#f5eedd;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+  applyBtn.onclick = () => {
+    document.getElementById('input').value = 'Amend: ';
+    document.getElementById('input').focus();
+  };
+
+  // Get next batch
+  const nextBtn = document.createElement('button');
+  nextBtn.textContent = '▶ Next 5 proposals';
+  nextBtn.style.cssText = 'padding:6px 14px;background:#8d7c64;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+  nextBtn.onclick = () => {
+    document.getElementById('input').value = 'Mobius: refine next';
+    document.getElementById('input').focus();
+  };
+
+  // Save refined version
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = '💾 Save refined mobius.json';
+  saveBtn.style.cssText = 'padding:6px 14px;background:#4a7c4e;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+  saveBtn.onclick = async () => {
+    if (!window._refineSession) return;
+    saveBtn.textContent = '⏳ Saving...';
+    saveBtn.disabled = true;
+    const saveOutput = msg => {
+      const d = document.createElement('div');
+      d.style.cssText = 'font-size:12px;color:#4a7c4e;margin-top:4px;';
+      d.textContent = msg;
+      outputEl.appendChild(d);
+    };
+    await saveMobiusJson(userId, window._refineSession.data, saveOutput);
+    saveBtn.textContent = '✅ Saved';
+  };
+
+  btnRow.appendChild(applyBtn);
+  btnRow.appendChild(nextBtn);
+  btnRow.appendChild(saveBtn);
+  outputEl.appendChild(btnRow);
+
+  // Instruction
+  const instr = document.createElement('div');
+  instr.style.cssText = 'font-size:12px;color:#8d7c64;margin-top:8px;';
+  instr.textContent = 'Review proposals above. Use Amend: N [new text] or Forget: N to apply changes. Type "Mobius: refine next" for more proposals.';
+  outputEl.appendChild(instr);
+
+  document.getElementById('input').value = '';
+}
+
+// ── Shared: render a contextual help card ────────────────────────────────────
+// rows = [ [cmd, description], ... ]
+function renderHelpCard(outputEl, icon, title, rows, tip) {
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:10px;';
+  hdr.textContent = icon + '  ' + title;
+  outputEl.appendChild(hdr);
+  rows.forEach(([cmd, desc]) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #ede5d4;font-size:13px;align-items:baseline;';
+    const codeEl = document.createElement('code');
+    codeEl.style.cssText = 'background:#d4c9b5;padding:1px 6px;border-radius:1px;font-size:12px;font-family:monospace;border:1px solid #8d7c64;white-space:nowrap;flex-shrink:0;min-width:160px;';
+    codeEl.textContent = cmd;
+    const descEl = document.createElement('span');
+    descEl.style.cssText = 'color:#8d7c64;flex:1;';
+    descEl.textContent = desc;
+    row.appendChild(codeEl);
+    row.appendChild(descEl);
+    outputEl.appendChild(row);
+  });
+  if (tip) {
+    const tipEl = document.createElement('div');
+    tipEl.style.cssText = 'margin-top:10px;font-size:12px;color:#8d7c64;font-style:italic;border-top:1px solid #ede5d4;padding-top:8px;';
+    tipEl.textContent = '💡 ' + tip;
+    outputEl.appendChild(tipEl);
+  }
+  document.getElementById('input').value = '';
+}
+
+// ── ? handlers — contextual help cards ───────────────────────────────────────
+
+function handleGoogleHelp(args, output, outputEl) {
+  renderHelpCard(outputEl, '🔗', 'Google: — Account Management', [
+    ['Google: connect personal',   'Connect your personal Gmail account'],
+    ['Google: connect family',     'Connect your shared family Gmail account'],
+    ['Google: connect work',       'Connect your work Gmail account'],
+    ['Google: disconnect [label]', 'Remove a connected account'],
+    ['Google: status',             'Show which accounts are connected'],
+  ], 'Type Google: (no argument) to see connection status at a glance.');
+}
+
+function handleDropboxHelp(args, output, outputEl) {
+  renderHelpCard(outputEl, '📦', 'Dropbox: — Dropbox Connection', [
+    ['Dropbox: connect',     'Connect your Dropbox account via OAuth'],
+    ['Dropbox: sync',        'Rebuild the full Dropbox file index'],
+    ['Dropbox: list',        'List files at Dropbox root'],
+    ['Dropbox: list /path',  'List a specific Dropbox folder'],
+  ], 'Type Dropbox: (no argument) to check connection status and file count.');
+}
+
+function handleSyncHelp(args, output, outputEl) {
+  renderHelpCard(outputEl, '🔄', 'Sync: — Data Synchronisation', [
+    ['Sync: all',       'Full refresh — all Google accounts + Dropbox'],
+    ['Sync: calendars', 'Sync calendar events only'],
+    ['Sync: emails',    'Sync unread email metadata only'],
+    ['Sync: drive',     'Sync Drive file listings only'],
+    ['Sync: dropbox',   'Sync Dropbox file index only'],
+    ['Sync: status',    'Show last sync timestamps for all services'],
+  ], 'Type Sync: (no argument) to see last sync times at a glance.');
+}
+
+function handleFocusHelp(args, output, outputEl) {
+  renderHelpCard(outputEl, '📎', 'Focus: — Project File Context', [
+    ['Focus: filename',   'Load a Drive file as context for this session'],
+    ['Focus: add [text]', 'Append a timestamped entry and save to Drive'],
+    ['Focus: update',     'Write changes back to the original Drive file'],
+    ['Focus: end',        'Detach the file from this session'],
+  ], 'Type Focus: (no argument) to see what file is currently loaded.');
+}
+
+function handleCodeHelp(args, output, outputEl) {
+  renderHelpCard(outputEl, '⌨️', 'Code: — Coding Assistant', [
+    ['Code: [projectname]', 'Open a project folder and start a code session'],
+    ['Code: repo',          'Build a code index — functions, imports, routes (nAI)'],
+    ['Code: scan',          'Static analysis — no AI, instant, reliable'],
+    ['Code: map',           'AI architectural summary via Gemini'],
+    ['Code: audit new',     'Full audit — scan + Gemini briefing and fix plan'],
+    ['Code: audit',         'Resume an existing audit'],
+    ['Code: audit end',     'Close audit with final summary'],
+    ['Code: all',           'Run repo → map → audit in one step'],
+    ['Code: status',        'Save a session state snapshot to Drive'],
+    ['Code: show',          'Display all loaded session content'],
+    ['Code: end',           'End the code session'],
+  ], 'Type Code: (no argument) to check your active session status.');
+}
+
+function handleMobiusHelp(args, output, outputEl) {
+  renderHelpCard(outputEl, '🧠', 'Mobius: — Memory & Rulebook', [
+    ['Mobius: all',          'Full numbered list of all rules (25 per page)'],
+    ['Mobius: rules',        'View rules section'],
+    ['Mobius: preferences',  'View preferences'],
+    ['Mobius: corrections',  'View corrections'],
+    ['Mobius: routing',      'View routing rules'],
+    ['Mobius: do not',       'View do-not list'],
+    ['Mobius: state',        'View current project state'],
+    ['Mobius: refine',       'Ask Gemini to analyse and improve the rulebook'],
+    ['Remember: [lesson]',   'Add a rule (default section)'],
+    ['Remember: preference [text]', 'Add a preference'],
+    ['Remember: correction [text]', 'Add a correction'],
+    ['Remember: route [text]',      'Add a routing rule'],
+    ['Remember: do not [text]',     'Add a do-not rule'],
+    ['Forget: 13',           'Remove rule #13'],
+    ['Amend: 12 [new text]', 'Replace rule #12 with new text'],
+    ['Review:',              'End-of-session debrief — process flags, add lessons'],
+  ], 'Type Mobius: (no argument) for a session pulse — flags, rule counts, project.');
+}
+
+// ── No-argument pulse wrappers ─────────────────────────────────────────────────
+// Command: (no arg) = pulse. Command: [arg] = action. Command? = help card.
+async function handleGooglePulse(args, output, outputEl) {
+  if (args.trim()) return handleGoogleConnect(args, output, outputEl);
+  return handleGoogleQuery(args, output, outputEl);
+}
+async function handleDropboxPulse(args, output, outputEl) {
+  if (args.trim()) return handleDropbox(args, output, outputEl);
+  return handleDropboxQuery(args, output, outputEl);
+}
+async function handleSyncPulse(args, output, outputEl) {
+  if (args.trim()) return handleSync(args, output, outputEl);
+  return handleSyncQuery(args, output, outputEl);
+}
+async function handleFocusPulse(args, output, outputEl) {
+  if (args.trim()) return handleFocus(args, output, outputEl);
+  return handleFocusQuery(args, output, outputEl);
+}
+function handleCodePulse(args, output, outputEl) {
+  if (args.trim()) return handleCode(args, output, outputEl);
+  return handleCodeQuery(args, output, outputEl);
+}
+function handleMobiusPulse(args, output, outputEl) {
+  if (args.trim()) return handleMobius(args, output, outputEl);
+  return handleMobiusQuery(args, output, outputEl);
+}
+
+// ── Register all commands ─────────────────────────────────────────────────────
 Object.assign(COMMANDS, {
-  'mobius?':  { requiresAccess: false, isAI: false, handler: handleMobiusQuery },
-  'google?':  { requiresAccess: false, isAI: false, handler: handleGoogleQuery },
-  'dropbox?': { requiresAccess: false, isAI: false, handler: handleDropboxQuery },
-  'code?':    { requiresAccess: false, isAI: false, handler: handleCodeQuery },
-  'focus?':   { requiresAccess: false, isAI: false, handler: handleFocusQuery },
-  'sync?':    { requiresAccess: false, isAI: false, handler: handleSyncQuery },
-  'mobius':   { requiresAccess: false, isAI: false, handler: handleMobius },
+  // ? = contextual help cards
+  'mobius?':  { requiresAccess: false, isAI: false, handler: handleMobiusHelp },
+  'google?':  { requiresAccess: false, isAI: false, handler: handleGoogleHelp },
+  'dropbox?': { requiresAccess: false, isAI: false, handler: handleDropboxHelp },
+  'code?':    { requiresAccess: false, isAI: false, handler: handleCodeHelp },
+  'focus?':   { requiresAccess: false, isAI: false, handler: handleFocusHelp },
+  'sync?':    { requiresAccess: false, isAI: false, handler: handleSyncHelp },
+  // base commands: no-arg = pulse, with-arg = action (via pulse wrappers)
+  'google':   { requiresAccess: false, isAI: false, handler: handleGooglePulse },
+  'dropbox':  { requiresAccess: false, isAI: false, handler: handleDropboxPulse },
+  'sync':     { requiresAccess: false, isAI: false, handler: handleSyncPulse },
+  'focus':    { requiresAccess: false, isAI: false, handler: handleFocusPulse },
+  'code':     { requiresAccess: false, isAI: false, handler: handleCodePulse },
+  'mobius':   { requiresAccess: false, isAI: false, handler: handleMobiusPulse },
+  // memory commands
   'remember': { requiresAccess: false, isAI: false, handler: handleRemember },
   'forget':   { requiresAccess: false, isAI: false, handler: handleForget },
   'amend':    { requiresAccess: false, isAI: false, handler: handleAmend },
   'review':   { requiresAccess: false, isAI: false, handler: handleReview },
+  'refine':   { requiresAccess: false, isAI: false, handler: handleRefine },
 });
 
 // ── Patch detectCommand to handle ? suffix and new single-word commands ───────
