@@ -1301,14 +1301,7 @@
             } else {
                 setVal('su-sync', '❌ sync failed', '#8d3a3a');
             }
-            title.textContent = '✅ Mobius ready';
-
-            // Fade out after 10 seconds
-            setTimeout(() => {
-                entry.style.transition = 'opacity 1s';
-                entry.style.opacity = '0';
-                setTimeout(() => entry.remove(), 1000);
-            }, 10000);
+            title.textContent = '✅ Mobius ready — ' + new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
         }
 
         // ── Startup sequence ──────────────────────────────────────────────
