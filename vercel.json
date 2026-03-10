@@ -16,6 +16,7 @@
     {"src": "/api/google/accounts",   "dest": "/api/services/google?action=accounts"},
     {"src": "/api/google/disconnect", "dest": "/api/services/google?action=disconnect"},
     {"src": "/api/dropbox",           "dest": "/api/services/google?action=dropbox"},
+    {"src": "/api/dropbox/list",      "dest": "/api/services/google?action=dropbox-list"},
     {"src": "/api/focus/(.*)",        "dest": "/api/focus/$1"},
     {"src": "/api/sync/status",       "dest": "/api/data?action=sync-status"},
     {"src": "/api/sync",              "dest": "/api/data?action=sync"},

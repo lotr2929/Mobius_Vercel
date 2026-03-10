@@ -1166,10 +1166,21 @@
         }
         window.setSyncStatus = setSyncStatus;
 
-        // ── Background sync ──────────────────────────────────────────────
+        // ── Background sync (Google + Dropbox) ──────────────────────
         async function backgroundSync(userId, incremental) {
             setSyncStatus('⟳ syncing', '#a06800');
             try {
+                // Check if any Google accounts are connected first
+                const accRes  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId));
+                const accData = await accRes.json();
+                const hasGoogle = (accData.accounts || []).length > 0;
+
+                if (!hasGoogle) {
+                    setSyncStatus('⚠ no accounts', '#a06800');
+                    return;
+                }
+
+                // Sync Google (calendars, emails, drive)
                 const body = { userId, type: 'all' };
                 if (incremental) body.since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
                 const res  = await fetch('/api/sync', {
@@ -1179,6 +1190,14 @@
                 });
                 const data = await res.json();
                 if (data.error) { setSyncStatus('⚠ sync error', '#8d3a3a'); return; }
+
+                // Sync Dropbox silently (only if connected)
+                fetch('/api/dropbox', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId })
+                }).catch(() => {});
+
                 const now = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
                 setSyncStatus('✓ ' + now, '#4a7c4e');
             } catch {
@@ -1205,13 +1224,100 @@
                 '&returnTo=' + encodeURIComponent(window.location.origin);
         }
 
+        // ── Startup status panel ──────────────────────────────
+        async function showStartupStatus(userId) {
+            const panel = document.getElementById('chatPanel');
+            const entry = document.createElement('div');
+            entry.className = 'chat-entry';
+            entry.style.cssText = 'padding:10px 14px;background:#f0ebe0;border:1px solid #d4c9b5;border-radius:1px;margin-bottom:8px;font-size:13px;color:#3a2e22;';
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight:bold;margin-bottom:8px;color:#4a3728;';
+            title.textContent = '⛳ Mobius starting up…';
+            entry.appendChild(title);
+
+            function addRow(id, icon, label) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:8px;padding:2px 0;align-items:center;';
+                row.innerHTML = '<span style="width:16px;text-align:center;flex-shrink:0;">' + icon + '</span>' +
+                    '<span style="flex:1;">' + label + '</span>' +
+                    '<span id="' + id + '" style="color:#a06800;">checking…</span>';
+                entry.appendChild(row);
+            }
+            addRow('su-google',  '🔗', 'Google accounts');
+            addRow('su-dropbox', '📦', 'Dropbox');
+            addRow('su-local',   '🧠', 'Local AI (Ollama)');
+            addRow('su-sync',    '🔄', 'Background sync');
+            panel.insertBefore(entry, panel.firstChild);
+
+            function setVal(id, text, color) {
+                const el = document.getElementById(id);
+                if (el) { el.textContent = text; el.style.color = color || '#4a7c4e'; }
+            }
+
+            // Check all services in parallel
+            await Promise.allSettled([
+                // Google accounts
+                (async () => {
+                    try {
+                        const r = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId));
+                        const d = await r.json();
+                        const accs = d.accounts || [];
+                        setVal('su-google', accs.length ? '✅ ' + accs.map(a => a.label).join(', ') : '⚠️ none connected', accs.length ? '#4a7c4e' : '#a06800');
+                    } catch { setVal('su-google', '❌ error', '#8d3a3a'); }
+                })(),
+                // Dropbox
+                (async () => {
+                    try {
+                        const r = await fetch('/api/dropbox/list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, path: '' }) });
+                        const d = await r.json();
+                        setVal('su-dropbox', d.ok ? '✅ connected' : '⚠️ not connected', d.ok ? '#4a7c4e' : '#a06800');
+                    } catch { setVal('su-dropbox', '⚠️ not connected', '#8d7c64'); }
+                })(),
+                // Ollama
+                (async () => {
+                    try {
+                        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) });
+                        if (r.ok) {
+                            const d = await r.json();
+                            const models = (d.models || []).map(m => m.name.split(':')[0]).join(', ') || 'running';
+                            setVal('su-local', '✅ ' + models, '#4a7c4e');
+                        } else setVal('su-local', '⚠️ not running', '#a06800');
+                    } catch { setVal('su-local', '⚠️ not running (cloud only)', '#8d7c64'); }
+                })()
+            ]);
+
+            // Sync last (sequential — shows progress)
+            setVal('su-sync', '⟳ syncing…', '#a06800');
+            await backgroundSync(userId, false);
+            // Read sync result from indicator (backgroundSync updates it)
+            const syncEl = document.getElementById('syncIndicator');
+            const syncOk = syncEl && syncEl.textContent.startsWith('✓');
+            const now = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+            if (syncOk) {
+                setVal('su-sync', '✅ done at ' + now, '#4a7c4e');
+            } else if (syncEl && syncEl.textContent.includes('no accounts')) {
+                setVal('su-sync', '⚠️ no accounts connected', '#a06800');
+            } else {
+                setVal('su-sync', '❌ sync failed', '#8d3a3a');
+            }
+            title.textContent = '✅ Mobius ready';
+
+            // Fade out after 10 seconds
+            setTimeout(() => {
+                entry.style.transition = 'opacity 1s';
+                entry.style.opacity = '0';
+                setTimeout(() => entry.remove(), 1000);
+            }, 10000);
+        }
+
         // ── Startup sequence ──────────────────────────────────────────────
         (async () => {
             const userId = getAuth('mobius_user_id');
             if (!userId) return;
             await autoConnectGoogle();
-            backgroundSync(userId, false);   // full sync on startup, non-blocking
-            startSyncPoll(userId);           // start 5-min incremental poll
+            showStartupStatus(userId);  // show status panel + run full sync
+            startSyncPoll(userId);      // start 5-min incremental poll
         })();
     </script>
 

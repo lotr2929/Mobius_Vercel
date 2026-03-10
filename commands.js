@@ -2215,24 +2215,41 @@ async function handleSync(args, output, outputEl) {
 
   // Sync: dropbox
   if (trimmed === 'dropbox') {
-    output('🔄 Syncing Dropbox...');
-    try {
-      const res  = await fetch('/api/dropbox', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ userId })
-      });
-      const data = await res.json();
-      if (data.error) { output('❌ ' + data.error); return; }
-      document.getElementById('input').value = '';
-      output('✅ Dropbox synced — ' + data.files + ' files indexed.');
-    } catch (err) { output('❌ ' + err.message); }
+    await syncDropbox(userId, output);
+    document.getElementById('input').value = '';
     return;
   }
 
-  // Sync: calendars | emails | drive | all
-  const validTypes = ['calendars', 'emails', 'drive', 'all'];
-  const type = validTypes.includes(trimmed) ? trimmed : 'all';
+  // Sync: all — includes Dropbox
+  if (!trimmed || trimmed === 'all') {
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const append = msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); };
+    append('🔄 Syncing all...');
+    try {
+      const res  = await fetch('/api/sync', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId, type: 'all' })
+      });
+      const data = await res.json();
+      if (data.error) { append('❌ ' + data.error); return; }
+      const r = data.result || {};
+      append('✅ Sync complete:');
+      append('  📅 Calendars — ' + (r.calendars?.ok ? r.calendars.events + ' entries' : '❌ ' + r.calendars?.error));
+      append('  📧 Emails    — ' + (r.emails?.ok    ? r.emails.messages  + ' entries' : '❌ ' + r.emails?.error));
+      append('  📁 Drive     — ' + (r.drive?.ok     ? r.drive.files      + ' entries' : '❌ ' + r.drive?.error));
+    } catch (err) { append('❌ ' + err.message); }
+    // Also sync Dropbox
+    await syncDropbox(userId, msg => { const d = document.createElement('div'); d.textContent = msg; outputEl.appendChild(d); });
+    document.getElementById('input').value = '';
+    return;
+  }
+
+  // Sync: calendars | emails | drive
+  const validTypes = ['calendars', 'emails', 'drive'];
+  const type = validTypes.includes(trimmed) ? trimmed : null;
+  if (!type) { output('Usage: Sync: all | calendars | emails | drive | dropbox | status'); return; }
 
   outputEl.classList.add('html-content');
   outputEl.innerHTML = '';
@@ -2267,10 +2284,26 @@ async function handleSync(args, output, outputEl) {
 
 // ── Dropbox ───────────────────────────────────────────────────────────────────
 
+async function syncDropbox(userId, output) {
+  output('🔄 Syncing Dropbox...');
+  try {
+    const res  = await fetch('/api/dropbox', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId })
+    });
+    const data = await res.json();
+    if (data.error) { output('❌ Dropbox: ' + data.error); return; }
+    output('  📦 Dropbox  — ' + data.files + ' files indexed.');
+  } catch (err) { output('❌ Dropbox: ' + err.message); }
+}
+
 async function handleDropbox(args, output) {
   const userId = getAuth('mobius_user_id');
   if (!userId) { output('❌ Not logged in.'); return; }
   const trimmed = (args || '').trim().toLowerCase();
+
+  // Dropbox: connect
   if (!trimmed || trimmed === 'connect') {
     const returnTo = window.location.origin;
     const url = '/auth/dropbox?service=dropbox&action=index&userId=' + encodeURIComponent(userId) +
@@ -2280,7 +2313,34 @@ async function handleDropbox(args, output) {
     window.location.href = url;
     return;
   }
-  output('Usage: Dropbox: connect');
+
+  // Dropbox: sync
+  if (trimmed === 'sync') {
+    await syncDropbox(userId, output);
+    document.getElementById('input').value = '';
+    return;
+  }
+
+  // Dropbox: list [optional/path]
+  if (trimmed === 'list' || trimmed.startsWith('list ')) {
+    const path = trimmed.slice(4).trim() || '';
+    output('📋 Listing Dropbox' + (path ? ': ' + path : ' root') + '...');
+    try {
+      const res  = await fetch('/api/dropbox/list', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId, path })
+      });
+      const data = await res.json();
+      if (data.error) { output('❌ ' + data.error); return; }
+      const lines = (data.entries || []).map(e => (e.type === 'folder' ? '📁' : '📄') + ' ' + e.name);
+      document.getElementById('input').value = '';
+      output(lines.length ? lines.join('\n') : '(empty)');
+    } catch (err) { output('❌ ' + err.message); }
+    return;
+  }
+
+  output('Usage: Dropbox: connect | sync | list [path]');
 }
 
 // Helper — human-readable time since a date
@@ -2310,34 +2370,7 @@ const COMMANDS = {
   'new':      { requiresAccess: false, isAI: false, handler: handleNew },
   'focus':    { requiresAccess: false, isAI: false, handler: handleFocus },
   'code':     { requiresAccess: false, isAI: false, handler: handleCode },
-  'ask':      { requiresAccess: false, isAI: true },
-  
-  // --- NEW PILOT TOOLS (Added for Mobius Development) ---
-  'pack': {
-    description: 'Generates a deep-context XML pack for the AI using Repomix.',
-    handler: async (args, outputFn) => {
-      outputFn("📦 Packing the Factory... This might take 10-20 seconds.");
-      try {
-        const response = await fetch('http://localhost:3000/api/system/pack', { method: 'POST' });
-        const data = await response.json();
-        outputFn(`✅ ${data.message}\nFile: ${data.path}`);
-      } catch (err) {
-        outputFn(`❌ Error: Make sure your local server.js is running.`);
-      }
-    }
-  },
-  'audit': {
-    description: 'Provides a high-level health report of the Factory files.',
-    handler: (args, outputFn) => {
-      outputFn("🔍 Auditing... Architecture looks solid. Ready for Code: pack.");
-    }
-  },
-  'verify': {
-    description: 'Runs a safety check on AI-suggested code.',
-    handler: (args, outputFn) => {
-      outputFn("🛡️ Verification Protocol Standby. Paste code to check.");
-    }
-  }
+  'ask':      { requiresAccess: false, isAI: true }
 };
 
 // Commands that work as a single word with no colon needed

@@ -129,5 +129,24 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // ── dropbox-list — POST /api/dropbox/list ───────────────────────────────
+  if (action === 'dropbox-list') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const { userId, path: folderPath } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    try {
+      const accessToken = await getDropboxToken(userId);
+      const url  = 'https://api.dropboxapi.com/2/files/list_folder';
+      const body = JSON.stringify({ path: folderPath || '', recursive: false });
+      const r    = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body });
+      const data = await r.json();
+      if (data.error_summary) throw new Error(data.error_summary);
+      const entries = (data.entries || []).map(e => ({ name: e.name, type: e['.tag'], path: e.path_display }));
+      return res.json({ ok: true, entries });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   res.status(400).json({ error: 'Unknown action: ' + action });
 };
