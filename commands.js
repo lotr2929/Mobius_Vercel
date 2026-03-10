@@ -2301,6 +2301,7 @@ const COMMANDS = {
   'device':   { requiresAccess: false, isAI: false, handler: handleDevice },
   'google':   { requiresAccess: false, isAI: false, handler: handleGoogleConnect },
   'sync':     { requiresAccess: false, isAI: false, handler: handleSync },
+  'dropbox':  { requiresAccess: false, isAI: false, handler: handleDropbox },
   'access':   { requiresAccess: false, isAI: false, handler: function(args, out) { return handleAccess(out); } },
   'find':     { requiresAccess: true,  isAI: false, handler: handleFind },
   'list':     { requiresAccess: true,  isAI: false, handler: handleList },
