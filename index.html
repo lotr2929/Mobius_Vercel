@@ -899,6 +899,25 @@
                 if (attachedFiles.some(f => f.mimeType?.startsWith('image/'))) {
                     pendingMobiusQuery.ASK = 'gemini';
                 }
+                // Resolve 'local' to a display-friendly label for the preview
+                if (pendingMobiusQuery.ASK === 'local' || pendingMobiusQuery.ASK === 'webllm') {
+                    const isMobilePreview = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+                    if (!isMobilePreview) {
+                        // Quick Ollama check for desktop label
+                        try {
+                            const ollamaCheck = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
+                            if (ollamaCheck.ok) {
+                                const od = await ollamaCheck.json();
+                                const modelNames = (od.models || []).map(m => m.name.split(':')[0]).join(', ');
+                                pendingMobiusQuery.ASK = 'Ollama (' + (modelNames || 'local') + ')';
+                            } else {
+                                pendingMobiusQuery.ASK = 'WebGPU/WebLLM';
+                            }
+                        } catch { pendingMobiusQuery.ASK = 'WebGPU/WebLLM'; }
+                    } else {
+                        pendingMobiusQuery.ASK = 'WebLLM';
+                    }
+                }
                 mqPreview.textContent = formatMobiusQuery(pendingMobiusQuery);
                 scrollToBottom();
             } catch (err) {
@@ -962,7 +981,7 @@
                 return;
             }
 
-            if (mq.ASK === 'webllm') {
+            if (mq.ASK === 'webllm' || mq.ASK === 'local' || mq.ASK === 'WebLLM' || mq.ASK.startsWith('Ollama')) {
                 try {
                     const messages = [
                         ...(mq.HISTORY || []),
@@ -1256,7 +1275,8 @@
             }
             addRow('su-google',  '🔗', 'Google accounts');
             addRow('su-dropbox', '📦', 'Dropbox');
-            addRow('su-local',   '🧠', 'Local AI (Ollama)');
+            const isMobileDev = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+            addRow('su-local',   '🧠', isMobileDev ? 'Local AI (WebLLM)' : 'Local AI (Ollama)');
             addRow('su-sync',    '🔄', 'Background sync');
             panel.insertBefore(entry, panel.firstChild);
 
@@ -1284,16 +1304,25 @@
                         setVal('su-dropbox', d.ok ? '✅ connected' : '⚠️ not connected', d.ok ? '#4a7c4e' : '#a06800');
                     } catch { setVal('su-dropbox', '⚠️ not connected', '#8d7c64'); }
                 })(),
-                // Ollama
+                // Local AI — Ollama on desktop, WebGPU/WebLLM on mobile
                 (async () => {
                     try {
-                        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) });
-                        if (r.ok) {
-                            const d = await r.json();
-                            const models = (d.models || []).map(m => m.name.split(':')[0]).join(', ') || 'running';
-                            setVal('su-local', '✅ ' + models, '#4a7c4e');
-                        } else setVal('su-local', '⚠️ not running', '#a06800');
-                    } catch { setVal('su-local', '⚠️ not running (cloud only)', '#8d7c64'); }
+                        if (isMobileDev) {
+                            if (navigator.gpu) {
+                                const adapter = await navigator.gpu.requestAdapter();
+                                setVal('su-local', adapter ? '✅ WebGPU ready' : '⚠️ WebGPU unavailable', adapter ? '#4a7c4e' : '#a06800');
+                            } else {
+                                setVal('su-local', '⚠️ WebGPU not supported', '#a06800');
+                            }
+                        } else {
+                            const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) });
+                            if (r.ok) {
+                                const d = await r.json();
+                                const models = (d.models || []).map(m => m.name.split(':')[0]).join(', ') || 'running';
+                                setVal('su-local', '✅ ' + models, '#4a7c4e');
+                            } else setVal('su-local', '⚠️ not running', '#a06800');
+                        }
+                    } catch { setVal('su-local', isMobileDev ? '⚠️ WebGPU check failed' : '⚠️ not running (cloud only)', '#8d7c64'); }
                 })()
             ]);
 

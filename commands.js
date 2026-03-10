@@ -2408,7 +2408,8 @@ function getAskModel(text) {
   const match = text.match(/^Ask:\s*(\w+)/i);
   if (match) {
     const model    = match[1].toLowerCase();
-    const resolved = model === 'local' ? 'webllm' : model;
+    const isMobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
+    const resolved = model === 'local' ? (isMobile ? 'webllm' : 'local') : model;
     if (MODEL_CHAIN.includes(resolved)) {
       setLastModel(resolved);
       return resolved;
