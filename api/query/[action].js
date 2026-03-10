@@ -4,7 +4,109 @@
 
 const { askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
 const { saveConversation, supabase } = require('../_supabase.js');
-const { getDriveFiles, getTasks, getCalendarEvents, getEmails } = require('../../google_api.js');
+const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
+
+// ── Mobius pre-processor: load mobius.json from Drive ─────────────────────────
+// Returns a formatted awareness string, or null if unavailable.
+async function loadMobiusAwareness(userId) {
+  if (!userId) return null;
+  try {
+    const found = await findDriveFile(userId, 'mobius.json');
+    if (!found.files || found.files.length === 0) return null;
+    const fileId  = found.files[0].id;
+    const content = await readDriveFileContent(userId, fileId, 'text/plain');
+    if (!content) return null;
+    const data = JSON.parse(content);
+    const lines = ['[Mobius Awareness]'];
+
+    // Project state — always first so AI knows current context
+    const ps = data.project_state;
+    if (ps) {
+      if (ps.current_project) lines.push('Current project: ' + ps.current_project);
+      if (ps.current_focus)   lines.push('Current focus: '   + ps.current_focus);
+      if (ps.next_steps?.length) lines.push('Next steps: ' + ps.next_steps.slice(0, 3).join(' | '));
+    }
+
+    // Preferences
+    if (data.preferences?.length) {
+      lines.push('');
+      lines.push('Preferences:');
+      data.preferences.forEach(p => lines.push('  - ' + p));
+    }
+
+    // Rules
+    if (data.rules?.length) {
+      lines.push('');
+      lines.push('Rules:');
+      data.rules.forEach(r => lines.push('  - ' + r));
+    }
+
+    // Do not
+    if (data.do_not?.length) {
+      lines.push('');
+      lines.push('Do not:');
+      data.do_not.forEach(d => lines.push('  - ' + d));
+    }
+
+    // Corrections
+    if (data.corrections?.length) {
+      lines.push('');
+      lines.push('Known corrections (do not repeat these mistakes):');
+      data.corrections.forEach(c => lines.push('  - ' + c));
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    console.warn('[Mobius] Could not load mobius.json:', err.message);
+    return null;
+  }
+}
+
+// ── Mobius post-processor: nAI response checks ────────────────────────────────
+// Returns array of flag strings. Empty = clean response.
+function postProcessReply(reply, instructions) {
+  const flags = [];
+  if (!reply) return flags;
+  const lower = reply.toLowerCase();
+
+  // Error / apology signals
+  const errorPhrases = ['i cannot', "i can't", 'i am unable', "i'm unable", 'i don\'t have access',
+    'i apologise', 'i apologize', 'i\'m sorry', 'i am sorry', 'i made an error',
+    'i made a mistake', 'i was wrong', 'that was incorrect'];
+  for (const phrase of errorPhrases) {
+    if (lower.includes(phrase)) { flags.push('Response contains apology or error signal: "' + phrase + '"'); break; }
+  }
+
+  // Uncertainty signals
+  const uncertainPhrases = ['i\'m not sure', 'i am not sure', 'i\'m not certain', 'i cannot be certain',
+    'as of my knowledge cutoff', 'my training data', 'i don\'t know', "i do not know"];
+  for (const phrase of uncertainPhrases) {
+    if (lower.includes(phrase)) { flags.push('Response contains uncertainty signal: "' + phrase + '"'); break; }
+  }
+
+  // Knowledge cutoff — already auto-escalates, but flag it too
+  if (lower.includes('knowledge cutoff') || lower.includes('training data')) {
+    flags.push('Knowledge cutoff detected — consider Ask: web');
+  }
+
+  // Truncation signals (code/long mode)
+  if (instructions === 'Code' || instructions === 'Long') {
+    const truncPhrases = ['...', '// ...', '/* ... */', '[rest of', '[continued', 'and so on', 'etc.'];
+    for (const phrase of truncPhrases) {
+      if (reply.includes(phrase)) { flags.push('Possible truncation detected: "' + phrase + '"'); break; }
+    }
+    if (reply.length < 200) flags.push('Response very short for ' + instructions + ' mode (' + reply.length + ' chars) — possibly incomplete');
+  }
+
+  // Over-verbose in Brief mode
+  if (instructions === 'Brief' && reply.length > 3000) {
+    flags.push('Response very long for Brief mode (' + reply.length + ' chars) — consider elaborating intentionally');
+  }
+
+  // Stalling — repeats the question back verbatim (first 60 chars)
+  // (skip for very short queries)
+  return flags;
+}
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -17,6 +119,12 @@ module.exports = async function handler(req, res) {
       const { text, model, history, context, forceInstructionMode } = req.body || {};
       if (!text) return res.status(400).json({ error: 'Text is required' });
 
+      // Read userId from cookie (same pattern as /ask)
+      const cookieHeader  = req.headers.cookie || '';
+      const cookieUserId  = cookieHeader.split(';').map(c => c.trim())
+        .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || null;
+      const parseUserId   = cookieUserId || req.body?.userId || null;
+
       const elaborate  = /^Elaborate[:\s]/i.test(text) || /\belaborate\b/i.test(text);
       const cleanText  = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
       const instructionMode = forceInstructionMode || (elaborate ? 'Long' : 'Brief');
@@ -28,7 +136,7 @@ module.exports = async function handler(req, res) {
             ? 'Use British English spelling and conventions. You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
             : 'Use British English spelling and conventions. You are Mobius, a helpful AI assistant. Keep all responses concise and under 500 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
 
-      const SYSTEM_PREFIXES = ['[System]', 'You are Mobius', '[User Environment]'];
+      const SYSTEM_PREFIXES = ['[System]', 'You are Mobius', '[User Environment]', '[Mobius Awareness]'];
       const history_clean = (history || []).filter(
         m => !SYSTEM_PREFIXES.some(p => m.content?.startsWith(p))
       );
@@ -36,12 +144,30 @@ module.exports = async function handler(req, res) {
       const webAliases = { 'websearch': 'web', 'web': 'web', 'web2': 'web2', 'web3': 'web3' };
       const resolvedModel = webAliases[model?.toLowerCase()] || model || 'groq';
 
+      // ── Pre-processor: load mobius.json awareness ─────────────────────────
+      // Fetched here at parse time so it's always fresh.
+      // Injected as a virtual file attachment — same pattern as environment.txt.
+      let mobiusFile = null;
+      const awarenessText = await loadMobiusAwareness(parseUserId);
+      if (awarenessText) {
+        const encoded = Buffer.from(awarenessText, 'utf8').toString('base64');
+        mobiusFile = {
+          name:     'mobius_context.txt',
+          mimeType: 'text/plain',
+          base64:   encoded,
+          size:     awarenessText.length
+        };
+        console.log('[Mobius] Awareness injected (' + awarenessText.length + ' chars)');
+      } else {
+        console.log('[Mobius] No awareness context available — continuing without.');
+      }
+
       const mobius_query = {
         ASK: resolvedModel,
         INSTRUCTIONS: instructionMode,
         HISTORY: history_clean,
         QUERY: cleanText,
-        FILES: [],
+        FILES: mobiusFile ? [mobiusFile] : [],
         CONTEXT: null
       };
 
@@ -194,7 +320,13 @@ module.exports = async function handler(req, res) {
         }
       }
 
-      res.json({ reply, modelUsed, tokensIn, tokensOut });
+      // ── Post-processor: nAI response checks ──────────────────────────────
+      const postFlags = postProcessReply(reply, INSTRUCTIONS);
+      if (postFlags.length > 0) {
+        console.log('[Mobius] Post-processor flags:', postFlags);
+      }
+
+      res.json({ reply, modelUsed, tokensIn, tokensOut, postFlags });
       if (userId && reply !== '__CHAT_HISTORY__') {
         saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null)
           .catch(e => console.error('Save error:', e.message));

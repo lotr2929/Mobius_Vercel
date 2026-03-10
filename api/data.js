@@ -26,13 +26,17 @@ async function getConnectedLabels(userId) {
 }
 
 async function writeIndexFile(userId, filename, content) {
+  // Search for exact filename match in Mobius folder
   const found = await findDriveFile(userId, filename);
-  if (found.files && found.files.length > 0) {
-    const f = found.files.find(f => f.inMobius) || found.files[0];
-    await writeDriveFileContent(userId, f.id, content);
-    return f.id;
+  // Only use files whose name exactly matches (avoid partial matches like email vs email.index)
+  const exactMatch = (found.files || []).find(f => f.name === filename && f.inMobius)
+                  || (found.files || []).find(f => f.name === filename);
+  if (exactMatch) {
+    await writeDriveFileContent(userId, exactMatch.id, content);
+    return exactMatch.id;
   }
-  const newFile = await createDriveFile(userId, filename.replace(/\.[^.]+$/, ''), found.folderId);
+  // Create new — pass full filename including extension so Drive stores it correctly
+  const newFile = await createDriveFile(userId, filename, found.folderId);
   await writeDriveFileContent(userId, newFile.id, content);
   return newFile.id;
 }

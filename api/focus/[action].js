@@ -34,7 +34,9 @@ module.exports = async function handler(req, res) {
       }
       case 'create': {
         if (!filename) return res.status(400).json({ error: 'filename required' });
-        const result = await createDriveFile(userId, filename, folderId);
+        // Focus: user files default to .md unless extension already provided
+        const focusFilename = /\.[a-z0-9]+$/i.test(filename) ? filename : filename + '.md';
+        const result = await createDriveFile(userId, focusFilename, folderId);
         return res.json({ file: result });
       }
       case 'append': {

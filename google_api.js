@@ -170,9 +170,9 @@ async function findDriveFile(userId, filename) {
   const folderId = await getMobiusFolderId(drive);
   const safe = filename.replace(/'/g, "\\'");
 
-  // Check Mobius folder first
+  // Check Mobius folder first — exact name match to avoid partial collisions
   const mobiusRes = await drive.files.list({
-    q: `'${folderId}' in parents and name contains '${safe}' and trashed = false`,
+    q: `'${folderId}' in parents and name = '${safe}' and trashed = false`,
     fields: 'files(id, name, mimeType, parents)',
     pageSize: 10
   });
@@ -186,9 +186,9 @@ async function findDriveFile(userId, filename) {
     return { files: mobiusFiles, folderId };
   }
 
-  // Fall back to whole Drive search
+  // Fall back to whole Drive search — exact match only
   const res = await drive.files.list({
-    q: `name contains '${safe}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+    q: `name = '${safe}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
     fields: 'files(id, name, mimeType, parents)',
     pageSize: 20
   });
@@ -247,9 +247,10 @@ async function createDriveFile(userId, filename, folderId) {
   const client = await getGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth: client });
   const resolvedFolder = folderId || await getMobiusFolderId(drive);
+  // Use filename as-is — callers are responsible for passing the correct name with extension
   const res = await drive.files.create({
     requestBody: {
-      name: filename + '.md',
+      name: filename,
       mimeType: 'text/plain',
       parents: [resolvedFolder]
     },

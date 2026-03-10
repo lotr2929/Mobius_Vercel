@@ -2416,3 +2416,740 @@ function getAskModel(text) {
   }
   return getLastModel();
 }
+
+// ── Mobius Self-Awareness System ──────────────────────────────────────────────
+// mobius.json lives in Google Drive Mobius folder.
+// Commands: Mobius? | Mobius: | Remember: | Forget: | Amend: | Review:
+// Pulse checks: Google? | Dropbox? | Code? | Focus? | Sync?
+
+const MOBIUS_FILENAME = 'mobius.json';
+
+// Session state for ? pulse commands
+let mobiusSession = {
+  startedAt:    Date.now(),
+  flags:        [],           // ⚠️ moments captured during session
+  googleState:  { accounts: [], lastSync: null },
+  dropboxState: { connected: false, lastSync: null, fileCount: null },
+  syncState:    { lastSync: null, services: {} }
+};
+
+// Expose so post-processor can add flags
+window.addSessionFlag = function(flag) {
+  mobiusSession.flags.push({ time: new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' }), msg: flag });
+};
+
+// ── Shared: load mobius.json from Drive ───────────────────────────────────────
+async function loadMobiusJson(userId) {
+  try {
+    const res  = await fetch('/api/focus/find', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId, filename: MOBIUS_FILENAME })
+    });
+    const found = await res.json();
+    if (!found.files || found.files.length === 0) return null;
+    const readRes  = await fetch('/api/focus/read', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId, fileId: found.files[0].id, mimeType: 'text/plain' })
+    });
+    const readData = await readRes.json();
+    if (readData.error || !readData.content) return null;
+    return { data: JSON.parse(readData.content), fileId: found.files[0].id, folderId: found.folderId };
+  } catch { return null; }
+}
+
+// ── Shared: save mobius.json to Drive ─────────────────────────────────────────
+async function saveMobiusJson(userId, data, output) {
+  data.updated = new Date().toISOString().slice(0, 10);
+  data.session_flags = [];
+  await saveToMobiusDrive(userId, MOBIUS_FILENAME, JSON.stringify(data, null, 2), output);
+}
+
+// ── Shared: flatten all list entries with global numbering ────────────────────
+// Returns [ { section, key, index, text }, ... ] in display order
+function flattenMobius(data) {
+  const ORDER = ['preferences', 'rules', 'routing_rules', 'corrections', 'do_not'];
+  const items = [];
+  for (const key of ORDER) {
+    const arr = data[key];
+    if (!Array.isArray(arr)) continue;
+    arr.forEach((text, i) => items.push({ section: key, localIndex: i, text }));
+  }
+  return items;
+}
+
+// ── Shared: section display label ────────────────────────────────────────────
+function sectionLabel(key) {
+  return {
+    preferences:   'PREFERENCES',
+    rules:         'RULES',
+    routing_rules: 'ROUTING RULES',
+    corrections:   'CORRECTIONS',
+    do_not:        'DO NOT'
+  }[key] || key.toUpperCase();
+}
+
+// ── Shared: render a page of items ───────────────────────────────────────────
+function renderItemPage(outputEl, items, startIdx, pageSize, title, showButtons) {
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+  hdr.textContent = title;
+  outputEl.appendChild(hdr);
+
+  const endIdx   = Math.min(startIdx + pageSize, items.length);
+  let   lastSect = null;
+
+  for (let i = startIdx; i < endIdx; i++) {
+    const item = items[i];
+    if (item.section !== lastSect) {
+      const sh = document.createElement('div');
+      sh.style.cssText = 'font-size:11px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px;border-top:1px solid #c9bfae;padding-top:6px;';
+      sh.textContent = sectionLabel(item.section);
+      outputEl.appendChild(sh);
+      lastSect = item.section;
+    }
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid #ede5d4;font-size:13px;';
+    const num = document.createElement('span');
+    num.style.cssText = 'color:#8d7c64;flex-shrink:0;width:24px;text-align:right;';
+    num.textContent = (i + 1) + '.';
+    const txt = document.createElement('span');
+    txt.style.cssText = 'flex:1;color:#3a2e22;';
+    txt.textContent = item.text;
+    row.appendChild(num);
+    row.appendChild(txt);
+    if (showButtons) {
+      const forgetBtn = document.createElement('button');
+      forgetBtn.textContent = '✕';
+      forgetBtn.title = 'Forget this rule';
+      forgetBtn.style.cssText = 'background:transparent;border:none;color:#8d7c64;cursor:pointer;font-size:13px;padding:0 4px;flex-shrink:0;';
+      forgetBtn.onclick = () => { document.getElementById('input').value = 'Forget: ' + (i + 1); document.getElementById('input').focus(); };
+      const amendBtn = document.createElement('button');
+      amendBtn.textContent = '✏️';
+      amendBtn.title = 'Amend this rule';
+      amendBtn.style.cssText = 'background:transparent;border:none;cursor:pointer;font-size:13px;padding:0 4px;flex-shrink:0;';
+      amendBtn.onclick = () => { document.getElementById('input').value = 'Amend: ' + (i + 1) + ' ' + item.text; document.getElementById('input').focus(); };
+      row.appendChild(amendBtn);
+      row.appendChild(forgetBtn);
+    }
+    outputEl.appendChild(row);
+  }
+
+  // Pagination
+  if (items.length > pageSize) {
+    const pg = document.createElement('div');
+    pg.style.cssText = 'font-size:12px;color:#8d7c64;margin-top:10px;display:flex;gap:8px;align-items:center;';
+    const pageNum  = Math.floor(startIdx / pageSize) + 1;
+    const totalPgs = Math.ceil(items.length / pageSize);
+    pg.textContent = 'Page ' + pageNum + ' of ' + totalPgs + '   ';
+    if (startIdx > 0) {
+      const prev = document.createElement('button');
+      prev.textContent = '◀ Prev';
+      prev.style.cssText = 'font-size:12px;padding:2px 8px;background:#8d7c64;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;';
+      prev.onclick = () => renderItemPage(outputEl, items, startIdx - pageSize, pageSize, title, showButtons);
+      pg.appendChild(prev);
+    }
+    if (endIdx < items.length) {
+      const next = document.createElement('button');
+      next.textContent = 'Next ▶';
+      next.style.cssText = 'font-size:12px;padding:2px 8px;background:#8d7c64;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;';
+      next.onclick = () => renderItemPage(outputEl, items, startIdx + pageSize, pageSize, title, showButtons);
+      pg.appendChild(next);
+    }
+    outputEl.appendChild(pg);
+  }
+}
+
+// ── Mobius? — session pulse check ────────────────────────────────────────────
+async function handleMobiusQuery(args, output, outputEl) {
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+
+  const now     = new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
+  const elapsed = Math.floor((Date.now() - mobiusSession.startedAt) / 60000);
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:10px;';
+  hdr.textContent = '🧠 Mobius — Session Pulse  ' + now;
+  outputEl.appendChild(hdr);
+
+  // Session duration
+  const dur = document.createElement('div');
+  dur.style.cssText = 'font-size:13px;color:#8d7c64;margin-bottom:8px;';
+  dur.textContent = 'Session running: ' + (elapsed < 1 ? 'less than a minute' : elapsed + ' min');
+  outputEl.appendChild(dur);
+
+  // Session flags
+  if (mobiusSession.flags.length === 0) {
+    const ok = document.createElement('div');
+    ok.style.cssText = 'font-size:13px;color:#4a7c4e;margin-bottom:8px;';
+    ok.textContent = '✅ No flags raised this session';
+    outputEl.appendChild(ok);
+  } else {
+    const fhdr = document.createElement('div');
+    fhdr.style.cssText = 'font-size:12px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;';
+    fhdr.textContent = 'Flags this session';
+    outputEl.appendChild(fhdr);
+    mobiusSession.flags.forEach(f => {
+      const row = document.createElement('div');
+      row.style.cssText = 'font-size:13px;color:#a06800;padding:2px 0;';
+      row.textContent = '⚠️  [' + f.time + '] ' + f.msg;
+      outputEl.appendChild(row);
+    });
+  }
+
+  // Quick summary of mobius.json
+  const userId = getAuth('mobius_user_id');
+  const loaded = await loadMobiusJson(userId);
+  if (loaded) {
+    const { data } = loaded;
+    const summary = document.createElement('div');
+    summary.style.cssText = 'margin-top:10px;font-size:13px;color:#8d7c64;border-top:1px solid #c9bfae;padding-top:8px;';
+    const counts = ['preferences','rules','routing_rules','corrections','do_not']
+      .map(k => sectionLabel(k) + ': ' + (data[k]?.length || 0)).join('  |  ');
+    summary.textContent = counts;
+    outputEl.appendChild(summary);
+    const updated = document.createElement('div');
+    updated.style.cssText = 'font-size:12px;color:#8d7c64;margin-top:4px;';
+    updated.textContent = 'mobius.json last updated: ' + (data.updated || 'unknown') + '   |   Project: ' + (data.project_state?.current_project || '—');
+    outputEl.appendChild(updated);
+  }
+
+  // Shortcuts
+  const shortcuts = document.createElement('div');
+  shortcuts.style.cssText = 'margin-top:10px;font-size:12px;color:#8d7c64;';
+  shortcuts.textContent = 'Mobius: all  |  Mobius: rules  |  Mobius: state  |  Review:';
+  outputEl.appendChild(shortcuts);
+  document.getElementById('input').value = '';
+}
+
+// ── Mobius: — view awareness sections ────────────────────────────────────────
+async function handleMobius(args, output, outputEl) {
+  const userId  = getAuth('mobius_user_id');
+  const trimmed = args.trim().toLowerCase();
+
+  const loaded = await loadMobiusJson(userId);
+  if (!loaded) { output('❌ Could not load mobius.json from Drive.'); return; }
+  const { data } = loaded;
+
+  const PAGE = 25;
+
+  // Mobius: state
+  if (trimmed === 'state') {
+    outputEl.classList.add('html-content');
+    outputEl.innerHTML = '';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+    hdr.textContent = '📌 Project State';
+    outputEl.appendChild(hdr);
+    const ps = data.project_state || {};
+    const lines = [
+      ['Project',         ps.current_project || '—'],
+      ['Focus',           ps.current_focus   || '—'],
+      ['Deployed at',     ps.deployment_url   || '—'],
+      ['Local path',      ps.local_path       || '—'],
+    ];
+    lines.forEach(([label, val]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;font-size:13px;padding:3px 0;border-bottom:1px solid #ede5d4;';
+      row.innerHTML = '<span style="color:#8d7c64;width:100px;flex-shrink:0;">' + label + '</span><span style="color:#3a2e22;flex:1;">' + val + '</span>';
+      outputEl.appendChild(row);
+    });
+    ['just_completed','next_steps','staged_not_deployed','known_issues'].forEach(key => {
+      const arr = ps[key];
+      if (!arr || arr.length === 0) return;
+      const sh = document.createElement('div');
+      sh.style.cssText = 'font-size:11px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px;';
+      sh.textContent = key.replace(/_/g, ' ');
+      outputEl.appendChild(sh);
+      arr.forEach(item => {
+        const d = document.createElement('div');
+        d.style.cssText = 'font-size:13px;color:#3a2e22;padding:2px 0 2px 12px;border-bottom:1px solid #ede5d4;';
+        d.textContent = '• ' + item;
+        outputEl.appendChild(d);
+      });
+    });
+    document.getElementById('input').value = '';
+    return;
+  }
+
+  // Mobius: all — all sections paginated
+  if (!trimmed || trimmed === 'all') {
+    const items = flattenMobius(data);
+    const title = '🧠 mobius.json — All Rules (' + items.length + ' entries)';
+    renderItemPage(outputEl, items, 0, PAGE, title, true);
+    document.getElementById('input').value = '';
+    return;
+  }
+
+  // Mobius: [section] — single section
+  const sectionMap = {
+    'rules':       'rules',
+    'preferences': 'preferences',
+    'corrections': 'corrections',
+    'routing':     'routing_rules',
+    'do not':      'do_not',
+    'donot':       'do_not'
+  };
+  const key = sectionMap[trimmed];
+  if (key && Array.isArray(data[key])) {
+    const items = data[key].map((text, i) => ({ section: key, localIndex: i, text }));
+    // Offset global numbers correctly
+    const allItems = flattenMobius(data);
+    const offset   = allItems.findIndex(it => it.section === key);
+    const offsetItems = items.map((it, i) => ({ ...it, _globalIndex: offset + i }));
+    renderItemPage(outputEl, allItems.filter(it => it.section === key).map((it, i) => ({
+      ...it, _display: allItems.indexOf(it) + 1
+    })), 0, PAGE, '🧠 ' + sectionLabel(key) + ' (' + items.length + ' entries)', true);
+    document.getElementById('input').value = '';
+    return;
+  }
+
+  output('Usage: Mobius: all | rules | preferences | corrections | routing | do not | state');
+}
+
+// ── Remember: — append a lesson ──────────────────────────────────────────────
+async function handleRemember(args, output) {
+  const userId  = getAuth('mobius_user_id');
+  const trimmed = args.trim();
+  if (!trimmed) { output('Usage: Remember: [lesson]  or  Remember: preference/correction/route/do not [lesson]'); return; }
+
+  // Detect section prefix
+  const prefixMap = [
+    { prefix: 'preference ',   key: 'preferences'   },
+    { prefix: 'correction ',   key: 'corrections'   },
+    { prefix: 'route ',        key: 'routing_rules' },
+    { prefix: 'routing ',      key: 'routing_rules' },
+    { prefix: 'do not ',       key: 'do_not'        },
+    { prefix: 'donot ',        key: 'do_not'        },
+  ];
+  let targetKey = 'rules';
+  let lesson    = trimmed;
+  for (const { prefix, key } of prefixMap) {
+    if (trimmed.toLowerCase().startsWith(prefix)) {
+      targetKey = key;
+      lesson    = trimmed.slice(prefix.length).trim();
+      break;
+    }
+  }
+
+  output('💾 Loading mobius.json...');
+  const loaded = await loadMobiusJson(userId);
+  if (!loaded) { output('❌ Could not load mobius.json from Drive.'); return; }
+  const { data } = loaded;
+
+  if (!Array.isArray(data[targetKey])) data[targetKey] = [];
+  data[targetKey].push(lesson);
+  const newNum = flattenMobius(data).length;
+
+  await saveMobiusJson(userId, data, output);
+  output('✅ Remembered as #' + newNum + ' in ' + sectionLabel(targetKey) + ':\n   ' + lesson);
+  document.getElementById('input').value = '';
+}
+
+// ── Forget: — remove item(s) by global number ────────────────────────────────
+async function handleForget(args, output) {
+  const userId  = getAuth('mobius_user_id');
+  const trimmed = args.trim();
+  if (!trimmed) { output('Usage: Forget: 13   or   Forget: 13, 22, 27'); return; }
+
+  const nums = trimmed.split(/[,\s]+/).map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+  if (nums.length === 0) { output('❌ No valid numbers found. Usage: Forget: 13, 22'); return; }
+
+  output('💾 Loading mobius.json...');
+  const loaded = await loadMobiusJson(userId);
+  if (!loaded) { output('❌ Could not load mobius.json from Drive.'); return; }
+  const { data } = loaded;
+
+  const items   = flattenMobius(data);
+  const toForget = nums.map(n => items[n - 1]).filter(Boolean);
+  if (toForget.length === 0) { output('❌ No matching entries found.'); return; }
+
+  // Remove from highest localIndex first to avoid index shifting
+  const bySection = {};
+  toForget.forEach(item => {
+    if (!bySection[item.section]) bySection[item.section] = [];
+    bySection[item.section].push(item.localIndex);
+  });
+  for (const [key, indices] of Object.entries(bySection)) {
+    indices.sort((a, b) => b - a).forEach(i => data[key].splice(i, 1));
+  }
+
+  await saveMobiusJson(userId, data, output);
+  const removed = toForget.map(it => '  #' + (items.indexOf(it) + 1) + ': ' + it.text).join('\n');
+  output('🗑️  Forgotten:\n' + removed);
+  document.getElementById('input').value = '';
+}
+
+// ── Amend: — replace item by global number ───────────────────────────────────
+async function handleAmend(args, output) {
+  const userId  = getAuth('mobius_user_id');
+  const trimmed = args.trim();
+  const match   = trimmed.match(/^(\d+)\s+(.+)/);
+  if (!match) { output('Usage: Amend: 12 [new text for that rule]'); return; }
+
+  const num     = parseInt(match[1]);
+  const newText = match[2].trim();
+
+  output('💾 Loading mobius.json...');
+  const loaded = await loadMobiusJson(userId);
+  if (!loaded) { output('❌ Could not load mobius.json from Drive.'); return; }
+  const { data } = loaded;
+
+  const items = flattenMobius(data);
+  const item  = items[num - 1];
+  if (!item) { output('❌ No entry #' + num + ' found. Use Mobius: all to see entries.'); return; }
+
+  const oldText = item.text;
+  data[item.section][item.localIndex] = newText;
+
+  await saveMobiusJson(userId, data, output);
+  output('✏️  Amended #' + num + ':\n  Was: ' + oldText + '\n  Now: ' + newText);
+  document.getElementById('input').value = '';
+}
+
+// ── Review: — end-of-session debrief ─────────────────────────────────────────
+async function handleReview(args, output, outputEl) {
+  const userId = getAuth('mobius_user_id');
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+
+  const now = new Date().toLocaleString('en-AU', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:10px;';
+  hdr.textContent = '📚 Session Review — ' + now;
+  outputEl.appendChild(hdr);
+
+  const loaded = await loadMobiusJson(userId);
+  if (!loaded) { output('❌ Could not load mobius.json from Drive.'); return; }
+  const { data } = loaded;
+
+  // ── Proposed lessons from session flags ──────────────────────────────────
+  const flags = mobiusSession.flags;
+  if (flags.length > 0) {
+    const fhdr = document.createElement('div');
+    fhdr.style.cssText = 'font-size:12px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;';
+    fhdr.textContent = 'Proposed lessons from this session';
+    outputEl.appendChild(fhdr);
+
+    flags.forEach((flag, i) => {
+      const card = document.createElement('div');
+      card.style.cssText = 'background:#f5eedd;border:1px solid #c9bfae;border-radius:1px;padding:10px 12px;margin-bottom:8px;';
+
+      const flagText = document.createElement('div');
+      flagText.style.cssText = 'font-size:13px;color:#a06800;margin-bottom:6px;';
+      flagText.textContent = '⚠️  [' + flag.time + '] ' + flag.msg;
+      card.appendChild(flagText);
+
+      const input = document.createElement('input');
+      input.type  = 'text';
+      input.value = flag.msg;
+      input.style.cssText = 'width:100%;padding:4px 8px;font-size:13px;font-family:inherit;border:1px solid #8d7c64;background:#ede5d4;color:#3a2e22;border-radius:1px;box-sizing:border-box;margin-bottom:6px;';
+      card.appendChild(input);
+
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;';
+
+      const remBtn = document.createElement('button');
+      remBtn.textContent = '✅ Remember';
+      remBtn.style.cssText = 'padding:4px 12px;background:#4a7c4e;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+      remBtn.onclick = async () => {
+        const lesson = input.value.trim();
+        if (!lesson) return;
+        if (!Array.isArray(data.rules)) data.rules = [];
+        data.rules.push(lesson);
+        remBtn.textContent = '✓ Saved';
+        remBtn.disabled = true;
+        forgetBtn.disabled = true;
+        card.style.opacity = '0.5';
+      };
+
+      const forgetBtn = document.createElement('button');
+      forgetBtn.textContent = '❌ Skip';
+      forgetBtn.style.cssText = 'padding:4px 12px;background:#8d7c64;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+      forgetBtn.onclick = () => {
+        forgetBtn.textContent = '✓ Skipped';
+        forgetBtn.disabled = true;
+        remBtn.disabled = true;
+        card.style.opacity = '0.5';
+      };
+
+      const reframeBtn = document.createElement('button');
+      reframeBtn.textContent = '✏️ Reframe';
+      reframeBtn.style.cssText = 'padding:4px 12px;background:transparent;border:1px solid #8d7c64;color:#8d7c64;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+      reframeBtn.onclick = () => { input.focus(); input.select(); };
+
+      btnRow.appendChild(remBtn);
+      btnRow.appendChild(forgetBtn);
+      btnRow.appendChild(reframeBtn);
+      card.appendChild(btnRow);
+      outputEl.appendChild(card);
+    });
+  } else {
+    const noFlags = document.createElement('div');
+    noFlags.style.cssText = 'font-size:13px;color:#4a7c4e;margin-bottom:12px;';
+    noFlags.textContent = '✅ No flags raised this session.';
+    outputEl.appendChild(noFlags);
+  }
+
+  // ── Add your own lesson ───────────────────────────────────────────────────
+  const addHdr = document.createElement('div');
+  addHdr.style.cssText = 'font-size:12px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 6px;border-top:1px solid #c9bfae;padding-top:10px;';
+  addHdr.textContent = 'Add a lesson';
+  outputEl.appendChild(addHdr);
+
+  const addRow = document.createElement('div');
+  addRow.style.cssText = 'display:flex;gap:8px;margin-bottom:12px;';
+  const addInput = document.createElement('input');
+  addInput.type        = 'text';
+  addInput.placeholder = 'Type a new rule, correction or preference...';
+  addInput.style.cssText = 'flex:1;padding:4px 8px;font-size:13px;font-family:inherit;border:1px solid #8d7c64;background:#f5eedd;color:#3a2e22;border-radius:1px;';
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ Add';
+  addBtn.style.cssText = 'padding:4px 14px;background:#4a7c4e;color:#fff;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:13px;';
+  addBtn.onclick = () => {
+    const lesson = addInput.value.trim();
+    if (!lesson) return;
+    if (!Array.isArray(data.rules)) data.rules = [];
+    data.rules.push(lesson);
+    const conf = document.createElement('div');
+    conf.style.cssText = 'font-size:12px;color:#4a7c4e;margin-top:4px;';
+    conf.textContent = '✓ Added: ' + lesson;
+    addRow.parentNode.insertBefore(conf, addRow.nextSibling);
+    addInput.value = '';
+  };
+  addRow.appendChild(addInput);
+  addRow.appendChild(addBtn);
+  outputEl.appendChild(addRow);
+
+  // ── Update project state ──────────────────────────────────────────────────
+  const stateHdr = document.createElement('div');
+  stateHdr.style.cssText = 'font-size:12px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 6px;border-top:1px solid #c9bfae;padding-top:10px;';
+  stateHdr.textContent = 'Update project state (optional)';
+  outputEl.appendChild(stateHdr);
+
+  const stateInput = document.createElement('input');
+  stateInput.type        = 'text';
+  stateInput.placeholder = 'What is the current focus? (leave blank to keep existing)';
+  stateInput.value       = data.project_state?.current_focus || '';
+  stateInput.style.cssText = 'width:100%;padding:4px 8px;font-size:13px;font-family:inherit;border:1px solid #8d7c64;background:#f5eedd;color:#3a2e22;border-radius:1px;box-sizing:border-box;margin-bottom:8px;';
+  outputEl.appendChild(stateInput);
+
+  // ── Save all button ───────────────────────────────────────────────────────
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = '💾 Save Review to mobius.json';
+  saveBtn.style.cssText = 'width:100%;padding:8px;background:#4a3728;color:#f5eedd;border:none;border-radius:1px;cursor:pointer;font-family:inherit;font-size:14px;margin-top:4px;';
+  saveBtn.onclick = async () => {
+    saveBtn.textContent = '⏳ Saving...';
+    saveBtn.disabled = true;
+    if (stateInput.value.trim() && data.project_state) {
+      data.project_state.current_focus = stateInput.value.trim();
+    }
+    // Clear session flags now that review is done
+    mobiusSession.flags = [];
+    const appendOutput = msg => {
+      const d = document.createElement('div');
+      d.style.cssText = 'font-size:12px;color:#4a7c4e;margin-top:4px;';
+      d.textContent = msg;
+      outputEl.appendChild(d);
+    };
+    await saveMobiusJson(userId, data, appendOutput);
+    saveBtn.textContent = '✅ Saved to mobius.json';
+  };
+  outputEl.appendChild(saveBtn);
+  document.getElementById('input').value = '';
+}
+
+// ── Google? — Google account pulse ───────────────────────────────────────────
+async function handleGoogleQuery(args, output, outputEl) {
+  const userId = getAuth('mobius_user_id');
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '<div style="color:#8d7c64;font-style:italic;font-size:13px;">🔍 Checking Google accounts...</div>';
+  try {
+    const res  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId));
+    const data = await res.json();
+    outputEl.innerHTML = '';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+    hdr.textContent = '🔗 Google Accounts';
+    outputEl.appendChild(hdr);
+    const LABELS = ['personal','family','work'];
+    LABELS.forEach(label => {
+      const acc = (data.accounts || []).find(a => a.label === label);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;font-size:13px;padding:4px 0;border-bottom:1px solid #ede5d4;';
+      row.innerHTML = '<span style="width:70px;color:#8d7c64;flex-shrink:0;">' + label + '</span>' +
+        (acc ? '<span style="color:#4a7c4e;">✅ ' + acc.email + '</span>' : '<span style="color:#a06800;">⚪ not connected</span>');
+      outputEl.appendChild(row);
+    });
+    if (mobiusSession.googleState) {
+      mobiusSession.googleState.accounts = data.accounts || [];
+      mobiusSession.googleState.lastSync  = new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
+    }
+  } catch (err) { outputEl.textContent = '❌ ' + err.message; }
+  document.getElementById('input').value = '';
+}
+
+// ── Dropbox? — Dropbox pulse ──────────────────────────────────────────────────
+async function handleDropboxQuery(args, output, outputEl) {
+  const userId = getAuth('mobius_user_id');
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '<div style="color:#8d7c64;font-style:italic;font-size:13px;">🔍 Checking Dropbox...</div>';
+  try {
+    const res  = await fetch('/api/dropbox/list', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId, path: '' })
+    });
+    const data = await res.json();
+    outputEl.innerHTML = '';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+    hdr.textContent = '📦 Dropbox';
+    outputEl.appendChild(hdr);
+    const connected = !data.error;
+    const row = document.createElement('div');
+    row.style.cssText = 'font-size:13px;color:' + (connected ? '#4a7c4e' : '#a06800') + ';';
+    row.textContent = connected
+      ? '✅ Connected — ' + (data.entries?.length || 0) + ' items at root'
+      : '⚪ Not connected — use Dropbox: connect';
+    outputEl.appendChild(row);
+    mobiusSession.dropboxState = { connected, lastSync: connected ? new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' }) : null, fileCount: data.entries?.length || null };
+  } catch (err) { outputEl.textContent = '❌ ' + err.message; }
+  document.getElementById('input').value = '';
+}
+
+// ── Code? — Code session pulse ────────────────────────────────────────────────
+function handleCodeQuery(args, output, outputEl) {
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+  hdr.textContent = '⌨️  Code Session';
+  outputEl.appendChild(hdr);
+  const cs = window.getCodeSession ? window.getCodeSession() : null;
+  if (!cs) {
+    const none = document.createElement('div');
+    none.style.cssText = 'font-size:13px;color:#8d7c64;';
+    none.textContent = 'No active code session. Use Code: [projectname] to start.';
+    outputEl.appendChild(none);
+  } else {
+    const rows = [
+      ['Project',  cs.projectName],
+      ['.map',     cs.mapContent   ? '✅ loaded (' + cs.mapContent.length   + ' chars)' : '⚠️  not loaded'],
+      ['.repo',    cs.repoContent  ? '✅ loaded (' + cs.repoContent.length  + ' chars)' : '⚠️  not loaded'],
+      ['.audit',   cs.auditContent ? '✅ loaded (' + cs.auditContent.length + ' chars)' : '⚠️  not loaded'],
+    ];
+    rows.forEach(([label, val]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;font-size:13px;padding:3px 0;border-bottom:1px solid #ede5d4;';
+      row.innerHTML = '<span style="color:#8d7c64;width:60px;flex-shrink:0;">' + label + '</span><span style="color:#3a2e22;">' + val + '</span>';
+      outputEl.appendChild(row);
+    });
+  }
+  document.getElementById('input').value = '';
+}
+
+// ── Focus? — Focus file pulse ─────────────────────────────────────────────────
+function handleFocusQuery(args, output, outputEl) {
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+  hdr.textContent = '📎 Focus File';
+  outputEl.appendChild(hdr);
+  const ff = window.getFocusFile ? window.getFocusFile() : null;
+  if (!ff) {
+    const none = document.createElement('div');
+    none.style.cssText = 'font-size:13px;color:#8d7c64;';
+    none.textContent = 'No file in focus. Use Focus: [filename] to attach a file.';
+    outputEl.appendChild(none);
+  } else {
+    const rows = [
+      ['File',    ff.name],
+      ['Size',    ff.content ? ff.content.length + ' chars' : '(empty)'],
+      ['Path',    ff.path || '(Drive root)'],
+      ['Origin',  ff.originalId ? 'Copied from Drive' : 'In Mobius folder'],
+    ];
+    rows.forEach(([label, val]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;font-size:13px;padding:3px 0;border-bottom:1px solid #ede5d4;';
+      row.innerHTML = '<span style="color:#8d7c64;width:60px;flex-shrink:0;">' + label + '</span><span style="color:#3a2e22;">' + val + '</span>';
+      outputEl.appendChild(row);
+    });
+  }
+  document.getElementById('input').value = '';
+}
+
+// ── Sync? — Sync status pulse ─────────────────────────────────────────────────
+async function handleSyncQuery(args, output, outputEl) {
+  const userId = getAuth('mobius_user_id');
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '<div style="color:#8d7c64;font-style:italic;font-size:13px;">🔍 Checking sync status...</div>';
+  try {
+    const res  = await fetch('/api/sync/status?userId=' + encodeURIComponent(userId));
+    const data = await res.json();
+    outputEl.innerHTML = '';
+    const hdr = document.createElement('div');
+    hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:8px;';
+    hdr.textContent = '🔄 Sync Status';
+    outputEl.appendChild(hdr);
+    (data.status || []).forEach(entry => {
+      const ago = entry.synced_at ? timeSince(new Date(entry.synced_at)) : 'never';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;font-size:13px;padding:3px 0;border-bottom:1px solid #ede5d4;';
+      row.innerHTML = '<span style="color:#8d7c64;width:120px;flex-shrink:0;">' + entry.label + ' / ' + entry.type + '</span><span style="color:#3a2e22;">' + ago + '</span>';
+      outputEl.appendChild(row);
+    });
+    if (!data.status || data.status.length === 0) {
+      const none = document.createElement('div');
+      none.style.cssText = 'font-size:13px;color:#8d7c64;';
+      none.textContent = 'No sync records found.';
+      outputEl.appendChild(none);
+    }
+  } catch (err) { outputEl.textContent = '❌ ' + err.message; }
+  document.getElementById('input').value = '';
+}
+
+// ── Register new commands ─────────────────────────────────────────────────────
+Object.assign(COMMANDS, {
+  'mobius?':  { requiresAccess: false, isAI: false, handler: handleMobiusQuery },
+  'google?':  { requiresAccess: false, isAI: false, handler: handleGoogleQuery },
+  'dropbox?': { requiresAccess: false, isAI: false, handler: handleDropboxQuery },
+  'code?':    { requiresAccess: false, isAI: false, handler: handleCodeQuery },
+  'focus?':   { requiresAccess: false, isAI: false, handler: handleFocusQuery },
+  'sync?':    { requiresAccess: false, isAI: false, handler: handleSyncQuery },
+  'mobius':   { requiresAccess: false, isAI: false, handler: handleMobius },
+  'remember': { requiresAccess: false, isAI: false, handler: handleRemember },
+  'forget':   { requiresAccess: false, isAI: false, handler: handleForget },
+  'amend':    { requiresAccess: false, isAI: false, handler: handleAmend },
+  'review':   { requiresAccess: false, isAI: false, handler: handleReview },
+});
+
+// ── Patch detectCommand to handle ? suffix and new single-word commands ───────
+const _detectCommandOrig = detectCommand;
+window._detectCommandPatched = true;
+
+// Re-export detectCommand with ? support baked in
+// (overrides the function in the same script scope via reassignment is not possible in strict mode,
+//  so we patch the exported reference used by index.html — see runCommand which calls COMMANDS directly)
+// The ? commands are registered in COMMANDS above with their full key (e.g. 'mobius?')
+// detectCommand already handles colon-prefix; we extend it here for ? suffix:
+const _origDetect = detectCommand;
+function detectCommandExtended(text) {
+  const trimmed = text.trim();
+  // ? suffix pulse commands: Mobius? Google? Code? Focus? Dropbox? Sync?
+  const qMatch = trimmed.match(/^(\w+)\?$/);
+  if (qMatch) {
+    const cmd = qMatch[1].toLowerCase() + '?';
+    if (COMMANDS[cmd]) return { command: cmd, args: '' };
+  }
+  return _origDetect(text);
+}
+// Expose for index.html
+window.detectCommandExtended = detectCommandExtended;

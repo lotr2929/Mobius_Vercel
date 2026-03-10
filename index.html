@@ -764,7 +764,7 @@
 
             // ── Step 1: Intercept all non-AI commands immediately ─────────────
             // Access: needs special handling (synchronous user gesture for mobile)
-            const detected = detectCommand(text);
+            const detected = (window.detectCommandExtended || detectCommand)(text);
             if (detected && detected.command === 'access') {
                 const { outputFn } = runCommandInPanel(text, 'access', '');
                 await handleAccess(outputFn);
@@ -1005,6 +1005,16 @@
                     : '';
                 answerLabel.textContent = `A:(${modelLabels[usedModel] || usedModel})${tokenInfo}`;
                 addResponseToolbar(wrapper, reply);
+                // ── Post-processor: surface flags from server ────────────────────────────────
+                if (data.postFlags && data.postFlags.length > 0) {
+                    data.postFlags.forEach(flag => {
+                        if (window.addSessionFlag) window.addSessionFlag(flag);
+                    });
+                    const flagBar = document.createElement('div');
+                    flagBar.style.cssText = 'margin-top:4px;padding:4px 10px;background:#fff8e8;border-left:3px solid #a06800;font-size:12px;color:#a06800;border-radius:1px;';
+                    flagBar.textContent = '⚠️  ' + data.postFlags.join('  |  ');
+                    wrapper.appendChild(flagBar);
+                }
                 chatHistory.push({ role:'user', content:mq.QUERY });
                 chatHistory.push({ role:'assistant', content:reply });
                 document.getElementById('input').value = '';
