@@ -931,7 +931,7 @@
                     if (!isMobilePreview) {
                         // Quick Ollama check for desktop label
                         try {
-                            const ollamaCheck = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1000) });
+                            const ollamaCheck = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(5000) });
                             if (ollamaCheck.ok) {
                                 const od = await ollamaCheck.json();
                                 const modelNames = (od.models || []).map(m => m.name.split(':')[0]).join(', ');
@@ -1366,7 +1366,7 @@
                                 setVal('su-local', '⚠️ WebGPU not supported', '#a06800');
                             }
                         } else {
-                            const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) });
+                            const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(5000) });
                             if (r.ok) {
                                 const d = await r.json();
                                 const models = (d.models || []).map(m => m.name.split(':')[0]).join(', ') || 'running';
@@ -1426,7 +1426,7 @@
       async function detectOllama() {
         try {
           const r = await fetch('http://localhost:11434/api/tags',
-            { signal: AbortSignal.timeout(1500) });
+          { signal: AbortSignal.timeout(5000) });
           return r.ok;
         } catch { return false; }
       }
