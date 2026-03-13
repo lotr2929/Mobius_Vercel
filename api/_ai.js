@@ -44,16 +44,23 @@ async function askGemini(messages, imageParts = []) {
 }
 
 async function askMistral(messages) {
+  const key = process.env.MISTRAL_API_KEY;
+  if (!key) throw new Error('MISTRAL_API_KEY is not set on the server.');
   const r = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': 'Bearer ' + process.env.MISTRAL_API_KEY,
+      'Authorization': 'Bearer ' + key,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ model: 'codestral-latest', messages })
   });
   const data = await r.json();
-  return data.choices?.[0]?.message?.content || JSON.stringify(data);
+  if (!r.ok || data.error || data.message) {
+    throw new Error('Mistral error: ' + (data.error?.message || data.message || 'HTTP ' + r.status));
+  }
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Mistral returned no content: ' + JSON.stringify(data));
+  return content;
 }
 
 async function askGitHub(messages) {
@@ -89,6 +96,7 @@ const MODEL_FULL_NAMES = {
 async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   const startIdx = MODEL_CHAIN.indexOf(startModel);
   const chain = startIdx !== -1 ? MODEL_CHAIN.slice(startIdx) : MODEL_CHAIN;
+  const failedModels = [];
   let lastErr = null;
   for (const model of chain) {
     try {
@@ -102,11 +110,12 @@ async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
       const label     = model === startModel ? fullName : fullName + ' (fallback from ' + startName + ')';
       // Gemini returns { text, tokensIn, tokensOut }, others return a plain string
       if (result && typeof result === 'object' && result.text !== undefined) {
-        return { reply: result.text, modelUsed: label, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+        return { reply: result.text, modelUsed: label, tokensIn: result.tokensIn, tokensOut: result.tokensOut, failedModels };
       }
-      return { reply: result, modelUsed: label };
+      return { reply: result, modelUsed: label, failedModels };
     } catch (err) {
       console.warn('[Mobius] ' + model + ' failed:', err.message);
+      failedModels.push({ model: MODEL_FULL_NAMES[model] || model, reason: err.message });
       lastErr = err;
     }
   }

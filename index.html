@@ -1085,6 +1085,13 @@
                     flagBar.textContent = '⚠️  ' + data.postFlags.join('  |  ');
                     wrapper.appendChild(flagBar);
                 }
+                // ── Failed models: surface any fallback failures ──────────────────────────────
+                if (data.failedModels && data.failedModels.length > 0) {
+                    const failBar = document.createElement('div');
+                    failBar.style.cssText = 'margin-top:3px;padding:3px 10px;background:#f8efef;border-left:3px solid #8d3a3a;font-size:11px;color:#8d3a3a;border-radius:1px;';
+                    failBar.textContent = '❌ Failed: ' + data.failedModels.map(f => f.model + ' (' + f.reason + ')').join('  |  ');
+                    wrapper.appendChild(failBar);
+                }
                 chatHistory.push({ role:'user', content:mq.QUERY });
                 chatHistory.push({ role:'assistant', content:reply });
                 document.getElementById('input').value = '';
@@ -1141,6 +1148,19 @@
                 });
             };
 
+            // Shorten — prepopulates input with a summarisation request
+            const shortenBtn = document.createElement('button');
+            shortenBtn.className = 'resp-btn';
+            shortenBtn.title = 'Shorten this response';
+            shortenBtn.textContent = '📏';
+            shortenBtn.onclick = () => {
+                const input = document.getElementById('input');
+                input.value = 'Summarise the following in under 150 words, keeping only the key points:\n\n' + replyText;
+                input.style.height = 'auto';
+                input.style.height = input.scrollHeight + 'px';
+                input.focus();
+            };
+
             // Upvote
             const upvote = document.createElement('button');
             upvote.className = 'resp-btn';
@@ -1182,6 +1202,7 @@
             downBtn.onclick = () => navigateChat(1);
 
             toolbar.appendChild(copyBtn);
+            toolbar.appendChild(shortenBtn);
             toolbar.appendChild(upvote);
             toolbar.appendChild(downvote);
             toolbar.appendChild(upBtn);

@@ -203,7 +203,7 @@ module.exports = async function handler(req, res) {
       ];
       if (CONTEXT && CONTEXT !== 'None') messages.unshift({ role: 'system', content: CONTEXT });
 
-      let reply, modelUsed = ASK, tokensIn = null, tokensOut = null;
+      let reply, modelUsed = ASK, tokensIn = null, tokensOut = null, failedModels = [];
 
       const imageParts = (FILES || [])
         .filter(f => f.mimeType?.startsWith('image/'))
@@ -247,9 +247,11 @@ module.exports = async function handler(req, res) {
           modelUsed = MODEL_FULL_NAMES.gemini;
         } catch (err) {
           console.warn('[Mobius] Gemini failed, falling back:', err.message);
-          const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'mistral');
-          reply = fbReply;
-          modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.gemini + ')';
+          failedModels.push({ model: MODEL_FULL_NAMES.gemini, reason: err.message });
+          const fbResult = await askWithFallback(messages, [], 'mistral');
+          reply = fbResult.reply;
+          modelUsed = fbResult.modelUsed + ' (fallback from ' + MODEL_FULL_NAMES.gemini + ')';
+          failedModels = failedModels.concat(fbResult.failedModels || []);
         }
 
       } else if (ASK === 'mistral' || ASK === 'codestral') {
@@ -258,9 +260,11 @@ module.exports = async function handler(req, res) {
           modelUsed = MODEL_FULL_NAMES.mistral;
         } catch (err) {
           console.warn('[Mobius] Mistral failed, falling back:', err.message);
-          const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'github');
-          reply = fbReply;
-          modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.mistral + ')';
+          failedModels.push({ model: MODEL_FULL_NAMES.mistral, reason: err.message });
+          const fbResult = await askWithFallback(messages, [], 'github');
+          reply = fbResult.reply;
+          modelUsed = fbResult.modelUsed + ' (fallback from ' + MODEL_FULL_NAMES.mistral + ')';
+          failedModels = failedModels.concat(fbResult.failedModels || []);
         }
 
       } else if (ASK === 'github') {
@@ -269,9 +273,11 @@ module.exports = async function handler(req, res) {
           modelUsed = MODEL_FULL_NAMES.github;
         } catch (err) {
           console.warn('[Mobius] GitHub failed, falling back:', err.message);
-          const { reply: fbReply, modelUsed: fbModel } = await askWithFallback(messages, [], 'groq');
-          reply = fbReply;
-          modelUsed = fbModel + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
+          failedModels.push({ model: MODEL_FULL_NAMES.github, reason: err.message });
+          const fbResult = await askWithFallback(messages, [], 'groq');
+          reply = fbResult.reply;
+          modelUsed = fbResult.modelUsed + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
+          failedModels = failedModels.concat(fbResult.failedModels || []);
         }
 
       } else if (ASK === 'websearch' || ASK === 'web' || ASK === 'web2' || ASK === 'web3') {
@@ -302,9 +308,10 @@ module.exports = async function handler(req, res) {
       } else {
         appendFileTexts();
         try {
-          const { reply: fallbackReply, modelUsed: fallbackModel } = await askWithFallback(messages, [], ASK);
-          reply = fallbackReply;
-          modelUsed = fallbackModel;
+          const fbResult = await askWithFallback(messages, [], ASK);
+          reply = fbResult.reply;
+          modelUsed = fbResult.modelUsed;
+          failedModels = fbResult.failedModels || [];
           if (detectsCutoff(reply)) {
             const cutoffStatus = `${modelUsed}: knowledge cutoff detected (no live data) → trying Ask: web2...`;
             try {
@@ -312,7 +319,7 @@ module.exports = async function handler(req, res) {
               reply = cutoffStatus + '\n\n' + wsReply;
               modelUsed = wsModel;
             } catch (wsErr) {
-              reply = cutoffStatus + `\nAsk: web2: ${wsErr.message} → showing original answer.\n\n` + fallbackReply;
+              reply = cutoffStatus + `\nAsk: web2: ${wsErr.message} → showing original answer.\n\n` + fbResult.reply;
             }
           }
         } catch (err) {
@@ -326,7 +333,7 @@ module.exports = async function handler(req, res) {
         console.log('[Mobius] Post-processor flags:', postFlags);
       }
 
-      res.json({ reply, modelUsed, tokensIn, tokensOut, postFlags });
+      res.json({ reply, modelUsed, tokensIn, tokensOut, postFlags, failedModels });
       if (userId && reply !== '__CHAT_HISTORY__') {
         saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null)
           .catch(e => console.error('Save error:', e.message));
