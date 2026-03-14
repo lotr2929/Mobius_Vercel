@@ -4,3 +4,6 @@
 node_modules
 documents/
 *.zip
+backups/
+commands_good.js
+status_patch.js

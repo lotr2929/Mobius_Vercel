@@ -18,6 +18,19 @@ if /i not "%CONFIRM%"=="Y" (
     exit /b 0
 )
 
+echo [Backup] Creating pre-deploy snapshot...
+for /f "tokens=1-4 delims=/ " %%a in ('date /t') do set DSTR=%%d%%b%%c
+for /f "tokens=1-2 delims=: " %%a in ('time /t') do set TSTR=%%a%%b
+set TSTR=%TSTR: =0%
+set BACKUP_NAME=backups\pre-deploy_%DSTR%_%TSTR%.zip
+powershell -NoProfile -Command "Compress-Archive -Path 'api','commands.js','index.html','actions.js','vercel.json','server.js','google_api.js' -DestinationPath '%BACKUP_NAME%' -Force"
+if exist "%BACKUP_NAME%" (
+    echo Backup saved: %BACKUP_NAME%
+) else (
+    echo WARNING: Backup failed - check PowerShell is available.
+)
+echo.
+
 set /p MSG="Enter commit message (or press Enter for default): "
 if "%MSG%"=="" set MSG=Update Mobius
 
@@ -39,6 +52,7 @@ if %ERRORLEVEL%==0 (
     echo ========================================
     echo  Success! Vercel is now deploying.
     echo  Check: https://mobius-vercel.vercel.app
+    echo  Backup: %BACKUP_NAME%
     echo ========================================
 ) else (
     echo ========================================
