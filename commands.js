@@ -1900,6 +1900,10 @@ function updateCodeBadge() {
 // ── Status (self-diagnosis) ─────────────────────────────────────────────────────
 
 async function handleStatus(args, output, outputEl) {
+  // Sub-command: Status: models — ping all AI models
+  if ((args || '').trim().toLowerCase() === 'models') {
+    return handleStatusModels(args, output, outputEl);
+  }
   const isLocal   = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const userId    = getAuth('mobius_user_id');
   const vercelUrl = 'https://mobius-vercel.vercel.app';
