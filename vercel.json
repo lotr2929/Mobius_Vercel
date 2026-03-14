@@ -20,6 +20,7 @@
     {"src": "/api/focus/(.*)",        "dest": "/api/focus/$1"},
     {"src": "/api/sync/status",       "dest": "/api/data?action=sync-status"},
     {"src": "/api/sync",              "dest": "/api/data?action=sync"},
+    {"src": "/api/services/status",   "dest": "/api/services/status"},
     {"src": "/login",                 "dest": "/login.html"},
     {"src": "/signup",                "dest": "/signup.html"},
     {"src": "/help/(.*)",             "dest": "/help/$1"},
