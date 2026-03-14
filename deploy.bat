@@ -20,7 +20,7 @@ if /i not "%CONFIRM%"=="Y" (
 
 echo [Backup] Creating pre-deploy snapshot...
 for /f "usebackq" %%T in (`powershell -NoProfile -Command "Get-Date -Format 'ddMMMyy_HHmm'"`) do set TIMESTAMP=%%T
-set BACKUP_NAME=backups\%TIMESTAMP%.zip
+set BACKUP_NAME=backups\Predeploy-%TIMESTAMP%.zip
 powershell -NoProfile -Command "Compress-Archive -Path 'api','commands.js','index.html','actions.js','vercel.json','server.js','google_api.js' -DestinationPath '%BACKUP_NAME%' -Force"
 if exist "%BACKUP_NAME%" (
     echo Backup saved: %BACKUP_NAME%
