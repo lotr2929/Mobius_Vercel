@@ -3461,10 +3461,7 @@ function detectCommandExtended(text) {
 window.detectCommandExtended = detectCommandExtended;
 
 // ── Status: models ────────────────────────────────────────────────────────────
-async function handleStatus(args, output, outputEl) {
-  const sub = (args || '').trim().toLowerCase();
-  if (sub && sub !== 'models') { output('Unknown Status: command. Try: Status: models'); return; }
-
+async function handleStatusModels(args, output, outputEl) {
   output('🔍 Pinging all cloud AI models…');
 
   let data;
@@ -3510,5 +3507,14 @@ async function handleStatus(args, output, outputEl) {
   else output(lines.join('\n'));
 }
 
-// Register Status: command
-COMMANDS['status'] = { requiresAccess: false, isAI: false, handler: handleStatus };
+// Register Status: models as a sub-command of the existing Status: handler
+const _origHandleStatus = COMMANDS['status']?.handler;
+COMMANDS['status'] = {
+  requiresAccess: false, isAI: false,
+  handler: async function(args, output, outputEl) {
+    const sub = (args || '').trim().toLowerCase();
+    if (sub === 'models') return handleStatusModels(args, output, outputEl);
+    if (_origHandleStatus) return _origHandleStatus(args, output, outputEl);
+    output('Usage: Status: (no arg) or Status: models');
+  }
+};
