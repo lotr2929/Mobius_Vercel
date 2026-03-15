@@ -5,5 +5,7 @@ node_modules
 documents/
 *.zip
 backups/
+repomix-output.xml
+_deleted/
 commands_good.js
 status_patch.js
