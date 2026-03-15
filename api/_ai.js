@@ -83,9 +83,53 @@ async function askGemini(messages, imageParts = []) {
     body: JSON.stringify({ contents })
   });
   const data = await r.json();
-  if (data.error) throw new Error('Gemini API error: ' + data.error.message);
+  if (data.error) {
+    const msg = data.error.message || '';
+    const retryMatch = msg.match(/retry(?:\s+in)?[:\s]+([\d.]+)\s*s/i);
+    if (retryMatch) {
+      const secs = Math.ceil(parseFloat(retryMatch[1]));
+      throw new Error('Gemini quota exceeded — retry in ' + secs + 's');
+    }
+    throw new Error('Gemini error: ' + msg);
+  }
   if (!data.candidates?.[0]) throw new Error('No candidates in Gemini response: ' + JSON.stringify(data));
   const text = data.candidates[0].content.parts[0].text;
+  const usage = data.usageMetadata || {};
+  return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0, modelUsed: model };
+}
+
+async function askGeminiLite(messages) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY is not set on the server.');
+  // Resolve Flash-Lite model dynamically — same approach as Flash
+  let model = 'gemini-2.5-flash-lite';
+  try {
+    const r    = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key, { signal: AbortSignal.timeout(3000) });
+    const data = await r.json();
+    const pick = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && m.name.includes('flash-lite'))
+      .map(m => m.name.replace('models/', ''))
+      .find(m => !m.includes('preview') && !m.includes('tts') && !m.includes('image')) ||
+      'gemini-2.5-flash-lite';
+    model = pick;
+  } catch { /* use fallback */ }
+  const contents = messages.map((m, i) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }]
+  }));
+  const r = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents }) }
+  );
+  const data = await r.json();
+  if (data.error) {
+    const msg = data.error.message || '';
+    const retryMatch = msg.match(/retry(?:\s+in)?[:\s]+([\d.]+)\s*s/i);
+    if (retryMatch) throw new Error('Gemini Flash-Lite quota exceeded — retry in ' + Math.ceil(parseFloat(retryMatch[1])) + 's');
+    throw new Error('Gemini Flash-Lite error: ' + msg);
+  }
+  if (!data.candidates?.[0]) throw new Error('No candidates from Gemini Flash-Lite');
+  const text  = data.candidates[0].content.parts[0].text;
   const usage = data.usageMetadata || {};
   return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0, modelUsed: model };
 }
@@ -128,16 +172,18 @@ async function askGitHub(messages) {
 }
 
 // Cloud-only fallback chain — local models (Ollama, WebLLM) are client-side only
-const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github'];
+const MODEL_CHAIN = ['groq', 'gemini-lite', 'gemini', 'mistral', 'github'];
 
 const MODEL_FULL_NAMES = {
-  groq:    'Groq Llama 3.3 70B',
-  gemini:  'Gemini 2.5 Flash',
-  mistral: 'Mistral Codestral',
-  github:  'GitHub GPT-4o',
-  ollama:    'Ollama (local)',
-  qwen:      'Ollama Qwen 2.5 Coder',
-  deepseek:  'Ollama DeepSeek R1 7B'
+  groq:         'Groq Llama 3.3 70B',
+  'gemini-lite': 'Gemini 2.5 Flash-Lite',
+  gemini:       'Gemini 2.5 Flash',
+  codestral:    'Mistral Codestral',
+  mistral:      'Mistral Codestral',
+  github:       'GitHub GPT-4o',
+  ollama:       'Ollama (local)',
+  qwen:         'Ollama Qwen 2.5 Coder',
+  deepseek:     'Ollama DeepSeek R1 7B'
 };
 
 async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
@@ -148,10 +194,11 @@ async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   for (const model of chain) {
     try {
       let result;
-      if (model === 'groq')         result = await askGroq(messages);
-      else if (model === 'gemini')  result = await askGemini(messages, imageParts);
-      else if (model === 'mistral') result = await askMistral(messages);
-      else if (model === 'github')  result = await askGitHub(messages);
+      if (model === 'groq')              result = await askGroq(messages);
+      else if (model === 'gemini-lite')  result = await askGeminiLite(messages);
+      else if (model === 'gemini')       result = await askGemini(messages, imageParts);
+      else if (model === 'codestral' || model === 'mistral') result = await askMistral(messages);
+      else if (model === 'github')       result = await askGitHub(messages);
       const fullName  = MODEL_FULL_NAMES[model] || model;
       const startName = MODEL_FULL_NAMES[startModel] || startModel;
       const label     = model === startModel ? fullName : fullName + ' (fallback from ' + startName + ')';
@@ -279,6 +326,7 @@ async function askWebSearch(messages, depth = 1) {
 
 module.exports = {
   askGroq,
+  askGeminiLite,
   askGemini,
   askMistral,
   askGitHub,

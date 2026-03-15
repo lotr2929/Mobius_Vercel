@@ -116,53 +116,36 @@ async function pingGemini() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not set');
 
-  // Use cached model resolution — only queries Google once per cold start
-  let model       = _statusGeminiModel;
-  let displayName = _statusGeminiName;
-
-  if (!model) {
-    model       = 'gemini-2.5-flash';
-    displayName = 'Gemini 2.5 Flash';
-    try {
-      const listRes  = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
-        { signal: AbortSignal.timeout(5000) }
+  // Ping using the models list endpoint — zero generateContent quota cost.
+  // If the list returns models, Gemini is up and our key is valid.
+  // Resolves the best model as a side effect, cached for the cold start.
+  if (!_statusGeminiModel) {
+    const listRes  = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!listRes.ok) throw new Error('Gemini API unreachable — HTTP ' + listRes.status);
+    const listData = await listRes.json();
+    if (listData.error) throw new Error('Gemini API error: ' + listData.error.message);
+    const models = (listData.models || [])
+      .filter(m =>
+        (m.supportedGenerationMethods || []).includes('generateContent') &&
+        !m.name.includes('image') && !m.name.includes('tts') &&
+        !m.name.includes('live') && !m.name.includes('embed') &&
+        !m.name.includes('robotics') && !m.name.includes('computer-use') &&
+        !m.name.includes('research')
       );
-      const listData = await listRes.json();
-      const models   = (listData.models || [])
-        .filter(m =>
-          (m.supportedGenerationMethods || []).includes('generateContent') &&
-          !m.name.includes('image') && !m.name.includes('tts') &&
-          !m.name.includes('live') && !m.name.includes('embed') &&
-          !m.name.includes('robotics') && !m.name.includes('computer-use') &&
-          !m.name.includes('research')
-        );
-      const pick =
-        models.find(m => m.name.includes('gemini-2.5-flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
-        models.find(m => m.name.includes('flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
-        models.find(m => m.name.includes('flash')) ||
-        models[0];
-      if (pick) {
-        model       = pick.name.replace('models/', '');
-        displayName = pick.displayName || model;
-      }
-    } catch { /* use fallback */ }
-    _statusGeminiModel = model;
-    _statusGeminiName  = displayName;
+    if (!models.length) throw new Error('Gemini: no generateContent models available');
+    const pick =
+      models.find(m => m.name.includes('gemini-2.5-flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
+      models.find(m => m.name.includes('flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
+      models.find(m => m.name.includes('flash')) ||
+      models[0];
+    _statusGeminiModel = pick.name.replace('models/', '');
+    _statusGeminiName  = pick.displayName || _statusGeminiModel;
   }
 
-  const r = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: ok' }] }] })
-    }
-  );
-  const data = await r.json();
-  if (data.error) throw new Error(data.error.message);
-  if (!data.candidates?.[0]) throw new Error('No candidates returned');
-  return { ms: Date.now() - start, modelId: model, displayName };
+  return { ms: Date.now() - start, modelId: _statusGeminiModel, displayName: _statusGeminiName };
 }
 
 async function pingMistral() {

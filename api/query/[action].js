@@ -2,7 +2,7 @@
 // POST /ask   → action = 'ask'
 // POST /parse → action = 'parse'
 
-const { askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
+const { askGeminiLite, askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
 const { saveConversation, supabase } = require('../_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
 
@@ -212,45 +212,77 @@ module.exports = async function handler(req, res) {
       const hasImages        = imageParts.length > 0;
       const hasNonImageFiles = (FILES || []).some(f => f.mimeType && !f.mimeType.startsWith('image/'));
 
-      // ── File-type-aware model routing ────────────────────────────────────────
-      // Override the user's model selection when a file type demands a specific capability.
-      // User can still override by explicitly naming a model (Ask: groq etc.).
-      let fileModelFallbacks = []; // fallback chain for file-routed queries
-      const userExplicitModel = ['gemini','groq','mistral','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
+      // ── Task complexity scoring — most tokens first, specialists only when needed ──
+      // Scores the query to pick the cheapest capable model.
+      // User can always override with explicit Ask: [model].
+      let fileModelFallbacks = [];
+      const userExplicitModel = ['gemini','gemini-flash','gemini-lite','groq','mistral','codestral','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
 
-      if (!userExplicitModel && (FILES || []).length > 0) {
-        const files       = FILES || [];
-        const mimeTypes   = files.map(f => f.mimeType || '').join(',').toLowerCase();
-        const fileNames   = files.map(f => f.name   || '').join(',').toLowerCase();
-        const codeExts    = /\.(js|ts|jsx|tsx|py|java|cs|cpp|c|h|go|rs|rb|php|swift|kt|sql|sh|bash|zsh)$/;
-        const docExts     = /\.(pdf|txt|md|docx|doc|rtf|odt)$/;
-        const dataExts    = /\.(csv|json|xml|yaml|yml|toml|ini)$/;
-        const audioVideo  = /^(audio|video)\//;
+      function scoreComplexity(query, files, history, instructions) {
+        let score = 0;
+        // Files
+        if ((files || []).some(f => f.mimeType?.startsWith('image/')))  score += 5; // vision required
+        if ((files || []).some(f => f.mimeType?.startsWith('audio/')))  score += 5; // multimodal
+        if ((files || []).some(f => (f.size || 0) > 100000))            score += 3; // large file
+        if ((files || []).length > 0)                                   score += 1; // any file
+        // Query length
+        if ((query || '').length > 1500)                                score += 2;
+        else if ((query || '').length > 500)                            score += 1;
+        // Keywords
+        if (/analys|reason|architect|design|review|compar|evaluat/i.test(query)) score += 1;
+        // History depth
+        if ((history || []).length > 20)                                score += 2;
+        else if ((history || []).length > 10)                           score += 1;
+        // Instruction mode
+        if (instructions === 'Long' || instructions === 'Code')         score += 1;
+        return score;
+      }
 
-        if (hasImages || audioVideo.test(mimeTypes)) {
-          // Images and audio/video: Gemini only — no fallback, vision is unique
+      if (!userExplicitModel) {
+        const files     = FILES || [];
+        const mimeTypes = files.map(f => f.mimeType || '').join(',').toLowerCase();
+        const fileNames = files.map(f => f.name    || '').join(',').toLowerCase();
+        const codeExts  = /\.(js|ts|jsx|tsx|py|java|cs|cpp|c|h|go|rs|rb|php|swift|kt|sql|sh|bash|zsh)$/;
+        const docExts   = /\.(pdf|txt|md|docx|doc|rtf|odt)$/;
+        const dataExts  = /\.(csv|json|xml|yaml|yml|toml|ini)$/;
+
+        const score = scoreComplexity(QUERY, files, HISTORY, INSTRUCTIONS);
+
+        if (hasImages || /^(audio|video)\//.test(mimeTypes)) {
+          // Vision — Flash is the only free option, protect it
           modelUsed = 'gemini';
-          console.log('[Mobius] File routing: image/media → Gemini (vision, no fallback)');
-        } else if (codeExts.test(fileNames)) {
-          // Code: Gemini first (large context + reasoning), Mistral fallback, GitHub last
-          modelUsed = 'gemini';
-          fileModelFallbacks = ['mistral', 'github'];
-          console.log('[Mobius] File routing: code → Gemini → Mistral → GitHub');
-        } else if (
-          docExts.test(fileNames)   ||
-          dataExts.test(fileNames)  ||
-          mimeTypes.includes('pdf') ||
-          mimeTypes.includes('text')
-        ) {
-          // Documents and data: Gemini first, GitHub fallback, Groq last
-          modelUsed = 'gemini';
-          fileModelFallbacks = ['github', 'groq'];
-          console.log('[Mobius] File routing: document/data → Gemini → GitHub → Groq');
+          fileModelFallbacks = ['github'];
+          console.log('[Mobius] Routing: vision → Flash (score ' + score + ')');
+
+        } else if (codeExts.test(fileNames) && /generat|creat|write|implement|build/i.test(QUERY)) {
+          // Code generation specifically — specialist Codestral first
+          modelUsed = 'codestral';
+          fileModelFallbacks = ['groq', 'gemini-lite', 'gemini', 'github'];
+          console.log('[Mobius] Routing: code generation → Codestral (score ' + score + ')');
+
+        } else if (files.length > 0) {
+          // File attached (doc, code, data) — start with Groq if small, Flash-Lite if large
+          if (score >= 4) {
+            modelUsed = 'gemini-lite';
+            fileModelFallbacks = ['groq', 'gemini', 'github'];
+            console.log('[Mobius] Routing: large file → Flash-Lite (score ' + score + ')');
+          } else {
+            modelUsed = 'groq';
+            fileModelFallbacks = ['gemini-lite', 'gemini', 'github'];
+            console.log('[Mobius] Routing: file → Groq (score ' + score + ')');
+          }
+
+        } else if (score >= 5) {
+          // Complex text query — Flash-Lite first, Flash as escalation
+          modelUsed = 'gemini-lite';
+          fileModelFallbacks = ['groq', 'gemini', 'github'];
+          console.log('[Mobius] Routing: complex → Flash-Lite (score ' + score + ')');
+
         } else {
-          // Unknown file type with attachment: Gemini first, Groq fallback
-          modelUsed = 'gemini';
-          fileModelFallbacks = ['groq'];
-          console.log('[Mobius] File routing: unknown file → Gemini → Groq');
+          // Default — Groq: most tokens, fastest, cheapest
+          modelUsed = 'groq';
+          fileModelFallbacks = ['gemini-lite', 'github'];
+          console.log('[Mobius] Routing: default → Groq (score ' + score + ')');
         }
       }
 
@@ -280,7 +312,34 @@ module.exports = async function handler(req, res) {
       } else if (ASK === 'google_gmail') {
         reply = await getEmails(userId);
 
-      } else if (ASK === 'gemini' || modelUsed === 'gemini' || hasImages) {
+      } else if (ASK === 'gemini-lite' || modelUsed === 'gemini-lite') {
+        appendFileTexts();
+        try {
+          const r = await askGeminiLite(messages);
+          reply = r.text; tokensIn = r.tokensIn; tokensOut = r.tokensOut;
+          modelUsed = MODEL_FULL_NAMES['gemini-lite'];
+        } catch (err) {
+          failedModels.push({ model: MODEL_FULL_NAMES['gemini-lite'], reason: err.message });
+          const chain = fileModelFallbacks.length ? fileModelFallbacks.filter(m => m !== 'gemini-lite') : ['groq', 'gemini', 'github'];
+          const fb = await askWithFallback(messages, [], chain[0]);
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Flash-Lite)';
+          failedModels = failedModels.concat(fb.failedModels || []);
+        }
+
+      } else if (ASK === 'codestral' || modelUsed === 'codestral') {
+        appendFileTexts();
+        try {
+          reply = await askMistral(messages);
+          modelUsed = MODEL_FULL_NAMES.codestral;
+        } catch (err) {
+          failedModels.push({ model: MODEL_FULL_NAMES.codestral, reason: err.message });
+          const chain = fileModelFallbacks.length ? fileModelFallbacks.filter(m => m !== 'codestral') : ['groq', 'gemini-lite', 'gemini'];
+          const fb = await askWithFallback(messages, [], chain[0]);
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Codestral)';
+          failedModels = failedModels.concat(fb.failedModels || []);
+        }
+
+      } else if (['gemini','gemini-flash'].includes(ASK) || modelUsed === 'gemini' || hasImages) {
         try {
           const geminiResult = await askGemini(messages, imageParts);
           reply     = geminiResult.text;
@@ -310,6 +369,7 @@ module.exports = async function handler(req, res) {
         }
 
       } else if (ASK === 'mistral' || ASK === 'codestral' || modelUsed === 'mistral') {
+        appendFileTexts(); // append file content before sending to Mistral
         try {
           reply = await askMistral(messages);
           modelUsed = MODEL_FULL_NAMES.mistral;
@@ -323,6 +383,7 @@ module.exports = async function handler(req, res) {
         }
 
       } else if (ASK === 'github') {
+        appendFileTexts(); // append file content before sending to GitHub
         try {
           reply = await askGitHub(messages);
           modelUsed = MODEL_FULL_NAMES.github;
