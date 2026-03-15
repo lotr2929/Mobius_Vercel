@@ -133,4 +133,106 @@ async function logModelEvent(userId, {
   }
 }
 
-module.exports = { supabase, saveConversation, getChatHistory, logModelEvent };
+// ── Session lifecycle ────────────────────────────────────────────────────────
+// startSession: creates a new row in the sessions table, returns the session ID.
+// Never throws — if Supabase is unavailable the caller gets null and carries on.
+async function startSession(userId, project = 'mobius', domain = 'management') {
+  if (!userId) return null;
+  try {
+    const id  = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('sessions').insert([{
+      id,
+      user_id:    userId,
+      project,
+      domain,
+      started_at: now,
+      updated_at: now,
+      status:     'active'
+    }]);
+    if (error) { console.error('[Mobius] startSession error:', error.message); return null; }
+    console.log('[Mobius] Session started:', id);
+    return id;
+  } catch (err) {
+    console.error('[Mobius] startSession failed:', err.message);
+    return null;
+  }
+}
+
+// closeSession: marks session ended, writes deterministic summary.
+// Called from session/close endpoint (triggered by sendBeacon on beforeunload).
+// Also updates the heartbeat timestamp so we know when the session was last active.
+async function closeSession(sessionId, userId) {
+  if (!sessionId || !userId) return;
+  try {
+    const now = new Date().toISOString();
+
+    // Gather raw material for the deterministic summary
+    const [convRes, errRes] = await Promise.all([
+      supabase
+        .from('conversations')
+        .select('question, model, created_at')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('knowledge')
+        .select('content, tags, created_at')
+        .eq('session_id', sessionId)
+        .eq('type', 'error_event')
+    ]);
+
+    const convs  = convRes.data  || [];
+    const errors = errRes.data   || [];
+
+    // Build deterministic summary — no AI, no ambiguity
+    const lines = [];
+    lines.push(`Session: ${sessionId}`);
+    lines.push(`Exchanges: ${convs.length}`);
+
+    if (convs.length > 0) {
+      const models = [...new Set(convs.map(c => c.model).filter(Boolean))];
+      lines.push(`Models used: ${models.join(', ') || 'unknown'}`);
+      lines.push(`First query: ${convs[0].question?.slice(0, 120) || '(none)'}`);
+      if (convs.length > 1) {
+        lines.push(`Last query:  ${convs[convs.length - 1].question?.slice(0, 120) || '(none)'}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      lines.push(`Errors: ${errors.length}`);
+      errors.slice(0, 3).forEach(e => lines.push(`  - ${e.content?.slice(0, 100) || '(unknown)'}`));
+    } else {
+      lines.push('Errors: none');
+    }
+
+    const summary_det = lines.join('\n');
+
+    const { error } = await supabase.from('sessions').update({
+      ended_at:           now,
+      updated_at:         now,
+      status:             'ended',
+      summary_det,
+      pending_ai_summary: true
+    }).eq('id', sessionId).eq('user_id', userId);
+
+    if (error) console.error('[Mobius] closeSession error:', error.message);
+    else console.log('[Mobius] Session closed:', sessionId);
+  } catch (err) {
+    console.error('[Mobius] closeSession failed:', err.message);
+  }
+}
+
+// heartbeat: keeps updated_at current so we can detect abandoned sessions.
+// Called every 5 minutes from the client via sendBeacon or fetch.
+async function heartbeatSession(sessionId, userId) {
+  if (!sessionId || !userId) return;
+  try {
+    await supabase.from('sessions')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', sessionId).eq('user_id', userId).eq('status', 'active');
+  } catch (err) {
+    console.error('[Mobius] heartbeat failed:', err.message);
+  }
+}
+
+module.exports = { supabase, saveConversation, getChatHistory, logModelEvent, startSession, closeSession, heartbeatSession };

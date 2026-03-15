@@ -2136,6 +2136,62 @@ async function handleStatus(args, output, outputEl) {
   document.getElementById('input').value = '';
 }
 
+// ── Session lifecycle — client side ────────────────────────────────────────────────────
+// sessionId is held in memory only — never localStorage (clears on PWA restart).
+// It is passed into every /ask call via getSessionId().
+// ────────────────────────────────────────────────────────────────────────
+
+let _sessionId   = null;
+let _heartbeatTimer = null;
+
+function getSessionId() { return _sessionId; }
+
+async function initSession() {
+  const userId = getAuth('mobius_user_id');
+  if (!userId) return; // not logged in — no session to start
+  try {
+    const res  = await fetch('/api/query/session%2Fstart', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ userId, project: 'mobius', domain: 'management' })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    _sessionId = data.sessionId || null;
+    if (_sessionId) {
+      console.log('[Mobius] Session started:', _sessionId);
+      // Heartbeat every 5 minutes
+      _heartbeatTimer = setInterval(() => {
+        fetch('/api/query/session%2Fheartbeat', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ sessionId: _sessionId, userId })
+        }).catch(() => {});
+      }, 5 * 60 * 1000);
+    }
+  } catch (err) {
+    console.warn('[Mobius] Could not start session:', err.message);
+    // Non-fatal — Mobius continues without session tracking
+  }
+}
+
+// Fire session/close on tab/browser close via sendBeacon (guaranteed delivery)
+window.addEventListener('beforeunload', () => {
+  if (!_sessionId) return;
+  const userId = getAuth('mobius_user_id');
+  if (!userId) return;
+  if (_heartbeatTimer) clearInterval(_heartbeatTimer);
+  navigator.sendBeacon(
+    '/api/query/session%2Fclose',
+    JSON.stringify({ sessionId: _sessionId, userId })
+  );
+});
+
+// Start the session once the page is ready
+document.addEventListener('DOMContentLoaded', () => {
+  initSession();
+});
+
 // ── Chat History ──────────────────────────────────────────────────────────────
 
 async function handleChatHistory(args, output) {

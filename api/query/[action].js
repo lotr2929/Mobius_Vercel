@@ -3,7 +3,7 @@
 // POST /parse → action = 'parse'
 
 const { askGeminiLite, askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
-const { saveConversation, supabase, logModelEvent } = require('../_supabase.js');
+const { saveConversation, supabase, logModelEvent, startSession, closeSession, heartbeatSession } = require('../_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
 
 // ── Mobius pre-processor: load mobius.json from Drive ─────────────────────────
@@ -479,8 +479,9 @@ module.exports = async function handler(req, res) {
         };
         const capability = hasImages ? 'vision' : (FILES || []).length > 0 ? 'file' : 'general';
 
-        // Log successful call
-        logModelEvent(userId, {
+        // Log successful call (skip if all models failed — modelUsed === 'failed')
+        const callSucceeded = modelUsed && modelUsed !== 'failed';
+        if (callSucceeded) logModelEvent(userId, {
           provider:        providerOf(modelUsed),
           modelId:         modelUsed,
           displayName:     modelUsed,
@@ -492,6 +493,21 @@ module.exports = async function handler(req, res) {
           complexityScore: _complexityScore,
           sessionId:       session_id || null
         }).catch(() => {});
+
+        // If all models failed, log that as an error event
+        if (!callSucceeded) {
+          logModelEvent(userId, {
+            provider:        providerOf(ASK),
+            modelId:         ASK,
+            displayName:     ASK,
+            capability,
+            success:         false,
+            latencyMs,
+            errorMessage:    'All models failed',
+            complexityScore: _complexityScore,
+            sessionId:       session_id || null
+          }).catch(() => {});
+        }
 
         // Log each failed attempt before the successful one
         for (const fm of (failedModels || [])) {
@@ -526,6 +542,44 @@ module.exports = async function handler(req, res) {
       res.status(500).json({ error: err.message });
     }
     return;
+  }
+
+  // ── /session/start ───────────────────────────────────────────────────────────────────
+  // Called by the client at page load. Returns a session ID.
+  if (action === 'session/start') {
+    const cookieHeader = req.headers.cookie || '';
+    const userId = cookieHeader.split(';').map(c => c.trim())
+      .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
+    const { project = 'mobius', domain = 'management' } = req.body || {};
+    const sessionId = await startSession(userId, project, domain);
+    return res.status(200).json({ sessionId });
+  }
+
+  // ── /session/close ────────────────────────────────────────────────────────────────
+  // Called by sendBeacon on beforeunload. Writes deterministic summary.
+  // Must handle both JSON body and plain text body (sendBeacon sends text/plain).
+  if (action === 'session/close') {
+    try {
+      let body = req.body || {};
+      if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+      const { sessionId, userId } = body;
+      await closeSession(sessionId, userId);
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      console.error('[Mobius] session/close error:', err.message);
+      return res.status(200).json({ ok: false }); // always 200 — beacon doesn't retry
+    }
+  }
+
+  // ── /session/heartbeat ─────────────────────────────────────────────────────────
+  // Called every 5 minutes to keep updated_at current.
+  if (action === 'session/heartbeat') {
+    const cookieHeader = req.headers.cookie || '';
+    const userId = cookieHeader.split(';').map(c => c.trim())
+      .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
+    const { sessionId } = req.body || {};
+    await heartbeatSession(sessionId, userId);
+    return res.status(200).json({ ok: true });
   }
 
   res.status(400).json({ error: 'Unknown action: ' + action });

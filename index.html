@@ -1061,7 +1061,7 @@
                 const res  = await fetch('/ask', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mobius_query:mq, userId, session_id: currentSessionId })
+                    body: JSON.stringify({ mobius_query:mq, userId, session_id: (typeof getSessionId === 'function' && getSessionId()) || currentSessionId })
                 });
                 const data = await res.json();
                 const reply     = data.reply || data.error;
