@@ -57,4 +57,77 @@ async function getChatHistory(userId, limit = 10000) {
   }
 }
 
-module.exports = { supabase, saveConversation, getChatHistory };
+// ── Model event logging ─────────────────────────────────────────────────────────────
+// Writes a model_event or error_event record to the knowledge table.
+// Called after every AI call — success or failure. Never throws.
+async function logModelEvent(userId, {
+  type        = 'model_event',  // 'model_event' | 'error_event'
+  provider,                     // 'groq' | 'gemini' | 'gemini-lite' | 'mistral' | 'github'
+  modelId,                      // exact model string used
+  displayName,                  // human-readable name
+  capability   = 'general',     // task capability that triggered this call
+  success,                      // boolean
+  latencyMs,                    // response time in ms
+  tokensIn     = 0,
+  tokensOut    = 0,
+  errorMessage = null,          // error string if failed
+  errorType    = null,          // 'quota' | 'network' | 'timeout' | 'invalid' | 'unknown'
+  fallbackFrom = null,          // model that failed before this one
+  fallbackTo   = null,          // model tried next after this failure
+  complexityScore = null,       // score that determined routing
+  sessionId    = null
+} = {}) {
+  if (!userId) return; // no userId, no log
+  try {
+    const isError    = !success;
+    const errorClass = errorMessage
+      ? errorMessage.includes('quota')   ? 'quota'
+      : errorMessage.includes('timeout') ? 'timeout'
+      : errorMessage.includes('network') ? 'network'
+      : errorMessage.includes('invalid') ? 'invalid'
+      : 'unknown'
+      : null;
+
+    const tags = [
+      provider,
+      capability,
+      success ? 'success' : 'failure',
+      ...(errorClass ? [errorClass] : []),
+      ...(fallbackFrom ? ['fallback'] : [])
+    ].filter(Boolean);
+
+    const content = success
+      ? `${displayName} — ${capability} — ${latencyMs}ms — ${tokensIn}in/${tokensOut}out`
+      : `${displayName} FAILED — ${capability} — ${errorClass || 'error'}: ${errorMessage}`;
+
+    await supabase.from('knowledge').insert([{
+      user_id:    userId,
+      project:    'mobius',
+      domain:     'management',
+      type:       isError ? 'error_event' : 'model_event',
+      tags,
+      content,
+      context: {
+        provider,
+        model_id:         modelId,
+        display_name:     displayName,
+        capability,
+        success,
+        latency_ms:       latencyMs,
+        tokens_in:        tokensIn,
+        tokens_out:       tokensOut,
+        error_message:    errorMessage,
+        error_type:       errorClass || errorType,
+        fallback_from:    fallbackFrom,
+        fallback_to:      fallbackTo,
+        complexity_score: complexityScore
+      },
+      session_id: sessionId || null
+    }]);
+  } catch (err) {
+    // Never let logging crash the main flow
+    console.error('[Mobius] logModelEvent failed:', err.message);
+  }
+}
+
+module.exports = { supabase, saveConversation, getChatHistory, logModelEvent };

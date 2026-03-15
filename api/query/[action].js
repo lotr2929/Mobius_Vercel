@@ -3,7 +3,7 @@
 // POST /parse → action = 'parse'
 
 const { askGeminiLite, askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
-const { saveConversation, supabase } = require('../_supabase.js');
+const { saveConversation, supabase, logModelEvent } = require('../_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
 
 // ── Mobius pre-processor: load mobius.json from Drive ─────────────────────────
@@ -216,6 +216,7 @@ module.exports = async function handler(req, res) {
       // Scores the query to pick the cheapest capable model.
       // User can always override with explicit Ask: [model].
       let fileModelFallbacks = [];
+      let _complexityScore   = null;
       const userExplicitModel = ['gemini','gemini-flash','gemini-lite','groq','mistral','codestral','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
 
       function scoreComplexity(query, files, history, instructions) {
@@ -246,7 +247,8 @@ module.exports = async function handler(req, res) {
         const docExts   = /\.(pdf|txt|md|docx|doc|rtf|odt)$/;
         const dataExts  = /\.(csv|json|xml|yaml|yml|toml|ini)$/;
 
-        const score = scoreComplexity(QUERY, files, HISTORY, INSTRUCTIONS);
+        _complexityScore = scoreComplexity(QUERY, files, HISTORY, INSTRUCTIONS);
+        const score = _complexityScore;
 
         if (hasImages || /^(audio|video)\//.test(mimeTypes)) {
           // Vision — Flash is the only free option, protect it
@@ -285,6 +287,9 @@ module.exports = async function handler(req, res) {
           console.log('[Mobius] Routing: default → Groq (score ' + score + ')');
         }
       }
+
+      // Track start time for latency measurement
+      const t0 = Date.now();
 
       const appendFileTexts = () => {
         if (hasNonImageFiles) {
@@ -449,13 +454,71 @@ module.exports = async function handler(req, res) {
         console.log('[Mobius] Post-processor flags:', postFlags);
       }
 
+      const latencyMs = Date.now() - t0;
       res.json({ reply, modelUsed, tokensIn, tokensOut, postFlags, failedModels });
+
+      // ── Async logging — fire and forget, never blocks the response ────────
       if (userId && reply !== '__CHAT_HISTORY__') {
         saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null)
-          .catch(e => console.error('Save error:', e.message));
+          .catch(e => console.error('[Mobius] Save error:', e.message));
+
+        const providerOf = m => {
+          if (!m) return 'unknown';
+          const ml = m.toLowerCase();
+          if (ml.includes('groq') || ml.includes('llama'))               return 'groq';
+          if (ml.includes('flash-lite') || ml.includes('gemini-lite'))   return 'gemini-lite';
+          if (ml.includes('gemini') || ml.includes('flash'))             return 'gemini';
+          if (ml.includes('codestral') || ml.includes('mistral'))        return 'mistral';
+          if (ml.includes('gpt') || ml.includes('github'))               return 'github';
+          if (ml.includes('ollama') || ml.includes('qwen') || ml.includes('deepseek')) return 'ollama';
+          return 'unknown';
+        };
+        const capability = hasImages ? 'vision' : (FILES || []).length > 0 ? 'file' : 'general';
+
+        // Log successful call
+        logModelEvent(userId, {
+          provider:        providerOf(modelUsed),
+          modelId:         modelUsed,
+          displayName:     modelUsed,
+          capability,
+          success:         true,
+          latencyMs,
+          tokensIn:        tokensIn  || 0,
+          tokensOut:       tokensOut || 0,
+          complexityScore: _complexityScore,
+          sessionId:       session_id || null
+        }).catch(() => {});
+
+        // Log each failed attempt before the successful one
+        for (const fm of (failedModels || [])) {
+          logModelEvent(userId, {
+            provider:        providerOf(fm.model),
+            modelId:         fm.model,
+            displayName:     fm.model,
+            capability,
+            success:         false,
+            latencyMs:       0,
+            errorMessage:    fm.reason,
+            fallbackTo:      modelUsed,
+            complexityScore: _complexityScore,
+            sessionId:       session_id || null
+          }).catch(() => {});
+        }
       }
     } catch (err) {
-      console.error('Error:', err.message);
+      console.error('[Mobius] Ask error:', err.message);
+      if (userId) {
+        logModelEvent(userId, {
+          provider:     'unknown',
+          modelId:      ASK,
+          displayName:  ASK,
+          capability:   'general',
+          success:      false,
+          latencyMs:    Date.now() - t0,
+          errorMessage: err.message,
+          sessionId:    session_id || null
+        }).catch(() => {});
+      }
       res.status(500).json({ error: err.message });
     }
     return;
