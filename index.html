@@ -1349,6 +1349,7 @@
             addRow('su-dropbox', '📦', 'Dropbox');
             const isMobileDev = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
             addRow('su-local',   '🧠', isMobileDev ? 'Local AI (WebLLM)' : 'Local AI (Ollama)');
+            addRow('su-cloud',   '🤖', 'Cloud AI');
             addRow('su-sync',    '🔄', 'Background sync');
             panel.insertBefore(entry, panel.firstChild);
 
@@ -1358,7 +1359,18 @@
             }
 
             // Check all services in parallel
-            await Promise.allSettled([
+            await Promise.allSettled([                // Cloud AI models
+                (async () => {
+                    try {
+                        const r = await fetch('/api/services/status', { signal: AbortSignal.timeout(15000) });
+                        const d = await r.json();
+                        const labels = { groq: 'Groq', gemini: 'Gemini', mistral: 'Mistral', github: 'GitHub' };
+                        const parts = (d.models || []).map(m =>
+                            (m.ok ? '✅' : '❌') + ' ' + (labels[m.key] || m.name)
+                        ).join('  ');
+                        setVal('su-cloud', parts || '⚠️ no models', parts ? '#4a7c4e' : '#a06800');
+                    } catch { setVal('su-cloud', '❌ unreachable', '#8d3a3a'); }
+                })(),
                 // Google accounts
                 (async () => {
                     try {

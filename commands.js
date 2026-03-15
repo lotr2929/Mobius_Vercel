@@ -2091,18 +2091,18 @@ async function handleStatus(args, output, outputEl) {
       try {
         const res  = await fetch('/api/services/status', { signal: AbortSignal.timeout(15000) });
         const data = await res.json();
-        const placeholders = { groq: pGroq, gemini: pGemini, mistral: pMistral, github: pGithub };
+        const map2 = { groq: pGroq, gemini: pGemini, mistral: pMistral, github: pGithub };
         for (const m of (data.models || [])) {
-          const p = placeholders[m.key];
-          if (!p) continue;
-          p.innerHTML = '';
-          row('🤖', m.name, m.ok ? 'ok' : 'err',
-            m.ok ? '✅ ' + m.ms + 'ms  ·  ' + m.context : '❌ ' + (m.error || 'failed'));
-          p.remove();
+          const p = map2[m.key]; if (!p) continue;
+          const c = m.ok ? '#4a7c4e' : '#8d3a3a';
+          p.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;';
+          p.innerHTML = '<span style="width:16px;text-align:center;">🤖</span><span style="flex:1;color:#3a2e22;">' + m.name + '</span>' +
+            '<span style="color:' + c + ';font-weight:bold;">' + (m.ok ? '✅ ' + m.ms + 'ms  ·  ' + m.context : '❌ ' + (m.error || 'failed')) + '</span>';
         }
       } catch (e) {
         [pGroq, pGemini, pMistral, pGithub].forEach(p => {
-          p.innerHTML = '<span style="width:16px;">❌</span><span style="flex:1;">' + p.querySelector('span:nth-child(2)')?.textContent + '</span><span style="color:#8d3a3a;">endpoint error</span>';
+          p.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;';
+          p.innerHTML = '<span style="width:16px;">🤖</span><span style="flex:1;color:#3a2e22;">' + (p.querySelector('span:nth-child(2)')?.textContent || '') + '</span><span style="color:#8d3a3a;font-weight:bold;">❌ endpoint error</span>';
         });
       }
     })(),
@@ -2114,14 +2114,13 @@ async function handleStatus(args, output, outputEl) {
           const pulled = (od.models || []).map(m => m.name);
           const qwen   = pulled.find(n => n.includes('qwen'));
           const ds     = pulled.find(n => n.includes('deepseek'));
-          pOllamaAI.innerHTML = '';
-          row('🧠', 'Ollama (local)', 'ok', '✅ running  ·  ' + [qwen, ds].filter(Boolean).map(n => n.split(':')[0]).join(', '));
-          pOllamaAI.remove();
+          const models = [qwen, ds].filter(Boolean).map(n => n.split(':')[0]).join(', ');
+          pOllamaAI.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;';
+          pOllamaAI.innerHTML = '<span style="width:16px;">🧠</span><span style="flex:1;color:#3a2e22;">Ollama (local)</span><span style="color:#4a7c4e;font-weight:bold;">✅ running  ·  ' + models + '</span>';
         } else throw new Error('not running');
       } catch {
-        pOllamaAI.innerHTML = '';
-        row('🧠', 'Ollama (local)', 'warn', '⚠️  not running  ·  start-ollama.bat');
-        pOllamaAI.remove();
+        pOllamaAI.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;';
+        pOllamaAI.innerHTML = '<span style="width:16px;">🧠</span><span style="flex:1;color:#3a2e22;">Ollama (local)</span><span style="color:#a06800;font-weight:bold;">⚠️  not running  ·  start-ollama.bat</span>';
       }
     })()
   ];
@@ -3546,6 +3545,15 @@ async function handleStatusModels(args, output, outputEl) {
   const pOllama  = placeholder('Ollama');
   const pWebLLM  = placeholder('WebLLM (browser)');
 
+  // helper — fill a placeholder in-place
+  function fill(p, icon, label, status, detail) {
+    const colour = status === 'ok' ? '#4a7c4e' : status === 'warn' ? '#a06800' : '#8d3a3a';
+    p.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;';
+    p.innerHTML = '<span style="width:16px;text-align:center;flex-shrink:0;">' + icon + '</span>' +
+      '<span style="flex:1;color:#3a2e22;">' + label + '</span>' +
+      '<span style="color:' + colour + ';font-weight:bold;flex-shrink:0;">' + detail + '</span>';
+  }
+
   // Cloud pings
   try {
     const res  = await fetch('/api/services/status', { signal: AbortSignal.timeout(15000) });
@@ -3553,13 +3561,11 @@ async function handleStatusModels(args, output, outputEl) {
     const map  = { groq: pGroq, gemini: pGemini, mistral: pMistral, github: pGithub };
     for (const m of (data.models || [])) {
       const p = map[m.key]; if (!p) continue;
-      p.innerHTML = '';
-      row('🤖', m.name, m.ok ? 'ok' : 'err',
+      fill(p, '🤖', m.name, m.ok ? 'ok' : 'err',
         m.ok ? '✅ ' + m.ms + 'ms  ·  ' + m.context : '❌ ' + (m.error || 'failed'));
-      p.remove();
     }
   } catch (e) {
-    [pGroq, pGemini, pMistral, pGithub].forEach(p => { p.querySelector('span:last-child').textContent = '❌ endpoint error'; });
+    [pGroq, pGemini, pMistral, pGithub].forEach(p => fill(p, '🤖', p.querySelector('span:nth-child(2)')?.textContent || '', 'err', '❌ endpoint error'));
   }
 
   // Ollama
@@ -3570,32 +3576,27 @@ async function handleStatusModels(args, output, outputEl) {
       const pulled = (od.models || []).map(m => m.name);
       const qwen   = pulled.find(n => n.includes('qwen'));
       const ds     = pulled.find(n => n.includes('deepseek'));
-      pOllama.innerHTML = '';
-      row('🧠', 'Ollama', 'ok', '✅ running  ·  ' + [qwen, ds].filter(Boolean).map(n => n.split(':')[0]).join(', '));
-      pOllama.remove();
+      const models = [qwen, ds].filter(Boolean).map(n => n.split(':')[0]).join(', ');
+      fill(pOllama, '🧠', 'Ollama', 'ok', '✅ running  ·  ' + models);
       if (!qwen || !ds) {
         const hint = document.createElement('div');
         hint.style.cssText = 'font-size:12px;color:#a06800;padding:2px 0 4px 24px;';
-        hint.textContent = (!qwen ? '  ⚠️ qwen not pulled  ' : '') + (!ds ? '  ⚠️ deepseek not pulled' : '');
-        outputEl.appendChild(hint);
+        hint.textContent = (!qwen ? '⚠️ qwen not pulled  ' : '') + (!ds ? '⚠️ deepseek not pulled' : '');
+        pOllama.after(hint);
       }
     } else throw new Error();
   } catch {
-    pOllama.innerHTML = '';
-    row('🧠', 'Ollama', 'warn', '⚠️  not running  ·  start-ollama.bat');
-    pOllama.remove();
+    fill(pOllama, '🧠', 'Ollama', 'warn', '⚠️  not running  ·  start-ollama.bat');
   }
 
   // WebLLM
-  pWebLLM.innerHTML = '';
   if (navigator.gpu) {
     const adapter = await navigator.gpu.requestAdapter().catch(() => null);
-    row('🌐', 'WebLLM (Qwen 1.5B)', adapter ? 'ok' : 'warn',
+    fill(pWebLLM, '🌐', 'WebLLM (Qwen 1.5B)', adapter ? 'ok' : 'warn',
       adapter ? '✅ WebGPU ready' : '⚠️  WebGPU unavailable');
   } else {
-    row('🌐', 'WebLLM (Qwen 1.5B)', 'warn', '⚠️  WebGPU not supported');
+    fill(pWebLLM, '🌐', 'WebLLM (Qwen 1.5B)', 'warn', '⚠️  WebGPU not supported');
   }
-  pWebLLM.remove();
 
   document.getElementById('input').value = '';
 }
