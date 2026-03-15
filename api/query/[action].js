@@ -217,7 +217,10 @@ module.exports = async function handler(req, res) {
       // User can always override with explicit Ask: [model].
       let fileModelFallbacks = [];
       let _complexityScore   = null;
-      const userExplicitModel = ['gemini','gemini-flash','gemini-lite','groq','mistral','codestral','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
+      // Only truly explicit user overrides bypass smart routing.
+      // 'mistral'/'codestral' are specialists — routing decides when to use them.
+      // Web models, local models, and direct Gemini/Groq/GitHub overrides are respected.
+      const userExplicitModel = ['gemini','gemini-flash','gemini-lite','groq','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
 
       function scoreComplexity(query, files, history, instructions) {
         let score = 0;

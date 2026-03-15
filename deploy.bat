@@ -21,7 +21,7 @@ if /i not "%CONFIRM%"=="Y" (
 echo [Backup] Creating pre-deploy snapshot...
 for /f "usebackq" %%T in (`powershell -NoProfile -Command "Get-Date -Format 'ddMMMyy_HHmm'"`) do set TIMESTAMP=%%T
 set BACKUP_NAME=backups\Predeploy-%TIMESTAMP%.zip
-powershell -NoProfile -Command "Compress-Archive -Path 'api','commands.js','index.html','actions.js','vercel.json','server.js','google_api.js' -DestinationPath '%BACKUP_NAME%' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path 'api','commands.js','index.html','actions.js','vercel.json','server.js','google_api.js','self_test.js' -DestinationPath '%BACKUP_NAME%' -Force"
 if exist "%BACKUP_NAME%" (
     echo Backup saved: %BACKUP_NAME%
 ) else (
@@ -46,15 +46,37 @@ echo [3/3] Pushing to GitHub (Vercel will auto-deploy)...
 git push origin main
 echo.
 
-if %ERRORLEVEL%==0 (
+if %ERRORLEVEL% NEQ 0 (
     echo ========================================
-    echo  Success! Vercel is now deploying.
-    echo  Check: https://mobius-vercel.vercel.app
+    echo  ERROR: Push failed. Check the output above.
+    echo ========================================
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================
+echo  Pushed. Waiting 3 minutes for Vercel to deploy...
+echo ========================================
+timeout /t 180 /nobreak > nul
+
+echo.
+echo [4/4] Running self-test against live deployment...
+echo.
+node self_test.js
+
+if %ERRORLEVEL%==0 (
+    echo.
+    echo ========================================
+    echo  Deployment verified. Mobius is healthy.
+    echo  URL:    https://mobius-vercel.vercel.app
     echo  Backup: %BACKUP_NAME%
     echo ========================================
 ) else (
+    echo.
     echo ========================================
-    echo  ERROR: Push failed. Check the output above.
+    echo  Self-test FAILED. Review above.
+    echo  To rollback: git revert HEAD then deploy.bat
     echo ========================================
 )
 

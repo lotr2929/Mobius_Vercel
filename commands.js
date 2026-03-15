@@ -14,9 +14,10 @@ function getLastModel() {
 
 function setLastModel(model) {
   if (!MODEL_CHAIN.includes(model)) return;
-  // 'local' and 'webllm' are always session-only — never the persistent default
-  // Default is always groq (cloud). Use Ask: local explicitly for local AI.
-  if (model === 'local' || model === 'webllm') return;
+  // Specialists and local models are session-only — never the persistent default.
+  // Only general-purpose cloud models persist as the default.
+  const sessionOnly = ['local', 'webllm', 'mistral', 'codestral', 'qwen', 'deepseek'];
+  if (sessionOnly.includes(model)) return;
   localStorage.setItem('mobius_last_model', model);
 }
 
