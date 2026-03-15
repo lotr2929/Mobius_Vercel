@@ -100,6 +100,7 @@ async function logModelEvent(userId, {
       ? `${displayName} — ${capability} — ${latencyMs}ms — ${tokensIn}in/${tokensOut}out`
       : `${displayName} FAILED — ${capability} — ${errorClass || 'error'}: ${errorMessage}`;
 
+    const now = new Date().toISOString();
     await supabase.from('knowledge').insert([{
       user_id:    userId,
       project:    'mobius',
@@ -107,6 +108,8 @@ async function logModelEvent(userId, {
       type:       isError ? 'error_event' : 'model_event',
       tags,
       content,
+      created_at: now,
+      updated_at: now,
       context: {
         provider,
         model_id:         modelId,

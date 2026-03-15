@@ -240,14 +240,15 @@ module.exports = async function handler(req, res) {
       }
 
       if (!userExplicitModel) {
-        const files     = FILES || [];
+        // Exclude the injected awareness context file — it's not a user upload
+        const files     = (FILES || []).filter(f => f.name !== 'mobius_context.txt');
         const mimeTypes = files.map(f => f.mimeType || '').join(',').toLowerCase();
         const fileNames = files.map(f => f.name    || '').join(',').toLowerCase();
         const codeExts  = /\.(js|ts|jsx|tsx|py|java|cs|cpp|c|h|go|rs|rb|php|swift|kt|sql|sh|bash|zsh)$/;
         const docExts   = /\.(pdf|txt|md|docx|doc|rtf|odt)$/;
         const dataExts  = /\.(csv|json|xml|yaml|yml|toml|ini)$/;
 
-        _complexityScore = scoreComplexity(QUERY, files, HISTORY, INSTRUCTIONS);
+        _complexityScore = scoreComplexity(QUERY, files, HISTORY, INSTRUCTIONS); // uses filtered files
         const score = _complexityScore;
 
         if (hasImages || /^(audio|video)\//.test(mimeTypes)) {
