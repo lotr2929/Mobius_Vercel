@@ -2748,7 +2748,9 @@ async function handleMobius(args, output, outputEl) {
     return;
   }
 
-  output('Usage: Mobius: all | rules | preferences | corrections | routing | do not | state');
+  if (trimmed === 'push') return handleMobiusPush(output);
+
+  output('Usage: Mobius: all | rules | preferences | corrections | routing | do not | state | push');
 }
 
 // ── Remember: — append a lesson ──────────────────────────────────────────────
@@ -3413,6 +3415,7 @@ function handleMobiusHelp(args, output, outputEl) {
     ['Mobius: do not',       'View do-not list'],
     ['Mobius: state',        'View current project state'],
     ['Mobius: refine',       'Ask Gemini to analyse and improve the rulebook'],
+    ['Mobius: push',        'Pick local mobius.json and upload to Google Drive'],
     ['Remember: [lesson]',   'Add a rule (default section)'],
     ['Remember: preference [text]', 'Add a preference'],
     ['Remember: correction [text]', 'Add a correction'],
@@ -3497,6 +3500,52 @@ function detectCommandExtended(text) {
 }
 // Expose for index.html
 window.detectCommandExtended = detectCommandExtended;
+
+// ── Mobius: push — pick local mobius.json and upload to Google Drive ────────
+async function handleMobiusPush(output) {
+  const userId = getAuth('mobius_user_id');
+  if (!userId) { output('❌ Not logged in.'); return; }
+
+  if (!window.showOpenFilePicker) {
+    output('❌ File picker not supported on this device. Use Chrome or Edge on desktop.');
+    return;
+  }
+
+  output('📂 Select your local mobius.json file...');
+  let fileHandle;
+  try {
+    [fileHandle] = await window.showOpenFilePicker({
+      types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      multiple: false
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') { output('❌ Cancelled.'); return; }
+    output('❌ File picker error: ' + err.message);
+    return;
+  }
+
+  let content;
+  try {
+    const file = await fileHandle.getFile();
+    content    = await file.text();
+    JSON.parse(content); // validate JSON before uploading
+  } catch (err) {
+    output('❌ Could not read file or invalid JSON: ' + err.message);
+    return;
+  }
+
+  const parsed  = JSON.parse(content);
+  const updated = parsed.updated || 'unknown';
+  const rules   = (parsed.rules?.length || 0) + (parsed.preferences?.length || 0) +
+                  (parsed.routing_rules?.length || 0) + (parsed.corrections?.length || 0) +
+                  (parsed.do_not?.length || 0);
+  output('✅ File read: updated ' + updated + ' · ' + rules + ' rules');
+  output('📤 Uploading to Google Drive Mobius folder...');
+
+  const ok = await saveToMobiusDrive(userId, 'mobius.json', content, output);
+  if (ok) output('✅ mobius.json pushed to Drive. Mobius will use it on the next query.');
+  document.getElementById('input').value = '';
+}
 
 // ── Status: models — AI models only (cloud + local), structured HTML ─────────
 async function handleStatusModels(args, output, outputEl) {
