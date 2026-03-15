@@ -29,7 +29,7 @@ async function askGemini(messages, imageParts = []) {
     parts.push({ text: m.content });
     return { role: m.role === 'assistant' ? 'model' : 'user', parts };
   });
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key;
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key=' + key;
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -85,7 +85,7 @@ const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github'];
 
 const MODEL_FULL_NAMES = {
   groq:    'Groq Llama 3.3 70B',
-  gemini:  'Gemini 2.5 Flash',
+  gemini:  'Gemini 3 Flash',
   mistral: 'Mistral Codestral',
   github:  'GitHub GPT-4o',
   ollama:    'Ollama (local)',
