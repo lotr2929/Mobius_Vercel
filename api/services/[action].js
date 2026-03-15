@@ -92,6 +92,9 @@ async function writeIndexFile(userId, filename, content) {
 }
 
 // ── Status ping helpers ───────────────────────────────────────────────────────
+// Gemini model resolution cached per cold start — avoids repeated model list queries
+let _statusGeminiModel = null;
+let _statusGeminiName  = null;
 
 const PING_MSG = [{ role: 'user', content: 'Reply with the single word: ok' }];
 
@@ -113,33 +116,40 @@ async function pingGemini() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not set');
 
-  // Ask Google which models are available, pick best stable flash
-  let model = 'gemini-2.5-flash';
-  let displayName = 'Gemini 2.5 Flash';
-  try {
-    const listRes = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    const listData = await listRes.json();
-    const models = (listData.models || [])
-      .filter(m =>
-        (m.supportedGenerationMethods || []).includes('generateContent') &&
-        !m.name.includes('image') && !m.name.includes('tts') &&
-        !m.name.includes('live') && !m.name.includes('embed') &&
-        !m.name.includes('robotics') && !m.name.includes('computer-use') &&
-        !m.name.includes('research')
+  // Use cached model resolution — only queries Google once per cold start
+  let model       = _statusGeminiModel;
+  let displayName = _statusGeminiName;
+
+  if (!model) {
+    model       = 'gemini-2.5-flash';
+    displayName = 'Gemini 2.5 Flash';
+    try {
+      const listRes  = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
+        { signal: AbortSignal.timeout(5000) }
       );
-    const pick =
-      models.find(m => m.name.includes('gemini-2.5-flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
-      models.find(m => m.name.includes('flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
-      models.find(m => m.name.includes('flash')) ||
-      models[0];
-    if (pick) {
-      model = pick.name.replace('models/', '');
-      displayName = pick.displayName || model;
-    }
-  } catch { /* use fallback */ }
+      const listData = await listRes.json();
+      const models   = (listData.models || [])
+        .filter(m =>
+          (m.supportedGenerationMethods || []).includes('generateContent') &&
+          !m.name.includes('image') && !m.name.includes('tts') &&
+          !m.name.includes('live') && !m.name.includes('embed') &&
+          !m.name.includes('robotics') && !m.name.includes('computer-use') &&
+          !m.name.includes('research')
+        );
+      const pick =
+        models.find(m => m.name.includes('gemini-2.5-flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
+        models.find(m => m.name.includes('flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
+        models.find(m => m.name.includes('flash')) ||
+        models[0];
+      if (pick) {
+        model       = pick.name.replace('models/', '');
+        displayName = pick.displayName || model;
+      }
+    } catch { /* use fallback */ }
+    _statusGeminiModel = model;
+    _statusGeminiName  = displayName;
+  }
 
   const r = await fetch(
     'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key,

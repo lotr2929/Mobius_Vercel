@@ -209,8 +209,50 @@ module.exports = async function handler(req, res) {
         .filter(f => f.mimeType?.startsWith('image/'))
         .map(f => ({ inline_data: { mime_type: f.mimeType, data: f.base64 } }));
 
-      const hasImages = imageParts.length > 0;
+      const hasImages        = imageParts.length > 0;
       const hasNonImageFiles = (FILES || []).some(f => f.mimeType && !f.mimeType.startsWith('image/'));
+
+      // ── File-type-aware model routing ────────────────────────────────────────
+      // Override the user's model selection when a file type demands a specific capability.
+      // User can still override by explicitly naming a model (Ask: groq etc.).
+      let fileModelFallbacks = []; // fallback chain for file-routed queries
+      const userExplicitModel = ['gemini','groq','mistral','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
+
+      if (!userExplicitModel && (FILES || []).length > 0) {
+        const files       = FILES || [];
+        const mimeTypes   = files.map(f => f.mimeType || '').join(',').toLowerCase();
+        const fileNames   = files.map(f => f.name   || '').join(',').toLowerCase();
+        const codeExts    = /\.(js|ts|jsx|tsx|py|java|cs|cpp|c|h|go|rs|rb|php|swift|kt|sql|sh|bash|zsh)$/;
+        const docExts     = /\.(pdf|txt|md|docx|doc|rtf|odt)$/;
+        const dataExts    = /\.(csv|json|xml|yaml|yml|toml|ini)$/;
+        const audioVideo  = /^(audio|video)\//;
+
+        if (hasImages || audioVideo.test(mimeTypes)) {
+          // Images and audio/video: Gemini only — no fallback, vision is unique
+          modelUsed = 'gemini';
+          console.log('[Mobius] File routing: image/media → Gemini (vision, no fallback)');
+        } else if (codeExts.test(fileNames)) {
+          // Code: Gemini first (large context + reasoning), Mistral fallback, GitHub last
+          modelUsed = 'gemini';
+          fileModelFallbacks = ['mistral', 'github'];
+          console.log('[Mobius] File routing: code → Gemini → Mistral → GitHub');
+        } else if (
+          docExts.test(fileNames)   ||
+          dataExts.test(fileNames)  ||
+          mimeTypes.includes('pdf') ||
+          mimeTypes.includes('text')
+        ) {
+          // Documents and data: Gemini first, GitHub fallback, Groq last
+          modelUsed = 'gemini';
+          fileModelFallbacks = ['github', 'groq'];
+          console.log('[Mobius] File routing: document/data → Gemini → GitHub → Groq');
+        } else {
+          // Unknown file type with attachment: Gemini first, Groq fallback
+          modelUsed = 'gemini';
+          fileModelFallbacks = ['groq'];
+          console.log('[Mobius] File routing: unknown file → Gemini → Groq');
+        }
+      }
 
       const appendFileTexts = () => {
         if (hasNonImageFiles) {
@@ -238,7 +280,7 @@ module.exports = async function handler(req, res) {
       } else if (ASK === 'google_gmail') {
         reply = await getEmails(userId);
 
-      } else if (ASK === 'gemini' || hasImages) {
+      } else if (ASK === 'gemini' || modelUsed === 'gemini' || hasImages) {
         try {
           const geminiResult = await askGemini(messages, imageParts);
           reply     = geminiResult.text;
@@ -246,15 +288,28 @@ module.exports = async function handler(req, res) {
           tokensOut = geminiResult.tokensOut;
           modelUsed = MODEL_FULL_NAMES.gemini;
         } catch (err) {
-          console.warn('[Mobius] Gemini failed, falling back:', err.message);
+          console.warn('[Mobius] Gemini failed:', err.message);
           failedModels.push({ model: MODEL_FULL_NAMES.gemini, reason: err.message });
-          const fbResult = await askWithFallback(messages, [], 'mistral');
-          reply = fbResult.reply;
-          modelUsed = fbResult.modelUsed + ' (fallback from ' + MODEL_FULL_NAMES.gemini + ')';
-          failedModels = failedModels.concat(fbResult.failedModels || []);
+          // Use file-type fallback chain if defined, otherwise default chain
+          const fallbackChain = fileModelFallbacks.length ? fileModelFallbacks : ['mistral', 'github', 'groq'];
+          let fell = false;
+          for (const fb of fallbackChain) {
+            try {
+              appendFileTexts(); // ensure file content is appended for text-based fallbacks
+              const fbResult = await askWithFallback(messages, [], fb);
+              reply      = fbResult.reply;
+              modelUsed  = fbResult.modelUsed + ' (fallback from Gemini)';
+              failedModels = failedModels.concat(fbResult.failedModels || []);
+              fell = true;
+              break;
+            } catch (fbErr) {
+              failedModels.push({ model: fb, reason: fbErr.message });
+            }
+          }
+          if (!fell) throw new Error('All models failed including fallbacks: ' + fallbackChain.join(', '));
         }
 
-      } else if (ASK === 'mistral' || ASK === 'codestral') {
+      } else if (ASK === 'mistral' || ASK === 'codestral' || modelUsed === 'mistral') {
         try {
           reply = await askMistral(messages);
           modelUsed = MODEL_FULL_NAMES.mistral;
