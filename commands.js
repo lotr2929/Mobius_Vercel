@@ -1984,7 +1984,7 @@ async function handleStatus(args, output, outputEl) {
     // Local server — only meaningful from localhost
     (async () => {
       if (!isLocal) {
-        pLocal.innerHTML = '<span style="width:16px;text-align:center;">—</span><span style="flex:1;color:#8d7c64;">Local server (localhost:3000)</span><span style="color:#8d7c64;">N/A (not on localhost)</span>';
+        pLocal.innerHTML = '<span style="width:16px;text-align:center;">—</span><span style="flex:1;color:#8d7c64;">Local server (localhost:3000)</span><span style="color:#8d7c64;">Not running</span>';
         return;
       }
       const r = await ping('http://localhost:3000/');
@@ -2003,28 +2003,28 @@ async function handleStatus(args, output, outputEl) {
       pVercel.remove();
     })(),
 
-    // Google OAuth status
+    // Google OAuth — use accounts endpoint which returns emails
     (async () => {
       if (!userId) {
         pGoogleAuth.innerHTML = '<span style="width:16px;">—</span><span style="flex:1;">Google OAuth</span><span style="color:#8d3a3a;">❌ not logged in</span>';
         return;
       }
-      const r = await ping('/api/auth/google/status?userId=' + encodeURIComponent(userId));
-      let detail = '❌ not connected';
-      let status = 'err';
-      if (r.ok) {
-        try {
-          const res  = await fetch('/api/auth/google/status?userId=' + encodeURIComponent(userId), { signal: AbortSignal.timeout(5000) });
-          const data = await res.json();
-          if (data.connected) { detail = '✅ connected (' + (data.email || 'unknown') + ')'; status = 'ok'; }
-          else                 { detail = '⚠️  not connected'; status = 'warn'; }
-        } catch { detail = '⚠️  parse error'; status = 'warn'; }
+      try {
+        const res  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId), { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        const accs = data.accounts || [];
+        const LABELS = ['personal', 'family', 'work'];
+        const detail = LABELS.map(l => (accs.find(a => a.label === l) ? '✅' : '❌') + ' ' + l).join('  ');
+        const status = accs.length > 0 ? 'ok' : 'warn';
+        pGoogleAuth.innerHTML = '';
+        row('🔑', 'Google OAuth', status, detail);
+        pGoogleAuth.remove();
+        updateGoogleDot(status === 'ok');
+      } catch (e) {
+        pGoogleAuth.innerHTML = '';
+        row('🔑', 'Google OAuth', 'err', '❌ ' + e.message);
+        pGoogleAuth.remove();
       }
-      pGoogleAuth.innerHTML = '';
-      row('🔑', 'Google OAuth', status, detail);
-      pGoogleAuth.remove();
-      // Update header dot silently
-      updateGoogleDot(status === 'ok');
     })(),
 
     // Google API info
@@ -2071,32 +2071,71 @@ async function handleStatus(args, output, outputEl) {
       }
     })(),
 
-    // Service Worker
-    (async () => {
-      try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        const active = regs.filter(r => r.active);
-        pSW.innerHTML = '';
-        row('📦', 'Service Worker (PWA)', active.length ? 'ok' : 'warn',
-          active.length ? '✅ active (' + active.length + ')' : '⚠️  not registered');
-        pSW.remove();
-      } catch {
-        pSW.innerHTML = '';
-        row('📦', 'Service Worker (PWA)', 'warn', '⚠️  unavailable');
-        pSW.remove();
-      }
-    })()
+    // Service Worker — removed (low-value, always active on Vercel)
+    (async () => { pSW.remove(); })()
   ];
 
   await Promise.allSettled(tasks);
 
-  // ── 3. Session summary ───────────────────────────────────────────────────
+  // ── 3. AI Models (cloud + local) ──────────────────────────────────────────
+  section('AI Models');
+
+  const pGroq     = placeholder('Groq Llama 3.3 70B');
+  const pGemini   = placeholder('Gemini 2.5 Flash');
+  const pMistral  = placeholder('Mistral Codestral');
+  const pGithub   = placeholder('GitHub GPT-4o');
+  const pOllamaAI = placeholder('Ollama (local)');
+
+  const aiTasks = [
+    (async () => {
+      try {
+        const res  = await fetch('/api/services/status', { signal: AbortSignal.timeout(15000) });
+        const data = await res.json();
+        const placeholders = { groq: pGroq, gemini: pGemini, mistral: pMistral, github: pGithub };
+        for (const m of (data.models || [])) {
+          const p = placeholders[m.key];
+          if (!p) continue;
+          p.innerHTML = '';
+          row('🤖', m.name, m.ok ? 'ok' : 'err',
+            m.ok ? '✅ ' + m.ms + 'ms  ·  ' + m.context : '❌ ' + (m.error || 'failed'));
+          p.remove();
+        }
+      } catch (e) {
+        [pGroq, pGemini, pMistral, pGithub].forEach(p => {
+          p.innerHTML = '<span style="width:16px;">❌</span><span style="flex:1;">' + p.querySelector('span:nth-child(2)')?.textContent + '</span><span style="color:#8d3a3a;">endpoint error</span>';
+        });
+      }
+    })(),
+    (async () => {
+      try {
+        const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(4000) });
+        if (r.ok) {
+          const od     = await r.json();
+          const pulled = (od.models || []).map(m => m.name);
+          const qwen   = pulled.find(n => n.includes('qwen'));
+          const ds     = pulled.find(n => n.includes('deepseek'));
+          pOllamaAI.innerHTML = '';
+          row('🧠', 'Ollama (local)', 'ok', '✅ running  ·  ' + [qwen, ds].filter(Boolean).map(n => n.split(':')[0]).join(', '));
+          pOllamaAI.remove();
+        } else throw new Error('not running');
+      } catch {
+        pOllamaAI.innerHTML = '';
+        row('🧠', 'Ollama (local)', 'warn', '⚠️  not running  ·  start-ollama.bat');
+        pOllamaAI.remove();
+      }
+    })()
+  ];
+
+  await Promise.allSettled(aiTasks);
+
+  // ── 4. Session summary ───────────────────────────────────────────────────
   section('Session');
-  row('💬', 'Chat history (this session)', 'ok', chatHistory.length / 2 + ' exchange(s)');
+  row('💬', 'Exchanges', 'ok', chatHistory.length / 2 + ' this session');
   const cs = window.getCodeSession ? window.getCodeSession() : null;
-  row('⌨️', 'Code mode', cs ? 'ok' : 'ok', cs ? '✅ ' + cs.projectName : 'off');
-  const ff = window.getFocusFile ? window.getFocusFile() : null;
-  row('📎', 'Focus file', ff ? 'ok' : 'ok', ff ? '✅ ' + ff.name : 'none');
+  const ff = window.getFocusFile  ? window.getFocusFile()  : null;
+  const modeName   = cs ? 'Code'     : ff ? 'Projects' : 'Personal';
+  const modeDetail = cs ? '⌨️ Code — ' + cs.projectName : ff ? '📎 Projects — ' + ff.name : '🧑 Personal';
+  row('🔲', 'Mode', 'ok', modeDetail);
 
   document.getElementById('input').value = '';
 }
@@ -3464,61 +3503,99 @@ function detectCommandExtended(text) {
 // Expose for index.html
 window.detectCommandExtended = detectCommandExtended;
 
-// ── Status: models ────────────────────────────────────────────────────────────
+// ── Status: models — AI models only (cloud + local), structured HTML ─────────
 async function handleStatusModels(args, output, outputEl) {
-  output('🔍 Pinging all cloud AI models…');
+  outputEl.classList.add('html-content');
+  outputEl.innerHTML = '';
 
-  let data;
+  function row(icon, label, status, detail) {
+    const colour = status === 'ok' ? '#4a7c4e' : status === 'warn' ? '#a06800' : '#8d3a3a';
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;';
+    d.innerHTML = '<span style="width:16px;text-align:center;flex-shrink:0;">' + icon + '</span>' +
+      '<span style="flex:1;color:#3a2e22;">' + label + '</span>' +
+      '<span style="color:' + colour + ';font-weight:bold;flex-shrink:0;">' + detail + '</span>';
+    outputEl.appendChild(d);
+  }
+  function section(title) {
+    const d = document.createElement('div');
+    d.style.cssText = 'font-size:11px;color:#8d7c64;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px;';
+    d.textContent = title;
+    outputEl.appendChild(d);
+  }
+  function placeholder(label) {
+    const d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:13px;border-bottom:1px solid #e2dccd;color:#8d7c64;font-style:italic;';
+    d.innerHTML = '<span style="width:16px;text-align:center;">⏳</span><span style="flex:1;">' + label + '</span><span>checking…</span>';
+    outputEl.appendChild(d);
+    return d;
+  }
+
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:bold;font-size:14px;color:#3a2e22;margin-bottom:6px;';
+  hdr.textContent = '🤖 AI Models — ' + new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  outputEl.appendChild(hdr);
+
+  section('Cloud');
+  const pGroq    = placeholder('Groq Llama 3.3 70B');
+  const pGemini  = placeholder('Gemini 2.5 Flash');
+  const pMistral = placeholder('Mistral Codestral');
+  const pGithub  = placeholder('GitHub GPT-4o');
+
+  section('Local');
+  const pOllama  = placeholder('Ollama');
+  const pWebLLM  = placeholder('WebLLM (browser)');
+
+  // Cloud pings
   try {
-    const res = await fetch('/api/services/status');
-    data = await res.json();
-  } catch (err) {
-    output('❌ Could not reach status endpoint: ' + err.message);
-    return;
+    const res  = await fetch('/api/services/status', { signal: AbortSignal.timeout(15000) });
+    const data = await res.json();
+    const map  = { groq: pGroq, gemini: pGemini, mistral: pMistral, github: pGithub };
+    for (const m of (data.models || [])) {
+      const p = map[m.key]; if (!p) continue;
+      p.innerHTML = '';
+      row('🤖', m.name, m.ok ? 'ok' : 'err',
+        m.ok ? '✅ ' + m.ms + 'ms  ·  ' + m.context : '❌ ' + (m.error || 'failed'));
+      p.remove();
+    }
+  } catch (e) {
+    [pGroq, pGemini, pMistral, pGithub].forEach(p => { p.querySelector('span:last-child').textContent = '❌ endpoint error'; });
   }
-  if (data.error) { output('❌ ' + data.error); return; }
 
-  const lines = ['Cloud AI Models\n'];
-  for (const m of data.models) {
-    lines.push((m.ok ? '✅' : '❌') + '  ' + m.name + (m.ok ? '  ·  ' + m.ms + 'ms' : '  ·  ' + m.error));
-    lines.push('     Context: ' + m.context + '  |  ' + m.note);
-    lines.push('');
-  }
-
-  lines.push('Local AI Models\n');
+  // Ollama
   try {
     const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(4000) });
     if (r.ok) {
-      const od = await r.json();
+      const od     = await r.json();
       const pulled = (od.models || []).map(m => m.name);
-      const qwen     = pulled.find(n => n.includes('qwen'));
-      const deepseek = pulled.find(n => n.includes('deepseek'));
-      lines.push((qwen     ? '✅' : '⚠️') + '  Ollama Qwen 2.5 Coder 7B   ·  Context: 128k  |  Fast local coding');
-      if (!qwen)     lines.push('     Not pulled — run: ollama pull qwen2.5-coder:7b');
-      lines.push('');
-      lines.push((deepseek ? '✅' : '⚠️') + '  Ollama DeepSeek R1 7B       ·  Context: 64k   |  Local reasoning');
-      if (!deepseek) lines.push('     Not pulled — run: ollama pull deepseek-r1:7b');
-    } else {
-      lines.push('⚠️  Ollama not running  ·  Start with start-ollama.bat');
-    }
+      const qwen   = pulled.find(n => n.includes('qwen'));
+      const ds     = pulled.find(n => n.includes('deepseek'));
+      pOllama.innerHTML = '';
+      row('🧠', 'Ollama', 'ok', '✅ running  ·  ' + [qwen, ds].filter(Boolean).map(n => n.split(':')[0]).join(', '));
+      pOllama.remove();
+      if (!qwen || !ds) {
+        const hint = document.createElement('div');
+        hint.style.cssText = 'font-size:12px;color:#a06800;padding:2px 0 4px 24px;';
+        hint.textContent = (!qwen ? '  ⚠️ qwen not pulled  ' : '') + (!ds ? '  ⚠️ deepseek not pulled' : '');
+        outputEl.appendChild(hint);
+      }
+    } else throw new Error();
   } catch {
-    lines.push('⚠️  Ollama not running  ·  Start with start-ollama.bat');
+    pOllama.innerHTML = '';
+    row('🧠', 'Ollama', 'warn', '⚠️  not running  ·  start-ollama.bat');
+    pOllama.remove();
   }
-  lines.push('');
-  lines.push('ℹ️  WebLLM Qwen 2.5 Coder 1.5B  ·  Context: ~4k  |  Browser offline fallback');
 
-  if (outputEl) { outputEl.style.whiteSpace = 'pre'; outputEl.textContent = lines.join('\n'); }
-  else output(lines.join('\n'));
+  // WebLLM
+  pWebLLM.innerHTML = '';
+  if (navigator.gpu) {
+    const adapter = await navigator.gpu.requestAdapter().catch(() => null);
+    row('🌐', 'WebLLM (Qwen 1.5B)', adapter ? 'ok' : 'warn',
+      adapter ? '✅ WebGPU ready' : '⚠️  WebGPU unavailable');
+  } else {
+    row('🌐', 'WebLLM (Qwen 1.5B)', 'warn', '⚠️  WebGPU not supported');
+  }
+  pWebLLM.remove();
+
+  document.getElementById('input').value = '';
 }
-
-// Register Status: models as a sub-command of the existing Status: handler
-const _origHandleStatus = COMMANDS['status']?.handler;
-COMMANDS['status'] = {
-  requiresAccess: false, isAI: false,
-  handler: async function(args, output, outputEl) {
-    const sub = (args || '').trim().toLowerCase();
-    if (sub === 'models') return handleStatusModels(args, output, outputEl);
-    if (_origHandleStatus) return _origHandleStatus(args, output, outputEl);
-    output('Usage: Status: (no arg) or Status: models');
-  }
-};
