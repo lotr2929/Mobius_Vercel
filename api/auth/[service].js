@@ -1,24 +1,80 @@
 // ── api/auth/[service].js ─────────────────────────────────────────────────────
-// GET /auth/google          → service=google&action=index
-// GET /auth/google/callback → service=google&action=callback
-// GET /auth/google/status   → service=google&action=status
-// GET /auth/dropbox         → service=dropbox&action=index
-// GET /auth/dropbox/callback→ service=dropbox&action=callback
+// IDENTITY — all authentication and user management
+//
+// GET  /auth/google           → service=google&action=index
+// GET  /auth/google/callback  → service=google&action=callback
+// GET  /auth/google/status    → service=google&action=status
+// GET  /auth/dropbox          → service=dropbox&action=index
+// GET  /auth/dropbox/callback → service=dropbox&action=callback
+// POST /api/login             → service=user&action=login
+// POST /api/signup            → service=user&action=signup
 
-const { google }   = require('googleapis');
-const { supabase } = require('../_supabase.js');
+const { google }       = require('googleapis');
+const { supabase }     = require('../_supabase.js');
 const { createClient } = require('@supabase/supabase-js');
 
-const dbx = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-
   const { service, action } = req.query;
+
+  // ── User login / signup ───────────────────────────────────────────────────
+
+  if (service === 'user') {
+    if (req.method !== 'POST') return res.status(405).end(JSON.stringify({ error: 'Method not allowed' }));
+    res.setHeader('Content-Type', 'application/json');
+
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).end(JSON.stringify({ error: 'Username and password are required' }));
+    }
+
+    if (action === 'login') {
+      try {
+        const { data, error } = await db.auth.signInWithPassword({ email: username, password });
+        if (error || !data.user) {
+          return res.status(401).end(JSON.stringify({ error: 'Invalid username or password' }));
+        }
+        const maxAge = 365 * 24 * 60 * 60;
+        res.setHeader('Set-Cookie', [
+          `mobius_user_id=${data.user.id}; Max-Age=${maxAge}; Path=/; SameSite=Lax`,
+          `mobius_username=${encodeURIComponent(data.user.email)}; Max-Age=${maxAge}; Path=/; SameSite=Lax`
+        ]);
+        return res.status(200).end(JSON.stringify({
+          userId: data.user.id, username: data.user.email, message: 'Login successful'
+        }));
+      } catch (err) {
+        console.error('Login error:', err);
+        return res.status(500).end(JSON.stringify({ error: 'Login failed', details: err.message }));
+      }
+    }
+
+    if (action === 'signup') {
+      try {
+        const { data, error } = await db.auth.signUp({ email: username, password });
+        if (error || !data.user) {
+          return res.status(400).end(JSON.stringify({ error: error?.message || 'Signup failed' }));
+        }
+        await supabase.from('users').upsert(
+          { id: data.user.id, username: data.user.email, password },
+          { onConflict: 'id' }
+        );
+        return res.status(200).end(JSON.stringify({
+          userId: data.user.id, username: data.user.email, message: 'User created successfully'
+        }));
+      } catch (err) {
+        console.error('Signup error:', err);
+        return res.status(500).end(JSON.stringify({ error: 'Signup failed', details: err.message }));
+      }
+    }
+
+    return res.status(400).end(JSON.stringify({ error: 'Unknown action: ' + action }));
+  }
 
   // ── Google OAuth ──────────────────────────────────────────────────────────
 
   if (service === 'google') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     if (action === 'index') {
       try {
@@ -72,7 +128,8 @@ module.exports = async function handler(req, res) {
 
         const { error: upsertError } = await supabase.from('google_tokens').upsert({
           user_id: userId, label, email: userInfo.email,
-          access_token: tokens.access_token, refresh_token: tokens.refresh_token, expiry_date: tokens.expiry_date
+          access_token: tokens.access_token, refresh_token: tokens.refresh_token,
+          expiry_date: tokens.expiry_date
         }, { onConflict: 'user_id, label' });
         if (upsertError) return res.status(500).json({ error: 'Failed to save tokens: ' + upsertError.message });
         if (!returnTo) throw new Error('BASE_URL not set.');
@@ -96,6 +153,7 @@ module.exports = async function handler(req, res) {
   // ── Dropbox OAuth ─────────────────────────────────────────────────────────
 
   if (service === 'dropbox') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
     if (action === 'index') {
       const userId   = req.query.userId   || '';
@@ -103,8 +161,11 @@ module.exports = async function handler(req, res) {
       if (!userId) return res.status(400).json({ error: 'userId required' });
       const state  = JSON.stringify({ userId, returnTo });
       const params = new URLSearchParams({
-        client_id: process.env.DROPBOX_APP_KEY, redirect_uri: process.env.DROPBOX_REDIRECT_URI,
-        response_type: 'code', state, token_access_type: 'offline'
+        client_id:     process.env.DROPBOX_APP_KEY,
+        redirect_uri:  process.env.DROPBOX_REDIRECT_URI,
+        response_type: 'code',
+        state,
+        token_access_type: 'offline'
       });
       return res.redirect('https://www.dropbox.com/oauth2/authorize?' + params.toString());
     }
@@ -121,19 +182,23 @@ module.exports = async function handler(req, res) {
       if (!userId) return res.status(400).json({ error: 'No userId in state' });
       try {
         const tokenRes = await fetch('https://api.dropboxapi.com/oauth2/token', {
-          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
-            code, grant_type: 'authorization_code',
-            client_id: process.env.DROPBOX_APP_KEY, client_secret: process.env.DROPBOX_APP_SECRET,
-            redirect_uri: process.env.DROPBOX_REDIRECT_URI
+            code,
+            grant_type:    'authorization_code',
+            client_id:     process.env.DROPBOX_APP_KEY,
+            client_secret: process.env.DROPBOX_APP_SECRET,
+            redirect_uri:  process.env.DROPBOX_REDIRECT_URI
           })
         });
         const tokens = await tokenRes.json();
         if (tokens.error) throw new Error(tokens.error_description || tokens.error);
-        const { error: upsertError } = await dbx.from('dropbox_tokens').upsert({
-          user_id: userId, access_token: tokens.access_token,
+        const { error: upsertError } = await db.from('dropbox_tokens').upsert({
+          user_id:       userId,
+          access_token:  tokens.access_token,
           refresh_token: tokens.refresh_token || null,
-          expiry_date: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : null
+          expiry_date:   tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : null
         }, { onConflict: 'user_id' });
         if (upsertError) throw new Error('Failed to save tokens: ' + upsertError.message);
         return res.redirect(returnTo + '?dropbox_connected=true');

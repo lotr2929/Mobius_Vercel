@@ -1465,17 +1465,33 @@
       }
 
       // ── Ask Ollama directly (bypass /ask serverless) ──────────────────────
-      async function askOllamaLocal(messages) {
+      async function resolveOllamaModelLocal() {
+        try {
+          const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+          const data = await r.json();
+          const pulled = (data.models || []).map(m => m.name);
+          if (!pulled.length) return 'qwen2.5-coder:7b';
+          return (
+            pulled.find(m => m.includes('qwen') && m.includes('coder')) ||
+            pulled.find(m => m.includes('deepseek'))                     ||
+            pulled.find(m => m.includes('coder'))                        ||
+            pulled[0]
+          );
+        } catch { return 'qwen2.5-coder:7b'; }
+      }
+
+      async function askOllamaLocal(messages, preferredModel) {
+        const model = preferredModel || await resolveOllamaModelLocal();
         const r = await fetch('http://localhost:11434/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'qwen2.5-coder:7b', messages })
+          body: JSON.stringify({ model, messages })
         });
         if (!r.ok) throw new Error('Ollama returned ' + r.status);
         const data = await r.json();
         const content = data.choices?.[0]?.message?.content;
         if (!content) throw new Error('No content from Ollama');
-        return { reply: content, modelUsed: 'Ollama Qwen 2.5 Coder (local)' };
+        return { reply: content, modelUsed: 'Ollama ' + model + ' (local)' };
       }
 
       // ── Init WebLLM engine (downloads model on first use) ────────────────

@@ -169,11 +169,42 @@ async function askWithFallback(messages, imageParts = [], startModel = 'groq') {
   throw lastErr || new Error('All models failed');
 }
 
-async function askOllama(messages, model = 'qwen2.5-coder:7b') {
+// ── Ollama model resolution ───────────────────────────────────────────────────
+// Queries Ollama's /api/tags to find what's actually installed.
+// Prefers coding models, falls back to whatever is available.
+let _ollamaModelCache = null;
+
+async function resolveOllamaModel() {
+  if (_ollamaModelCache) return _ollamaModelCache;
+  try {
+    const r = await fetch('http://localhost:11434/api/tags',
+      { signal: AbortSignal.timeout(3000) }
+    );
+    const data = await r.json();
+    const pulled = (data.models || []).map(m => m.name);
+    if (pulled.length === 0) throw new Error('No models installed');
+    // Preference: qwen coder > deepseek > any coder > first available
+    const pick =
+      pulled.find(m => m.includes('qwen') && m.includes('coder')) ||
+      pulled.find(m => m.includes('deepseek'))                     ||
+      pulled.find(m => m.includes('coder'))                        ||
+      pulled[0];
+    console.log('[Mobius] Ollama model resolved:', pick, '(from', pulled.length, 'installed)');
+    _ollamaModelCache = pick;
+    return pick;
+  } catch (err) {
+    console.warn('[Mobius] Ollama model resolution failed:', err.message);
+    _ollamaModelCache = 'qwen2.5-coder:7b'; // fallback if Ollama unreachable
+    return _ollamaModelCache;
+  }
+}
+
+async function askOllama(messages, model) {
+  const resolvedModel = model || await resolveOllamaModel();
   const r = await fetch('http://localhost:11434/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages })
+    body: JSON.stringify({ model: resolvedModel, messages })
   });
   const data = await r.json();
   const content = data.choices?.[0]?.message?.content;
