@@ -2077,7 +2077,7 @@ async function handleStatus(args, output, outputEl) {
   section('AI Models');
 
   const pGroq     = placeholder('Groq Llama 3.3 70B');
-  const pGemini   = placeholder('Gemini 2.5 Flash');
+  const pGemini   = placeholder('Gemini 3 Flash');
   const pMistral  = placeholder('Mistral Codestral');
   const pGithub   = placeholder('GitHub GPT-4o');
   const pOllamaAI = placeholder('Ollama (local)');
@@ -3582,7 +3582,7 @@ async function handleStatusModels(args, output, outputEl) {
 
   section('Cloud');
   const pGroq    = placeholder('Groq Llama 3.3 70B');
-  const pGemini  = placeholder('Gemini 2.5 Flash');
+  const pGemini  = placeholder('Gemini 3 Flash');
   const pMistral = placeholder('Mistral Codestral');
   const pGithub  = placeholder('GitHub GPT-4o');
 
