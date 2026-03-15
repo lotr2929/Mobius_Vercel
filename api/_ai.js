@@ -19,9 +19,56 @@ async function askGroq(messages) {
   return content;
 }
 
+// ── Gemini model resolution ───────────────────────────────────────────────────
+// Queries Google's model list and picks the best available stable Flash model.
+// Result is cached for the process lifetime (resets on cold start).
+let _geminiModelCache = null;
+
+async function resolveGeminiModel(key) {
+  if (_geminiModelCache) return _geminiModelCache;
+  try {
+    const r = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    const data = await r.json();
+    const models = (data.models || [])
+      .filter(m =>
+        (m.supportedGenerationMethods || []).includes('generateContent') &&
+        !m.name.includes('image') &&
+        !m.name.includes('tts') &&
+        !m.name.includes('live') &&
+        !m.name.includes('embed') &&
+        !m.name.includes('robotics') &&
+        !m.name.includes('computer-use') &&
+        !m.name.includes('research')
+      )
+      .map(m => m.name.replace('models/', ''));
+
+    // Preference order: stable 2.5-flash > stable 2.5-pro > any flash > any pro
+    const pick =
+      models.find(m => m === 'gemini-2.5-flash') ||
+      models.find(m => m === 'gemini-2.5-pro') ||
+      models.find(m => m.includes('flash') && !m.includes('preview') && !m.includes('lite')) ||
+      models.find(m => m.includes('flash')) ||
+      models.find(m => m.includes('pro') && !m.includes('preview')) ||
+      models[0] ||
+      'gemini-2.5-flash'; // hard fallback if list fails
+
+    console.log('[Mobius] Gemini model resolved:', pick, '(from', models.length, 'available)');
+    _geminiModelCache = pick;
+    return pick;
+  } catch (err) {
+    console.warn('[Mobius] Gemini model resolution failed, using fallback:', err.message);
+    _geminiModelCache = 'gemini-2.5-flash';
+    return _geminiModelCache;
+  }
+}
+
 async function askGemini(messages, imageParts = []) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY is not set on the server.');
+  const model = await resolveGeminiModel(key);
   const contents = messages.map((m, i) => {
     const isLastUser = i === messages.length - 1 && m.role === 'user';
     const parts = [];
@@ -29,7 +76,7 @@ async function askGemini(messages, imageParts = []) {
     parts.push({ text: m.content });
     return { role: m.role === 'assistant' ? 'model' : 'user', parts };
   });
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key=' + key;
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -40,7 +87,7 @@ async function askGemini(messages, imageParts = []) {
   if (!data.candidates?.[0]) throw new Error('No candidates in Gemini response: ' + JSON.stringify(data));
   const text = data.candidates[0].content.parts[0].text;
   const usage = data.usageMetadata || {};
-  return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0 };
+  return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0, modelUsed: model };
 }
 
 async function askMistral(messages) {
@@ -85,7 +132,7 @@ const MODEL_CHAIN = ['groq', 'gemini', 'mistral', 'github'];
 
 const MODEL_FULL_NAMES = {
   groq:    'Groq Llama 3.3 70B',
-  gemini:  'Gemini 3 Flash',
+  gemini:  'Gemini 2.5 Flash',
   mistral: 'Mistral Codestral',
   github:  'GitHub GPT-4o',
   ollama:    'Ollama (local)',

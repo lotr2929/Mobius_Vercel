@@ -112,8 +112,37 @@ async function pingGemini() {
   const start = Date.now();
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not set');
+
+  // Ask Google which models are available, pick best stable flash
+  let model = 'gemini-2.5-flash';
+  let displayName = 'Gemini 2.5 Flash';
+  try {
+    const listRes = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    const listData = await listRes.json();
+    const models = (listData.models || [])
+      .filter(m =>
+        (m.supportedGenerationMethods || []).includes('generateContent') &&
+        !m.name.includes('image') && !m.name.includes('tts') &&
+        !m.name.includes('live') && !m.name.includes('embed') &&
+        !m.name.includes('robotics') && !m.name.includes('computer-use') &&
+        !m.name.includes('research')
+      );
+    const pick =
+      models.find(m => m.name.includes('gemini-2.5-flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
+      models.find(m => m.name.includes('flash') && !m.name.includes('preview') && !m.name.includes('lite')) ||
+      models.find(m => m.name.includes('flash')) ||
+      models[0];
+    if (pick) {
+      model = pick.name.replace('models/', '');
+      displayName = pick.displayName || model;
+    }
+  } catch { /* use fallback */ }
+
   const r = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key=' + key,
+    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -123,7 +152,7 @@ async function pingGemini() {
   const data = await r.json();
   if (data.error) throw new Error(data.error.message);
   if (!data.candidates?.[0]) throw new Error('No candidates returned');
-  return { ms: Date.now() - start };
+  return { ms: Date.now() - start, modelId: model, displayName };
 }
 
 async function pingMistral() {
@@ -157,7 +186,7 @@ async function pingGitHub() {
 
 const STATUS_MODELS = [
   { key: 'groq',    name: 'Groq Llama 3.3 70B',  context: '128k tokens', ping: pingGroq    },
-  { key: 'gemini',  name: 'Gemini 3 Flash',        context: '1M tokens',   ping: pingGemini  },
+  { key: 'gemini',  name: 'Gemini 2.5 Flash',      context: '1M tokens',   ping: pingGemini  },
   { key: 'mistral', name: 'Mistral Codestral',      context: '256k tokens', ping: pingMistral },
   { key: 'github',  name: 'GitHub GPT-4o',          context: '128k tokens', ping: pingGitHub  },
 ];
@@ -167,14 +196,16 @@ const STATUS_MODELS = [
 module.exports = async function handler(req, res) {
   const { action } = req.query;
 
-  // ── status — GET /api/services/status ────────────────────────────────────
+  // ── status — GET /api/services/status ─────────────────────────────────────
   if (action === 'status') {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const results = await Promise.all(
       STATUS_MODELS.map(async m => {
         try {
-          const { ms } = await m.ping();
-          return { key: m.key, name: m.name, context: m.context, ok: true, ms };
+          const result = await m.ping();
+          // Use provider-supplied display name when available (e.g. Gemini resolves dynamically)
+          const name = result.displayName || m.name;
+          return { key: m.key, name, context: m.context, ok: true, ms: result.ms };
         } catch (err) {
           return { key: m.key, name: m.name, context: m.context, ok: false, error: err.message };
         }
