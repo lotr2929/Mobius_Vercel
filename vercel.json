@@ -33,6 +33,7 @@
     {"src": "/api/model-config/get",     "dest": "/api/data?action=model-config-get"},
     {"src": "/api/sync/status",       "dest": "/api/data?action=sync-status"},
     {"src": "/api/sync",              "dest": "/api/data?action=sync"},
+    {"src": "/agent",                 "dest": "/api/agent"},
     {"src": "/api/services/status",   "dest": "/api/services/[action]?action=status"},
     {"src": "/login",                 "dest": "/login.html"},
     {"src": "/signup",                "dest": "/signup.html"},
