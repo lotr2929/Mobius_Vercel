@@ -79,11 +79,13 @@ async function test(name, fn) {
   try {
     const msg = await fn();
     const ms  = Date.now() - t0;
-    results.push({ name, ok: true, ms, msg: msg || '' });
+    results.push({ name, ok: true, skipped: false, ms, msg: msg || '' });
     passed++;
   } catch (err) {
-    const ms = Date.now() - t0;
-    results.push({ name, ok: false, ms, msg: err.message });
+    const ms      = Date.now() - t0;
+    const skipped = err.message.startsWith('SKIPPED');
+    results.push({ name, ok: skipped, skipped, ms, msg: err.message });
+    if (skipped) passed++; // skipped tests do not count as failures
   }
 }
 
@@ -187,18 +189,21 @@ async function runTests() {
   // ── Results ───────────────────────────────────────────────────────────────
   console.log('');
   for (const r of results) {
-    const icon = r.ok ? '  ✅' : '  ❌';
+    const icon = r.skipped ? '  ⏭ ' : r.ok ? '  ✅' : '  ❌';
     console.log(icon + ' Test ' + (results.indexOf(r) + 1) + ' — ' + r.name);
     if (r.msg) console.log('     ' + r.msg);
   }
 
   console.log('\n' + '━'.repeat(54));
-  const total = results.length;
-  const failed = total - passed;
+  const total   = results.length;
+  const skipped  = results.filter(r => r.skipped).length;
+  const failed   = results.filter(r => !r.ok && !r.skipped).length;
+  const ran      = total - skipped;
   if (failed === 0) {
-    console.log('  ' + passed + '/' + total + ' passed. ✅ Mobius is healthy.');
+    const skipNote = skipped > 0 ? '  (' + skipped + ' skipped — set MOBIUS_TEST_USER_ID to run all)' : '';
+    console.log('  ' + (ran - failed) + '/' + ran + ' passed. ✅ Mobius is healthy.' + skipNote);
   } else {
-    console.log('  ' + passed + '/' + total + ' passed. ❌ ' + failed + ' failure(s).');
+    console.log('  ' + (ran - failed) + '/' + ran + ' passed. ❌ ' + failed + ' failure(s).');
     console.log('  Review failures before proceeding.');
     console.log('  Rollback: git revert HEAD && deploy.bat');
   }
