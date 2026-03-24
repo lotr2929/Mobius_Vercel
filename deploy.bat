@@ -55,7 +55,7 @@ if %ERRORLEVEL% NEQ 0 (
     echo  ERROR: Push failed. Check the output above.
     echo ========================================
     pause
-    exit /b 1
+    goto :end
 )
 
 echo.
