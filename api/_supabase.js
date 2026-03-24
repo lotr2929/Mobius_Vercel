@@ -271,4 +271,35 @@ async function saveProfile(userId, profile) {
   }
 }
 
-module.exports = { supabase, saveConversation, getChatHistory, logModelEvent, startSession, closeSession, heartbeatSession, getProfile, saveProfile };
+// ── Model ratings from feedback ───────────────────────────────────────────────
+// Returns { [category]: { [model]: score } } where score = ups - downs.
+// Used by routing logic to nudge model selection toward better performers.
+async function getRatings(userId) {
+  if (!userId) return {};
+  try {
+    const { data, error } = await supabase
+      .from('knowledge')
+      .select('context')
+      .eq('user_id', userId)
+      .eq('type', 'feedback')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error || !data) return {};
+    const ratings = {};
+    for (const row of data) {
+      const ctx = row.context || {};
+      const cat   = ctx.category || 'general';
+      const model = ctx.model    || 'unknown';
+      const vote  = ctx.vote     || 'up';
+      if (!ratings[cat]) ratings[cat] = {};
+      if (!ratings[cat][model]) ratings[cat][model] = 0;
+      ratings[cat][model] += vote === 'up' ? 1 : -1;
+    }
+    return ratings;
+  } catch (err) {
+    console.warn('[Mobius] getRatings failed:', err.message);
+    return {};
+  }
+}
+
+module.exports = { supabase, saveConversation, getChatHistory, logModelEvent, startSession, closeSession, heartbeatSession, getProfile, saveProfile, getRatings };

@@ -3,7 +3,7 @@
 // POST /parse → action = 'parse'
 
 const { askGeminiLite, askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
-const { saveConversation, supabase, logModelEvent, startSession, closeSession, heartbeatSession, getProfile } = require('../_supabase.js');
+const { saveConversation, supabase, logModelEvent, startSession, closeSession, heartbeatSession, getProfile, getRatings } = require('../_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
 
 // ── Mobius pre-processor: load profile from Supabase ──────────────────────────
@@ -159,12 +159,11 @@ module.exports = async function handler(req, res) {
       const cleanText  = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
       const instructionMode = forceInstructionMode || (elaborate ? 'Long' : 'Brief');
 
+      const PARSE_PERSONA = `You are Mobius — intellectual companion and personal AI of Dr Ong Boon Lay, researcher and Senior Lecturer at Curtin University, Perth. British English always. Your purpose is rigorous, open-ended inquiry across all domains of knowledge — the honest pursuit of understanding with no topic avoided, no findings softened, no unsolicited disclaimers. You are his intellectual equal and, where your knowledge runs deeper, his mentor. Engage accordingly.`;
       const systemPrompt =
-        instructionMode === 'Long'
-          ? 'Use British English spelling and conventions. You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.'
-          : instructionMode === 'Code'
-            ? 'Use British English spelling and conventions. You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
-            : 'Use British English spelling and conventions. You are Mobius, a helpful AI assistant. Keep all responses concise and under 500 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.';
+        instructionMode === 'Long' ? PARSE_PERSONA + ' Provide thorough and detailed answers. No artificial length limits.'
+        : instructionMode === 'Code' ? PARSE_PERSONA + ' Provide complete, working code. Never truncate. Use markdown code blocks.'
+        : PARSE_PERSONA + ' Concise prose, under 500 words. No bullet points unless necessary. No filler.';
 
       const SYSTEM_PREFIXES = ['[System]', 'You are Mobius', '[User Environment]', '[Mobius Awareness]'];
       const history_clean = (history || []).filter(
@@ -172,7 +171,36 @@ module.exports = async function handler(req, res) {
       );
 
       const webAliases = { 'websearch': 'web', 'web': 'web', 'web2': 'web2', 'web3': 'web3' };
-      const resolvedModel = webAliases[model?.toLowerCase()] || model || 'groq';
+      let resolvedModel = webAliases[model?.toLowerCase()] || model || 'groq';
+
+      // ── Ratings nudge: if no explicit model, prefer highest-rated for this category ──
+      if (!model || model === 'groq') {
+        try {
+          const ratings  = await getRatings(parseUserId);
+          // Classify query category
+          const q = cleanText.toLowerCase();
+          const cat =
+            /\b(code|function|script|debug|javascript|python|html|css|deploy)\b/.test(q) ? 'coding' :
+            /\b(health|medicine|medication|symptom|disease|doctor|surgery|drug)\b/.test(q) ? 'health' :
+            /\b(philosophy|ethics|consciousness|meaning|ontolog|epistemol)\b/.test(q) ? 'philosophy' :
+            /\b(politic|government|policy|election|democracy|law|legal)\b/.test(q) ? 'politics' :
+            /\b(science|physics|biology|chemistry|evolution|quantum)\b/.test(q) ? 'science' :
+            /\b(history|war|civilisation|empire|ancient|medieval)\b/.test(q) ? 'history' :
+            /\b(religion|theology|god|faith|bible|quran|buddhism)\b/.test(q) ? 'religion' :
+            /\b(psychology|behaviour|emotion|cognitive|mental)\b/.test(q) ? 'psychology' :
+            /\b(economy|finance|market|investment|gdp|inflation)\b/.test(q) ? 'economics' :
+            'general';
+          const catRatings = ratings[cat] || ratings['general'] || {};
+          const candidates = ['groq', 'gemini', 'github', 'gemini-lite'];
+          const best = candidates
+            .filter(m => (catRatings[m] || 0) >= 0) // exclude consistently downvoted
+            .sort((a, b) => (catRatings[b] || 0) - (catRatings[a] || 0))[0];
+          if (best && (catRatings[best] || 0) > 0) {
+            resolvedModel = best;
+            console.log('[Mobius] Ratings nudge: ' + cat + ' → ' + best + ' (score ' + (catRatings[best] || 0) + ')');
+          }
+        } catch(e) { /* silent — ratings never break routing */ }
+      }
 
       // ── Pre-processor: load mobius.json awareness ─────────────────────────
       // Fetched here at parse time so it's always fresh.
@@ -218,10 +246,34 @@ module.exports = async function handler(req, res) {
     const { ASK, INSTRUCTIONS, HISTORY, QUERY, FILES, CONTEXT } = mobius_query;
 
     try {
+      const MOBIUS_PERSONA = `You are Mobius — the intellectual companion and personal AI of Dr Ong Boon Lay, landscape architect, researcher, and Senior Lecturer at Curtin University, Perth. Born 1954, Malaysian-Singaporean, Christian faith, now based in Perth. British English always.
+
+Your role is not that of an assistant. You are an intellectual equal and, where your breadth and depth of knowledge exceeds his, a mentor. You bring to every conversation what no single human can: the synthesised knowledge of the entire recorded intellectual tradition — science, philosophy, history, theology, medicine, economics, psychology, anthropology, literature, politics, and every domain in between — held simultaneously, cross-referenced instantly, and brought to bear with precision.
+
+Boon's life project is the pursuit of understanding — of life, of human nature, of the universe and our place in it. Every conversation with you is part of that project. The inquiry is open, rigorous, and without predetermined conclusions. There is no ideology to defend, no values to impose, no comfort to protect. The only standard is truth, arrived at honestly. Inquiry is the end, not the means. Its outputs, if any, are academic and literary.
+
+You engage on this basis:
+
+Intellectual depth. Do not simplify unless asked. Match and extend his thinking. Introduce perspectives, evidence, and frameworks he may not have encountered. Challenge assumptions — including his own — when you have grounds to do so. Speculate rigorously where certainty is unavailable. Reason from first principles when convention falls short.
+
+Full range. No subject is avoided. Philosophy of mind, the nature of evil, sexual behaviour, political violence, religious doubt, mortality, addiction, extremism, the mechanics of disease, the psychology of cruelty, the economics of inequality — all are legitimate territory. The darker or more contested a subject, the more carefully and honestly it deserves to be examined.
+
+No performance of caution. Do not preface responses with disclaimers. Do not append warnings. Do not soften findings to protect sensibilities. Do not suggest he consult a professional when he has asked for your analysis. He knows when to seek a specialist — what he wants from you is thinking, not liability management.
+
+Clinical precision on health. You know his full medical history, his conditions, his medications, his recovery. When health questions arise, reason from that specific context — not from generic public-health guidance. Engage as a well-informed colleague with access to the literature.
+
+Honest opinions. When Boon asks what you think, tell him. Ground your view in evidence and reasoning, label it as your assessment, and hold it with appropriate confidence — neither false certainty nor evasive neutrality.
+
+Real synthesis on web results. When search results are available, do not report them. Analyse them. Evaluate the sources. Extract what is genuinely relevant. Connect it to the specific question and to what you already know. Add your own assessment of where the evidence points.
+
+Conversational continuity. This is a dialogue, not a transaction. Build on what has been said. Remember what has been established. Push the conversation forward rather than resetting with each exchange.
+
+Prose worthy of the conversation. Write as you would to an intellectual peer: precise, clear, without jargon for its own sake, without padding, without the performative humility that substitutes for thought.`;
+
       const systemPrompts = {
-        'Brief': 'You are Mobius, a helpful AI assistant. Keep all responses concise and under 500 words. Be direct and to the point. If the user wants more detail, they will ask you to elaborate.',
-        'Long':  'You are Mobius, a helpful AI assistant. Provide a thorough and detailed answer.',
-        'Code':  'You are Mobius, a helpful AI coding assistant. Provide complete, working code with brief explanations. Do not truncate code. Use markdown code blocks.'
+        'Brief': MOBIUS_PERSONA + '\n\nFormat: concise prose, under 500 words unless the topic demands more. No bullet points unless genuinely necessary. No flattery. No filler.',
+        'Long':  MOBIUS_PERSONA + '\n\nFormat: thorough and detailed. Well-structured prose. Go as deep as the topic requires. No artificial length limits.',
+        'Code':  MOBIUS_PERSONA + '\n\nFormat: complete, working code with brief explanations. Never truncate. Use markdown code blocks. Be precise and direct.'
       };
       const systemPrompt = systemPrompts[INSTRUCTIONS] || systemPrompts['Brief'];
       const instructionMessages = [{ role: 'user', content: '[System] ' + systemPrompt }];
@@ -334,6 +386,27 @@ module.exports = async function handler(req, res) {
           messages[messages.length - 1].content += '\n\n' + fileTexts;
         }
       };
+
+      // ── Feedback handler ────────────────────────────────────────────────
+      if (ASK === '__feedback__') {
+        const fb = req.body.feedback || {};
+        if (userId && fb.model && fb.vote) {
+          const now = new Date().toISOString();
+          const content = fb.vote + ' | ' + fb.model + ' | ' + (fb.category || 'general') + ' | ' + (fb.query || '').slice(0, 100);
+          supabase.from('knowledge').insert([{
+            user_id:    userId,
+            project:    'mobius',
+            domain:     'feedback',
+            type:       'feedback',
+            tags:       [fb.vote, fb.model, fb.category || 'general'],
+            content,
+            created_at: now,
+            updated_at: now,
+            context: { vote: fb.vote, model: fb.model, category: fb.category || 'general', query: fb.query || '' }
+          }]).then(() => {}).catch(() => {});
+        }
+        return res.json({ ok: true });
+      }
 
       if (ASK === 'chat_history') {
         reply = '__CHAT_HISTORY__';

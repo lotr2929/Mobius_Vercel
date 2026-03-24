@@ -1018,7 +1018,7 @@
                     answerDiv.className     = 'chat-answer';
                     answerDiv.innerHTML     = markdownToHtml(content);
                     answerLabel.textContent = `A:(${modelLabel})`;
-                    addResponseToolbar(wrapper, content);
+                    addResponseToolbar(wrapper, content, modelLabel, mq.QUERY);
                     chatHistory.push({ role: 'user',      content: mq.QUERY });
                     chatHistory.push({ role: 'assistant', content });
                     document.getElementById('input').value = '';
@@ -1045,7 +1045,7 @@
                     answerDiv.className   = 'chat-answer';
                     answerDiv.innerHTML   = markdownToHtml(reply);
                     answerLabel.textContent = `A:(${modelUsed})`;
-                    addResponseToolbar(wrapper, reply);
+                    addResponseToolbar(wrapper, reply, modelUsed, mq.QUERY);
                     chatHistory.push({ role: 'user',      content: mq.QUERY });
                     chatHistory.push({ role: 'assistant', content: reply });
                     document.getElementById('input').value = '';
@@ -1074,7 +1074,7 @@
                       (data.tokensOut ? data.tokensOut.toLocaleString() + ' out' : '') + ' tokens'
                     : '';
                 answerLabel.textContent = `A:(${modelLabels[usedModel] || usedModel})${tokenInfo}`;
-                addResponseToolbar(wrapper, reply);
+                addResponseToolbar(wrapper, reply, usedModel, mq.QUERY);
                 // ── Post-processor: surface flags from server ────────────────────────────────
                 if (data.postFlags && data.postFlags.length > 0) {
                     data.postFlags.forEach(flag => {
@@ -1131,8 +1131,25 @@
             }
         };
 
+        // ── Query category classifier (client-side, fast) ─────────────────
+        function classifyQuery(text) {
+            const t = (text || '').toLowerCase();
+            if (/\b(code|function|script|debug|error|javascript|python|html|css|api|deploy|git|npm)\b/.test(t)) return 'coding';
+            if (/\b(health|medicine|medication|symptom|disease|diagnosis|treatment|doctor|surgery|drug|clinical)\b/.test(t)) return 'health';
+            if (/\b(philosophy|ethics|consciousness|meaning|exist|ontolog|epistemol|metaphysic|plato|aristotle|kant|nietzsche)\b/.test(t)) return 'philosophy';
+            if (/\b(politic|government|policy|election|democracy|law|legal|constitution|rights|justice)\b/.test(t)) return 'politics';
+            if (/\b(science|physics|biology|chemistry|evolution|quantum|climate|research|study|experiment)\b/.test(t)) return 'science';
+            if (/\b(history|war|civilisation|empire|ancient|medieval|revolution|century)\b/.test(t)) return 'history';
+            if (/\b(religion|theology|god|faith|bible|quran|buddhism|spirituality|prayer|church)\b/.test(t)) return 'religion';
+            if (/\b(psychology|behaviour|emotion|cognitive|mental|personality|trauma|therapy)\b/.test(t)) return 'psychology';
+            if (/\b(economy|finance|market|investment|gdp|inflation|trade|business|money)\b/.test(t)) return 'economics';
+            if (/\b(gpr|gprtool|lai|plant|landscape|greenery|architecture|urban|design)\b/.test(t)) return 'gpr';
+            return 'general';
+        }
+        window.classifyQuery = classifyQuery;
+
         // ── Response toolbar ───────────────────────────────────────────────
-        function addResponseToolbar(entry, replyText) {
+        function addResponseToolbar(entry, replyText, modelUsed, queryText) {
             const toolbar = document.createElement('div');
             toolbar.className = 'resp-toolbar';
 
@@ -1148,7 +1165,7 @@
                 });
             };
 
-            // Shorten — prepopulates input with a summarisation request
+            // Shorten
             const shortenBtn = document.createElement('button');
             shortenBtn.className = 'resp-btn';
             shortenBtn.title = 'Shorten this response';
@@ -1161,30 +1178,113 @@
                 input.focus();
             };
 
+            // ── Feedback helpers ────────────────────────────────────────────
+            const category = classifyQuery(queryText || '');
+            const userId   = getAuth('mobius_user_id');
+            let   voted    = null; // 'up' | 'down' | null
+
+            async function sendFeedback(vote) {
+                if (!userId) return;
+                try {
+                    await fetch('/ask', {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            mobius_query: { ASK: '__feedback__', INSTRUCTIONS: 'Brief', HISTORY: [], QUERY: '', FILES: [] },
+                            userId,
+                            feedback: { vote, model: modelUsed, category, query: (queryText || '').slice(0, 200) }
+                        })
+                    });
+                } catch(e) { /* silent — feedback never blocks */ }
+            }
+
+            async function handleDownvoteRetry(wrapper) {
+                // Show retry status inline
+                const retryBar = document.createElement('div');
+                retryBar.style.cssText = 'margin-top:4px;padding:4px 10px;background:#fff8e8;border-left:3px solid #a06800;font-size:12px;color:#a06800;border-radius:1px;';
+                retryBar.textContent = '↻ Poor response noted. Trying a different model...';
+                wrapper.appendChild(retryBar);
+
+                // Pick a different model to retry with
+                const fallbackOrder = ['gemini', 'groq', 'github', 'gemini-lite'];
+                const currentProvider = (modelUsed || '').toLowerCase();
+                const nextModel = fallbackOrder.find(m => !currentProvider.includes(m)) || 'gemini';
+
+                try {
+                    const input   = document.getElementById('input');
+                    const lastQ   = chatHistory.length >= 2 ? chatHistory[chatHistory.length - 2].content : '';
+                    if (!lastQ) { retryBar.textContent = '↻ Could not identify query to retry.'; return; }
+
+                    const res  = await fetch('/parse', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: lastQ, model: nextModel, history: chatHistory.slice(0, -2) })
+                    });
+                    const data = await res.json();
+                    const mq   = data.mobius_query;
+                    mq.FILES   = [];
+
+                    const askRes  = await fetch('/ask', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mobius_query: mq, userId, session_id: currentSessionId })
+                    });
+                    const askData = await askRes.json();
+                    const newReply    = askData.reply || askData.error;
+                    const newModel    = askData.modelUsed || nextModel;
+
+                    retryBar.textContent = '↻ Retried with ' + newModel;
+
+                    // Append new answer below
+                    const newWrapper  = document.createElement('div');
+                    const newLabel    = document.createElement('div');
+                    newLabel.className = 'chat-label';
+                    newLabel.textContent = 'A:(' + newModel + ') [retry]';
+                    const newAnswer   = document.createElement('div');
+                    newAnswer.className = 'chat-answer';
+                    newAnswer.innerHTML = markdownToHtml(newReply);
+                    newWrapper.appendChild(newLabel);
+                    newWrapper.appendChild(newAnswer);
+                    addResponseToolbar(newWrapper, newReply, newModel, lastQ);
+                    wrapper.after(newWrapper);
+
+                    // Update chat history with retry answer
+                    chatHistory[chatHistory.length - 1].content = newReply;
+                    scrollToBottom();
+                } catch(err) {
+                    retryBar.textContent = '↻ Retry failed: ' + err.message;
+                }
+            }
+
             // Upvote
             const upvote = document.createElement('button');
             upvote.className = 'resp-btn';
             upvote.title = 'Good response';
             upvote.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
             upvote.onclick = () => {
-                const active = upvote.classList.toggle('active-up');
-                if (active) upvote.querySelector('svg').setAttribute('fill', 'currentColor');
-                else upvote.querySelector('svg').setAttribute('fill', 'none');
+                if (voted === 'up') return;
+                voted = 'up';
+                upvote.classList.add('active-up');
+                upvote.querySelector('svg').setAttribute('fill', 'currentColor');
                 downvote.classList.remove('active-down');
                 downvote.querySelector('svg').setAttribute('fill', 'none');
+                sendFeedback('up');
             };
 
             // Downvote
             const downvote = document.createElement('button');
             downvote.className = 'resp-btn';
-            downvote.title = 'Poor response';
+            downvote.title = 'Poor response — retry with different model';
             downvote.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
             downvote.onclick = () => {
-                const active = downvote.classList.toggle('active-down');
-                if (active) downvote.querySelector('svg').setAttribute('fill', 'currentColor');
-                else downvote.querySelector('svg').setAttribute('fill', 'none');
+                if (voted === 'down') return;
+                voted = 'down';
+                downvote.classList.add('active-down');
+                downvote.querySelector('svg').setAttribute('fill', 'currentColor');
                 upvote.classList.remove('active-up');
                 upvote.querySelector('svg').setAttribute('fill', 'none');
+                sendFeedback('down');
+                handleDownvoteRetry(entry);
             };
 
             // Up nav
