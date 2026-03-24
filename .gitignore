@@ -10,3 +10,4 @@ _deleted/
 commands_good.js
 status_patch.js
 mobius.json
+deploy.env

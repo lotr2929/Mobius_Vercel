@@ -64,13 +64,16 @@ echo  Pushed. Polling Vercel for deployment status...
 echo ========================================
 echo.
 
-REM Load VERCEL_TOKEN, PROJECT_ID, TEAM_ID from .env.local (strip quotes)
-for /f "usebackq tokens=1,* delims==" %%A in (".env.local") do (
-    set "_KEY=%%A"
-    set "_VAL=%%B"
-    if "%%A"=="VERCEL_TOKEN"      call :stripquotes VERCEL_TOKEN "%%B"
-    if "%%A"=="VERCEL_PROJECT_ID" call :stripquotes VERCEL_PROJECT_ID "%%B"
-    if "%%A"=="VERCEL_TEAM_ID"    call :stripquotes VERCEL_TEAM_ID "%%B"
+REM Load Vercel polling credentials from deploy.env (not tracked by git)
+if not exist deploy.env (
+    echo ERROR: deploy.env not found. Create it with VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID.
+    pause
+    goto :end
+)
+for /f "usebackq tokens=1,* delims==" %%A in ("deploy.env") do (
+    if "%%A"=="VERCEL_TOKEN"      set VERCEL_TOKEN=%%B
+    if "%%A"=="VERCEL_PROJECT_ID" set VERCEL_PROJECT_ID=%%B
+    if "%%A"=="VERCEL_TEAM_ID"    set VERCEL_TEAM_ID=%%B
 )
 
 REM Poll Vercel API until deployment is READY or ERROR (max 5 mins)
@@ -161,8 +164,4 @@ echo.
 pause
 exit /b 0
 
-REM ── Helper: strip surrounding quotes from a value ──────────────────────────
-:stripquotes
-set "_TMP=%~2"
-set "%1=%_TMP%"
-goto :eof
+
