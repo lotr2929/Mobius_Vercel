@@ -235,4 +235,40 @@ async function heartbeatSession(sessionId, userId) {
   }
 }
 
-module.exports = { supabase, saveConversation, getChatHistory, logModelEvent, startSession, closeSession, heartbeatSession };
+// ── User profile (mobius.json) ───────────────────────────────────────────────
+// Single row per user in user_profile table.
+// getProfile: returns parsed profile object or null.
+// saveProfile: upserts profile, updates updated_at.
+
+async function getProfile(userId) {
+  if (!userId) return null;
+  try {
+    const { data, error } = await supabase
+      .from('user_profile')
+      .select('profile, updated_at')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return null;
+    return { profile: data.profile, updated_at: data.updated_at };
+  } catch (err) {
+    console.warn('[Mobius] getProfile failed:', err.message);
+    return null;
+  }
+}
+
+async function saveProfile(userId, profile) {
+  if (!userId || !profile) return false;
+  try {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from('user_profile')
+      .upsert({ user_id: userId, profile, updated_at: now }, { onConflict: 'user_id' });
+    if (error) { console.error('[Mobius] saveProfile error:', error.message); return false; }
+    return true;
+  } catch (err) {
+    console.error('[Mobius] saveProfile failed:', err.message);
+    return false;
+  }
+}
+
+module.exports = { supabase, saveConversation, getChatHistory, logModelEvent, startSession, closeSession, heartbeatSession, getProfile, saveProfile };

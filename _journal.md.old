@@ -1,0 +1,93 @@
+# Mobius_Vercel Development Journal
+
+**Project**: Mobius_Vercel (Tier 1 — Personal AI OS)
+**Local path**: `C:\Users\263350F\Mobius\Mobius_Vercel`
+**GitHub**: lotr2929/Mobius_Vercel
+**Context file**: `MOBIUS_CONTEXT.md` (read before every Code: session)
+**Master log**: `C:\Users\263350F\Mobius\_master_log.md`
+
+---
+
+## How to use this journal
+
+- **Planned** — decisions made, not yet started
+- **In Progress** — actively being worked on
+- **Done** — completed and deployed or committed
+- Each entry dated. Most recent at top.
+
+---
+
+## Architecture Summary
+
+Mobius is a local-first PWA (Progressive Web App) deployed on Vercel Hobby plan.
+
+- **Frontend**: single `index.html` / `commands.js` chat interface
+- **Backend**: Vercel serverless functions (`api/`) — consolidated to 4 functions: Identity, Intelligence, Memory, Services
+- **Local server**: `server.js` (Node.js, localhost:3000) proxies `/api/*` to Vercel; auto-starts via `MobiusServer.vbs`
+- **AI routing**: Groq default → Flash-Lite (complex text) → Gemini Flash (vision) → Mistral Codestral (code)
+- **Local AI**: Ollama (Intel Arc via IPEX-LLM) on desktop — `qwen2.5-coder:7b` and `deepseek-r1:7b`
+- **Storage**: Supabase (knowledge, sessions, model_config, sync_queue tables)
+- **Sync**: Google (personal/family/work accounts) + Dropbox OAuth
+
+---
+
+## What Has Been Done ✅
+
+- Full architectural overhaul: 4 serverless functions, 4 Supabase tables
+- Complexity-based smart routing implemented
+- Self-test framework (`self_test.js`) runs post-deployment
+- Session management (Foundation 2): startSession, closeSession, heartbeatSession
+- Multi-account Google sync + Dropbox OAuth
+- Windows startup via `MobiusServer.vbs` (invisible)
+- Key bugs fixed: awareness file routing errors, Mistral persisting as default, knowledge table logging, file content not sent to Mistral/GitHub models
+- IPEX-LLM Ollama installed: `C:\Users\263350F\ollama-ipex-llm-2.3.0b20250612-win`
+
+---
+
+## Staged — Not Yet Deployed ⚠️
+
+These changes are ready but held pending the deploy sequence below:
+
+- [ ] Dropbox registry fix
+- [ ] Sync: all + Dropbox
+- [ ] Dropbox: list
+- [ ] Startup status panel
+- [ ] backgroundSync account check
+- [ ] Removal of stale pack/audit/verify commands
+
+**Deploy sequence (must follow in order):**
+1. `commands.js` audit — consistency check across all staged changes
+2. `help/index.html` overhaul — reflect Dropbox: connect/sync/list, Sync: all includes Dropbox, startup status panel
+3. Deploy via `deploy.bat`
+
+---
+
+## What We Plan To Do
+
+### Foundation 3 (next)
+- [ ] Define Foundation 3 scope — to be determined at next Mobius session
+
+### Future
+- [ ] `Research:` command family — deferred until after GPRTool ships (find, fetch, index, ask)
+- [ ] Samsung Health integration — export → Google Drive → `Health:` command (exploratory)
+- [ ] Factory module subscription in Mobius Core
+
+---
+
+## Key Decisions & Notes
+
+- **Governing principle**: Mobius orchestrates, AI only proposes — AI never writes to filesystem, never commits to GitHub autonomously
+- **Local where possible**: Ollama on desktop, WebLLM/WebGPU on mobile; cloud APIs are fallback
+- **One codebase** runs locally on all devices; Vercel is cloud API gateway only
+- **Vercel Hobby 12-function limit** — must stay at or below current consolidation
+- **MOBIUS_CONTEXT.md** is the persistent knowledge anchor for all AI calls — keep it updated after every significant change
+
+---
+
+## Session Log
+
+### 2026-03-17
+- Journal created as part of cross-project persistent memory system
+- Staged changes and deploy sequence documented above from existing memory
+- No new code changes this session — GPRTool and research planning was the focus
+- Next Mobius session: clear staged backlog and complete Foundation 3

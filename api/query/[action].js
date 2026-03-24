@@ -3,61 +3,91 @@
 // POST /parse → action = 'parse'
 
 const { askGeminiLite, askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
-const { saveConversation, supabase, logModelEvent, startSession, closeSession, heartbeatSession } = require('../_supabase.js');
+const { saveConversation, supabase, logModelEvent, startSession, closeSession, heartbeatSession, getProfile } = require('../_supabase.js');
 const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
 
-// ── Mobius pre-processor: load mobius.json from Drive ─────────────────────────
-// Returns a formatted awareness string, or null if unavailable.
-async function loadMobiusAwareness(userId) {
+// ── Mobius pre-processor: load profile from Supabase ──────────────────────────
+// Reads user_profile table. Injects only what is relevant to the current query.
+async function loadMobiusAwareness(userId, query) {
   if (!userId) return null;
   try {
-    const found = await findDriveFile(userId, 'mobius.json');
-    if (!found.files || found.files.length === 0) return null;
-    const fileId  = found.files[0].id;
-    const content = await readDriveFileContent(userId, fileId, 'text/plain');
-    if (!content) return null;
-    const data = JSON.parse(content);
+    const result = await getProfile(userId);
+    if (!result) return null;
+    const p = result.profile;
+    const q = (query || '').toLowerCase();
     const lines = ['[Mobius Awareness]'];
 
-    // Project state — always first so AI knows current context
-    const ps = data.project_state;
-    if (ps) {
-      if (ps.current_project) lines.push('Current project: ' + ps.current_project);
-      if (ps.current_focus)   lines.push('Current focus: '   + ps.current_focus);
-      if (ps.next_steps?.length) lines.push('Next steps: ' + ps.next_steps.slice(0, 3).join(' | '));
+    // Who (always injected)
+    if (p.who) {
+      const w = p.who;
+      lines.push('User: ' + w.full_name + ' ("' + w.name + '"), born ' + w.dob + ', ' + w.location);
+      lines.push('Profession: ' + w.profession + ', ' + w.role + ' at ' + w.employer);
+      lines.push('Faith: ' + w.faith + ' | Language: ' + (p.work && p.work.language ? p.work.language : 'en-AU'));
     }
 
-    // Preferences
-    if (data.preferences?.length) {
-      lines.push('');
-      lines.push('Preferences:');
-      data.preferences.forEach(p => lines.push('  - ' + p));
+    // Work style (always injected)
+    if (p.work) {
+      lines.push('Style: ' + p.work.style);
+      lines.push('Tone: ' + p.work.tone + ' | Format: ' + p.work.format);
+      if (p.work.rules && p.work.rules.length)   lines.push('Rules: ' + p.work.rules.join(' | '));
+      if (p.work.do_not && p.work.do_not.length) lines.push('Do not: ' + p.work.do_not.join(' | '));
     }
 
-    // Rules
-    if (data.rules?.length) {
-      lines.push('');
-      lines.push('Rules:');
-      data.rules.forEach(r => lines.push('  - ' + r));
+    // Now: time-sensitive items (drop expired)
+    const today = new Date().toISOString().slice(0, 10);
+    const activeNow = (p.now || []).filter(function(n) { return !n.expires || n.expires >= today; });
+    if (activeNow.length) {
+      lines.push('Current: ' + activeNow.map(function(n) { return n.label + ' - ' + n.note; }).join(' || '));
     }
 
-    // Do not
-    if (data.do_not?.length) {
-      lines.push('');
-      lines.push('Do not:');
-      data.do_not.forEach(d => lines.push('  - ' + d));
+    // Active projects (summary only, always injected)
+    const activeProjects = (p.projects || []).filter(function(pr) { return pr.status === 'active'; });
+    if (activeProjects.length) {
+      lines.push('Active projects: ' + activeProjects.map(function(pr) { return pr.name + ': ' + pr.summary; }).join(' | '));
     }
 
-    // Corrections
-    if (data.corrections?.length) {
-      lines.push('');
-      lines.push('Known corrections (do not repeat these mistakes):');
-      data.corrections.forEach(c => lines.push('  - ' + c));
+    // Family (only when query is about people/family)
+    const familyKeys = ['wife', 'daughter', 'family', 'fee yoon', 'xin hui', 'daniel', 'husband', 'child', 'spouse'];
+    if (familyKeys.some(function(k) { return q.includes(k); }) && p.family && p.family.length) {
+      p.family.forEach(function(f) {
+        var entry = f.relation + ': ' + f.name + ' ' + (f.surname || '') + ', born ' + f.dob + ', ' + f.location;
+        if (f.health && f.health.conditions && f.health.conditions.length) entry += '. Conditions: ' + f.health.conditions.join(', ');
+        lines.push(entry);
+      });
     }
 
-    return lines.join('\n');
+    // Health detail (only when query is health-related)
+    const healthKeys = ['health', 'medication', 'medicine', 'tablet', 'injection', 'condition', 'eczema', 'asthma', 'glaucoma', 'knee', 'doctor', 'surgery', 'appointment', 'drug'];
+    if (healthKeys.some(function(k) { return q.includes(k); }) && p.health) {
+      lines.push('Health conditions: ' + p.health.conditions.join(', '));
+      if (p.health.note) lines.push('Note: ' + p.health.note);
+      if (p.health.medications && p.health.medications.length) {
+        lines.push('Medications: ' + p.health.medications.map(function(m) { return m.name + (m.purpose ? ' (' + m.purpose + ')' : ''); }).join(' | '));
+      }
+    }
+
+    // Project detail/next steps (only when specific project is mentioned)
+    if (p.projects && p.projects.length) {
+      var mentioned = p.projects.filter(function(pr) {
+        return pr.status === 'active' && (
+          q.includes(pr.slug) || q.includes(pr.name.toLowerCase()) ||
+          (pr.slug === 'gprtool' && (q.includes('gpr') || q.includes('plant') || q.includes('lai'))) ||
+          (pr.slug === 'mobius'  && (q.includes('mobius') || q.includes('command') || q.includes('deploy'))) ||
+          (pr.slug === 'gpri'    && q.includes('institute')) ||
+          (pr.slug === 'evening-grace' && q.includes('bible')) ||
+          (pr.slug === 'morning-glory' && q.includes('art'))
+        );
+      });
+      mentioned.forEach(function(pr) {
+        if (pr.next && pr.next.length) lines.push('Next for ' + pr.name + ': ' + pr.next.join(' | '));
+      });
+    }
+
+    var text = lines.join('\n');
+    console.log('[Mobius] Awareness injected (' + text.length + ' chars, Supabase)');
+    return text;
   } catch (err) {
-    console.warn('[Mobius] Could not load mobius.json:', err.message);
+    console.warn('[Mobius] Could not load profile:', err.message);
     return null;
   }
 }
@@ -148,7 +178,7 @@ module.exports = async function handler(req, res) {
       // Fetched here at parse time so it's always fresh.
       // Injected as a virtual file attachment — same pattern as environment.txt.
       let mobiusFile = null;
-      const awarenessText = await loadMobiusAwareness(parseUserId);
+      const awarenessText = await loadMobiusAwareness(parseUserId, cleanText);
       if (awarenessText) {
         const encoded = Buffer.from(awarenessText, 'utf8').toString('base64');
         mobiusFile = {
