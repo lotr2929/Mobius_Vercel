@@ -64,25 +64,28 @@ echo  Pushed. Polling Vercel for deployment status...
 echo ========================================
 echo.
 
-REM Load env vars from .env.local
+REM Load VERCEL_TOKEN, PROJECT_ID, TEAM_ID from .env.local (strip quotes)
 for /f "usebackq tokens=1,* delims==" %%A in (".env.local") do (
-    if "%%A"=="VERCEL_TOKEN"      set VERCEL_TOKEN=%%B
-    if "%%A"=="VERCEL_PROJECT_ID" set VERCEL_PROJECT_ID=%%B
-    if "%%A"=="VERCEL_TEAM_ID"    set VERCEL_TEAM_ID=%%B
+    set "_KEY=%%A"
+    set "_VAL=%%B"
+    if "%%A"=="VERCEL_TOKEN"      call :stripquotes VERCEL_TOKEN "%%B"
+    if "%%A"=="VERCEL_PROJECT_ID" call :stripquotes VERCEL_PROJECT_ID "%%B"
+    if "%%A"=="VERCEL_TEAM_ID"    call :stripquotes VERCEL_TEAM_ID "%%B"
 )
 
 REM Poll Vercel API until deployment is READY or ERROR (max 5 mins)
 powershell -NoProfile -Command ^
-    "$token      = $env:VERCEL_TOKEN; ^
-     $projectId  = $env:VERCEL_PROJECT_ID; ^
-     $teamId     = $env:VERCEL_TEAM_ID; ^
-     $pushStart  = %PUSH_START%; ^
-     $headers    = @{ Authorization = 'Bearer ' + $token }; ^
-     $url        = 'https://api.vercel.com/v6/deployments?projectId=' + $projectId + '&teamId=' + $teamId + '&limit=5'; ^
-     $maxWait    = 300; ^
-     $interval   = 5; ^
-     $waited     = 0; ^
-     $found      = $false; ^
+    "$token     = '%VERCEL_TOKEN%'; ^
+     $projectId = '%VERCEL_PROJECT_ID%'; ^
+     $teamId    = '%VERCEL_TEAM_ID%'; ^
+     $pushStart = %PUSH_START%; ^
+     if (-not $token) { Write-Host '  ERROR: VERCEL_TOKEN not loaded from .env.local'; exit 1 } ^
+     $headers   = @{ Authorization = 'Bearer ' + $token }; ^
+     $url       = 'https://api.vercel.com/v6/deployments?projectId=' + $projectId + '&teamId=' + $teamId + '&limit=5'; ^
+     $maxWait   = 300; ^
+     $interval  = 5; ^
+     $waited    = 0; ^
+     $found     = $false; ^
      Write-Host ''; ^
      while ($waited -le $maxWait) { ^
          try { ^
@@ -95,8 +98,8 @@ powershell -NoProfile -Command ^
              $mins   = [math]::Floor($elapsed / 60); ^
              $secs   = $elapsed %% 60; ^
              $timer  = ('{0}:{1:D2}' -f $mins, $secs); ^
-             Write-Host ('  [{0}]  Status: {1}    ' -f $timer, $state) -NoNewline; ^
-             Write-Host '`r' -NoNewline; ^
+             Write-Host ('  [{0}]  Status: {1}      ' -f $timer, $state) -NoNewline; ^
+             Write-Host ('`r') -NoNewline; ^
              if ($state -eq 'READY') { ^
                  Write-Host ''; ^
                  Write-Host ''; ^
@@ -110,7 +113,7 @@ powershell -NoProfile -Command ^
                  exit 1; ^
              } ^
          } catch { ^
-             Write-Host '  Polling error: ' $_.Exception.Message; ^
+             Write-Host ('  Polling error: ' + $_.Exception.Message); ^
          } ^
          Start-Sleep -Seconds $interval; ^
          $waited += $interval; ^
@@ -127,8 +130,11 @@ if %ERRORLEVEL% NEQ 0 (
     echo  Check: https://vercel.com/lotr2929-7612s-projects/mobius
     echo ========================================
     pause
-    exit /b 1
+    goto :end
 )
+
+REM Pause so you can read the deployment time before self-test starts
+pause
 
 echo.
 echo [4/4] Running self-test against live deployment...
@@ -150,5 +156,13 @@ if %ERRORLEVEL%==0 (
     echo ========================================
 )
 
+:end
 echo.
 pause
+exit /b 0
+
+REM ── Helper: strip surrounding quotes from a value ──────────────────────────
+:stripquotes
+set "_TMP=%~2"
+set "%1=%_TMP%"
+goto :eof
