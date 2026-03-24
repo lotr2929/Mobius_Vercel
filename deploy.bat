@@ -43,6 +43,10 @@ git commit -m "%MSG%"
 echo.
 
 echo [3/3] Pushing to GitHub (Vercel will auto-deploy)...
+
+REM Record push time for elapsed timer
+for /f "usebackq" %%T in (`powershell -NoProfile -Command "[int](Get-Date -UFormat %%s)"`) do set PUSH_START=%%T
+
 git push origin main
 echo.
 
@@ -56,9 +60,75 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo ========================================
-echo  Pushed. Waiting 3 minutes for Vercel to deploy...
+echo  Pushed. Polling Vercel for deployment status...
 echo ========================================
-timeout /t 180 /nobreak > nul
+echo.
+
+REM Load env vars from .env.local
+for /f "usebackq tokens=1,* delims==" %%A in (".env.local") do (
+    if "%%A"=="VERCEL_TOKEN"      set VERCEL_TOKEN=%%B
+    if "%%A"=="VERCEL_PROJECT_ID" set VERCEL_PROJECT_ID=%%B
+    if "%%A"=="VERCEL_TEAM_ID"    set VERCEL_TEAM_ID=%%B
+)
+
+REM Poll Vercel API until deployment is READY or ERROR (max 5 mins)
+powershell -NoProfile -Command ^
+    "$token      = $env:VERCEL_TOKEN; ^
+     $projectId  = $env:VERCEL_PROJECT_ID; ^
+     $teamId     = $env:VERCEL_TEAM_ID; ^
+     $pushStart  = %PUSH_START%; ^
+     $headers    = @{ Authorization = 'Bearer ' + $token }; ^
+     $url        = 'https://api.vercel.com/v6/deployments?projectId=' + $projectId + '&teamId=' + $teamId + '&limit=5'; ^
+     $maxWait    = 300; ^
+     $interval   = 5; ^
+     $waited     = 0; ^
+     $found      = $false; ^
+     Write-Host ''; ^
+     while ($waited -le $maxWait) { ^
+         try { ^
+             $resp   = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop; ^
+             $latest = $resp.deployments | Where-Object { $_.target -eq 'production' } | Select-Object -First 1; ^
+             if (-not $latest) { $latest = $resp.deployments | Select-Object -First 1 } ^
+             $state  = $latest.state; ^
+             $now    = [int](Get-Date -UFormat %%s); ^
+             $elapsed = $now - $pushStart; ^
+             $mins   = [math]::Floor($elapsed / 60); ^
+             $secs   = $elapsed %% 60; ^
+             $timer  = ('{0}:{1:D2}' -f $mins, $secs); ^
+             Write-Host ('  [{0}]  Status: {1}    ' -f $timer, $state) -NoNewline; ^
+             Write-Host '`r' -NoNewline; ^
+             if ($state -eq 'READY') { ^
+                 Write-Host ''; ^
+                 Write-Host ''; ^
+                 Write-Host ('  Deployment READY in {0}.' -f $timer); ^
+                 $found = $true; ^
+                 break; ^
+             } elseif ($state -eq 'ERROR') { ^
+                 Write-Host ''; ^
+                 Write-Host ''; ^
+                 Write-Host ('  Deployment FAILED after {0}. Check Vercel dashboard.' -f $timer); ^
+                 exit 1; ^
+             } ^
+         } catch { ^
+             Write-Host '  Polling error: ' $_.Exception.Message; ^
+         } ^
+         Start-Sleep -Seconds $interval; ^
+         $waited += $interval; ^
+     } ^
+     if (-not $found) { ^
+         Write-Host '  Timed out after 5 minutes. Check Vercel dashboard.'; ^
+         exit 1; ^
+     }"
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ========================================
+    echo  Deployment failed or timed out.
+    echo  Check: https://vercel.com/lotr2929-7612s-projects/mobius
+    echo ========================================
+    pause
+    exit /b 1
+)
 
 echo.
 echo [4/4] Running self-test against live deployment...
