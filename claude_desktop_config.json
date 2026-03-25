@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:\\Users\\263350F\\Mobius\\Mobius_Vercel",
+        "C:\\Users\\263350F\\Mobius",
+        "C:\\Users\\263350F\\_myProjects\\GPRTool-Demo",
+        "C:\\Users\\263350F\\_myProjects",
+        "C:\\Users\\263350F"
+      ]
+    }
+  },
+  "preferences": {
+    "legacyQuickEntryEnabled": false,
+    "coworkScheduledTasksEnabled": true,
+    "ccdScheduledTasksEnabled": false,
+    "sidebarMode": "chat",
+    "coworkWebSearchEnabled": true
+  }
+}

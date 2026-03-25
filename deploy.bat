@@ -40,6 +40,10 @@ echo.
 
 echo [2/3] Committing: %MSG%
 git commit -m "%MSG%"
+if %ERRORLEVEL% NEQ 0 (
+    echo Nothing to commit or commit failed. Checking if push is still needed...
+    git status --short
+)
 echo.
 
 echo [3/3] Pushing to GitHub (Vercel will auto-deploy)...
@@ -76,44 +80,42 @@ for /f "usebackq tokens=1,* delims==" %%A in ("deploy.env") do (
     if "%%A"=="VERCEL_TEAM_ID"    set VERCEL_TEAM_ID=%%B
 )
 
-REM Poll Vercel API until deployment is READY or ERROR (max 5 mins)
+REM Poll Vercel API — only match deployments created AFTER the push
 powershell -NoProfile -Command ^
     "$token     = '%VERCEL_TOKEN%'; ^
      $projectId = '%VERCEL_PROJECT_ID%'; ^
      $teamId    = '%VERCEL_TEAM_ID%'; ^
      $pushStart = %PUSH_START%; ^
-     if (-not $token) { Write-Host '  ERROR: VERCEL_TOKEN not loaded from .env.local'; exit 1 } ^
+     if (-not $token) { Write-Host '  ERROR: VERCEL_TOKEN not loaded'; exit 1 } ^
      $headers   = @{ Authorization = 'Bearer ' + $token }; ^
-     $url       = 'https://api.vercel.com/v6/deployments?projectId=' + $projectId + '&teamId=' + $teamId + '&limit=5'; ^
+     $url       = 'https://api.vercel.com/v6/deployments?projectId=' + $projectId + '&teamId=' + $teamId + '&limit=10'; ^
      $maxWait   = 300; ^
      $interval  = 5; ^
      $waited    = 0; ^
      $found     = $false; ^
-     Write-Host ''; ^
+     $pushStartMs = $pushStart * 1000; ^
+     Write-Host '  Waiting for new deployment to appear...'; ^
      while ($waited -le $maxWait) { ^
          try { ^
-             $resp   = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop; ^
-             $latest = $resp.deployments | Where-Object { $_.target -eq 'production' } | Select-Object -First 1; ^
-             if (-not $latest) { $latest = $resp.deployments | Select-Object -First 1 } ^
-             $state  = $latest.state; ^
-             $now    = [int](Get-Date -UFormat %%s); ^
+             $resp = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop; ^
+             $new  = $resp.deployments | Where-Object { [long]$_.createdAt -gt $pushStartMs } | Select-Object -First 1; ^
+             $now     = [int](Get-Date -UFormat %%s); ^
              $elapsed = $now - $pushStart; ^
-             $mins   = [math]::Floor($elapsed / 60); ^
-             $secs   = $elapsed %% 60; ^
-             $timer  = ('{0}:{1:D2}' -f $mins, $secs); ^
-             Write-Host ('  [{0}]  Status: {1}      ' -f $timer, $state) -NoNewline; ^
-             Write-Host ('`r') -NoNewline; ^
-             if ($state -eq 'READY') { ^
-                 Write-Host ''; ^
-                 Write-Host ''; ^
-                 Write-Host ('  Deployment READY in {0}.' -f $timer); ^
-                 $found = $true; ^
-                 break; ^
-             } elseif ($state -eq 'ERROR') { ^
-                 Write-Host ''; ^
-                 Write-Host ''; ^
-                 Write-Host ('  Deployment FAILED after {0}. Check Vercel dashboard.' -f $timer); ^
-                 exit 1; ^
+             $timer   = ('{0}:{1:D2}' -f [math]::Floor($elapsed/60), $elapsed %% 60); ^
+             if ($new) { ^
+                 $state = $new.state; ^
+                 Write-Host ('  [{0}]  Status: {1}' -f $timer, $state); ^
+                 if ($state -eq 'READY') { ^
+                     Write-Host ''; Write-Host ''; ^
+                     Write-Host ('  Deployment READY in {0}.' -f $timer); ^
+                     $found = $true; break; ^
+                 } elseif ($state -eq 'ERROR') { ^
+                     Write-Host ''; Write-Host ''; ^
+                     Write-Host ('  Deployment FAILED after {0}.' -f $timer); ^
+                     exit 1; ^
+                 } ^
+             } else { ^
+                 Write-Host ('  [{0}]  Waiting for deployment to queue...' -f $timer); ^
              } ^
          } catch { ^
              Write-Host ('  Polling error: ' + $_.Exception.Message); ^
@@ -122,7 +124,7 @@ powershell -NoProfile -Command ^
          $waited += $interval; ^
      } ^
      if (-not $found) { ^
-         Write-Host '  Timed out after 5 minutes. Check Vercel dashboard.'; ^
+         Write-Host '  Timed out after 5 minutes.'; ^
          exit 1; ^
      }"
 
