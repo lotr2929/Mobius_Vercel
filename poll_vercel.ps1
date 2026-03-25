@@ -9,7 +9,7 @@ $projectId = (Get-Content deploy.env | Where-Object { $_ -match '^VERCEL_PROJECT
 $teamId    = (Get-Content deploy.env | Where-Object { $_ -match '^VERCEL_TEAM_ID=' })    -replace '^VERCEL_TEAM_ID=',''
 
 $headers = @{ Authorization = 'Bearer ' + $token }
-$url     = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=3"
+$url     = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=5&target=production"
 $start   = [int](Get-Date -UFormat %s)
 
 Write-Host ""
