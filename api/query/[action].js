@@ -299,6 +299,7 @@ Prose worthy of the conversation. Write as you would to an intellectual peer: pr
       // User can always override with explicit Ask: [model].
       let fileModelFallbacks = [];
       let _complexityScore   = null;
+      let routingReason      = null;
       // Only truly explicit user overrides bypass smart routing.
       // 'mistral'/'codestral' are specialists — routing decides when to use them.
       // Web models, local models, and direct Gemini/Groq/GitHub overrides are respected.
@@ -340,12 +341,14 @@ Prose worthy of the conversation. Write as you would to an intellectual peer: pr
           // Vision — Flash is the only free option, protect it
           modelUsed = 'gemini';
           fileModelFallbacks = ['github'];
+          routingReason = 'vision (score ' + score + ')';
           console.log('[Mobius] Routing: vision → Flash (score ' + score + ')');
 
         } else if (codeExts.test(fileNames) && /generat|creat|write|implement|build/i.test(QUERY)) {
           // Code generation specifically — specialist Codestral first
           modelUsed = 'codestral';
           fileModelFallbacks = ['groq', 'gemini-lite', 'gemini', 'github'];
+          routingReason = 'code generation (score ' + score + ')';
           console.log('[Mobius] Routing: code generation → Codestral (score ' + score + ')');
 
         } else if (files.length > 0) {
@@ -353,10 +356,12 @@ Prose worthy of the conversation. Write as you would to an intellectual peer: pr
           if (score >= 4) {
             modelUsed = 'gemini-lite';
             fileModelFallbacks = ['groq', 'gemini', 'github'];
+            routingReason = 'large file (score ' + score + ')';
             console.log('[Mobius] Routing: large file → Flash-Lite (score ' + score + ')');
           } else {
             modelUsed = 'groq';
             fileModelFallbacks = ['gemini-lite', 'gemini', 'github'];
+            routingReason = 'file (score ' + score + ')';
             console.log('[Mobius] Routing: file → Groq (score ' + score + ')');
           }
 
@@ -364,12 +369,14 @@ Prose worthy of the conversation. Write as you would to an intellectual peer: pr
           // Complex text query — Flash-Lite first, Flash as escalation
           modelUsed = 'gemini-lite';
           fileModelFallbacks = ['groq', 'gemini', 'github'];
+          routingReason = 'complex query (score ' + score + ')';
           console.log('[Mobius] Routing: complex → Flash-Lite (score ' + score + ')');
 
         } else {
           // Default — Groq: most tokens, fastest, cheapest
           modelUsed = 'groq';
           fileModelFallbacks = ['gemini-lite', 'github'];
+          routingReason = 'default (score ' + score + ')';
           console.log('[Mobius] Routing: default → Groq (score ' + score + ')');
         }
       }
@@ -566,8 +573,18 @@ Prose worthy of the conversation. Write as you would to an intellectual peer: pr
 
       // ── Async logging — fire and forget, never blocks the response ────────
       if (userId && reply !== '__CHAT_HISTORY__') {
-        saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null)
-          .catch(e => console.error('[Mobius] Save error:', e.message));
+        saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null, {
+          ask:             ASK,
+          instructions:    INSTRUCTIONS,
+          historyCount:    (HISTORY || []).length,
+          tokensIn:        tokensIn,
+          tokensOut:       tokensOut,
+          latencyMs:       latencyMs,
+          complexityScore: _complexityScore,
+          routingReason:   routingReason || null,
+          failedModels:    failedModels.length ? failedModels : null,
+          postFlags:       postFlags.length    ? postFlags    : null
+        }).catch(e => console.error('[Mobius] Save error:', e.message));
 
         const providerOf = m => {
           if (!m) return 'unknown';

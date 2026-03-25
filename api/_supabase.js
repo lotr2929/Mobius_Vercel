@@ -2,21 +2,31 @@ const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-async function saveConversation(userId, query, reply, modelUsed, topic, sessionId) {
+async function saveConversation(userId, query, reply, modelUsed, topic, sessionId, meta) {
   try {
     const { error } = await supabase
       .from('conversations')
       .insert([{
-        user_id: userId,
-        question: query,
-        answer: reply,
-        model: modelUsed,
+        user_id:          userId,
+        question:         query,
+        answer:           reply,
+        model:            modelUsed,
         topic,
-        session_id: sessionId || null,
-        created_at: new Date().toISOString()
+        session_id:       sessionId || null,
+        created_at:       new Date().toISOString(),
+        // Extended metadata — captures everything visible on screen + background routing
+        ask:              meta?.ask              || null,
+        instructions:     meta?.instructions     || null,
+        history_count:    meta?.historyCount     ?? null,
+        tokens_in:        meta?.tokensIn         ?? null,
+        tokens_out:       meta?.tokensOut        ?? null,
+        latency_ms:       meta?.latencyMs        ?? null,
+        complexity_score: meta?.complexityScore  ?? null,
+        routing_reason:   meta?.routingReason    || null,
+        failed_models:    meta?.failedModels     || null,
+        post_flags:       meta?.postFlags        || null
       }]);
     if (error) console.error('Error saving conversation:', error.message);
-    // Don't throw — saving failure should never crash the ask response
   } catch (err) {
     console.error('Failed to save conversation:', err.message);
   }
@@ -26,7 +36,7 @@ async function getChatHistory(userId, limit = 10000) {
   try {
     const { data, error } = await supabase
       .from('conversations')
-      .select('question, answer, model, topic, session_id, created_at')
+      .select('question, answer, model, topic, session_id, created_at, ask, instructions, history_count, tokens_in, tokens_out, latency_ms, complexity_score, routing_reason, failed_models, post_flags')
       .eq('user_id', userId)
       .order('created_at', { ascending: true })
       .limit(limit);
@@ -47,7 +57,22 @@ async function getChatHistory(userId, limit = 10000) {
         sessions.push(current);
       }
       current.lastTime = t;
-      current.messages.push({ question: row.question, answer: row.answer, model: row.model, created_at: row.created_at });
+      current.messages.push({
+        question:         row.question,
+        answer:           row.answer,
+        model:            row.model,
+        created_at:       row.created_at,
+        ask:              row.ask,
+        instructions:     row.instructions,
+        history_count:    row.history_count,
+        tokens_in:        row.tokens_in,
+        tokens_out:       row.tokens_out,
+        latency_ms:       row.latency_ms,
+        complexity_score: row.complexity_score,
+        routing_reason:   row.routing_reason,
+        failed_models:    row.failed_models,
+        post_flags:       row.post_flags
+      });
     }
     sessions.reverse();
     return sessions;

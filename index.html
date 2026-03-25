@@ -528,14 +528,7 @@
             const p = document.getElementById('chatPanel');
             p.scrollTop = p.scrollHeight;
         }
-        function addDivider() {
-            const p = document.getElementById('chatPanel');
-            if (p.children.length > 0) {
-                const hr = document.createElement('hr');
-                hr.className = 'chat-divider';
-                p.appendChild(hr);
-            }
-        }
+        function addDivider() { /* divider removed */ }
         function escapeHtml(t) {
             return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
@@ -712,9 +705,36 @@
                 addDivider();
                 const entry = document.createElement('div');
                 entry.className = 'chat-entry';
+
+                // Build metadata line
+                const metaParts = [];
+                if (m.ask)              metaParts.push('ASK: ' + m.ask);
+                if (m.instructions)     metaParts.push('INSTRUCTIONS: ' + m.instructions);
+                if (m.history_count != null) metaParts.push('HISTORY: [' + m.history_count + ']');
+                const metaLine1 = metaParts.length ? metaParts.join('  |  ') : '';
+
+                const meta2Parts = [];
+                if (m.routing_reason)   meta2Parts.push('ROUTING: ' + m.routing_reason);
+                if (m.latency_ms)       meta2Parts.push(m.latency_ms + 'ms');
+                if (m.tokens_in != null || m.tokens_out != null)
+                    meta2Parts.push((m.tokens_in||0) + ' in / ' + (m.tokens_out||0) + ' out tokens');
+                const metaLine2 = meta2Parts.length ? meta2Parts.join('  |  ') : '';
+
+                const fallbackHtml = (m.failed_models && m.failed_models.length)
+                    ? '<div style="font-size:11px;color:#8d3a3a;margin-top:2px;">Fallbacks: ' +
+                      m.failed_models.map(f => escapeHtml(f.model + ' - ' + f.reason)).join(' | ') + '</div>'
+                    : '';
+
+                const flagsHtml = (m.post_flags && m.post_flags.length)
+                    ? '<div style="font-size:11px;color:#a06800;margin-top:2px;">Flags: ' +
+                      m.post_flags.map(f => escapeHtml(f)).join(' | ') + '</div>'
+                    : '';
+
                 entry.innerHTML = `
                     <div class="chat-query">Q: ${escapeHtml(m.question)}</div>
-                    <div class="chat-label">A:(${escapeHtml(modelLabels[m.model] || m.model)})</div>
+                    ${metaLine1 ? '<div style="font-size:11px;color:#8d7c64;margin-bottom:1px;">' + escapeHtml(metaLine1) + '</div>' : ''}
+                    <div class="chat-label">A:(${escapeHtml(m.model || '')})${metaLine2 ? '  &middot;  ' + escapeHtml(metaLine2) : ''}</div>
+                    ${fallbackHtml}${flagsHtml}
                     <div class="chat-answer">${markdownToHtml(m.answer)}</div>`;
                 panel.appendChild(entry);
                 chatHistory.push({ role:'user', content:m.question });

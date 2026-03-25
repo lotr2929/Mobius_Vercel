@@ -300,6 +300,8 @@ async function askWebSearch(messages, depth = 1) {
   });
   const searchData = await searchRes.json();
   if (searchData.error) throw new Error('Tavily: ' + (searchData.error.message || JSON.stringify(searchData.error)));
+  if (!Array.isArray(searchData.results) || searchData.results.length === 0)
+    throw new Error('Tavily returned no results');
 
   let context = searchData.results
     .map((r, i) => {
