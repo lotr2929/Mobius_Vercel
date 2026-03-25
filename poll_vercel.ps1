@@ -51,7 +51,7 @@ while ($waited -le $maxWait) {
 
         # New uid found - report its state
         $state = $latest.state
-        Write-Host "  [$timer]  New deployment $($latest.uid) — Status: $state"
+        Write-Host "  [$timer]  New deployment $($latest.uid) - Status: $state"
 
         if ($state -eq 'READY') {
             Write-Host ""
