@@ -14,13 +14,12 @@ if (-not $token) {
     exit 1
 }
 
-$headers     = @{ Authorization = 'Bearer ' + $token }
-$url         = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=10"
-$maxWait     = 300
-$interval    = 5
-$waited      = 0
-$found       = $false
-$sawBuilding = $false
+$headers  = @{ Authorization = 'Bearer ' + $token }
+$url      = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=1"
+$maxWait  = 300
+$interval = 5
+$waited   = 0
+$found    = $false
 
 Write-Host "  Waiting for new deployment to appear..."
 
@@ -33,21 +32,20 @@ while ($waited -le $maxWait) {
 
         if ($new) {
             $state = $new.state
-            if ($state -eq 'BUILDING' -or $state -eq 'INITIALIZING') { $sawBuilding = $true }
             Write-Host "  [$timer]  Status: $state"
-            if ($state -eq 'READY' -and $sawBuilding) {
+            if ($state -eq 'READY') {
                 Write-Host ""
                 Write-Host "  Deployment READY in $timer." -ForegroundColor Green
                 $found = $true
                 break
-            } elseif ($state -eq 'READY' -and -not $sawBuilding) {
-                Write-Host "  [$timer]  Stale deployment - waiting for new build..."
-            } elseif ($state -eq 'ERROR') {
+            } elseif ($state -eq 'ERROR' -or $state -eq 'CANCELED') {
                 Write-Host ""
-                Write-Host "  Deployment FAILED after $timer." -ForegroundColor Red
+                Write-Host "  Deployment $state after $timer." -ForegroundColor Red
                 exit 1
             }
         } else {
+            $elapsed = [int](Get-Date -UFormat %s) - $PushStart
+            $timer   = '{0}:{1:D2}' -f [math]::Floor($elapsed / 60), ($elapsed % 60)
             Write-Host "  [$timer]  Waiting for deployment to queue..."
         }
     } catch {
