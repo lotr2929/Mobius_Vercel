@@ -21,39 +21,52 @@ $interval = 5
 $waited   = 0
 $found    = $false
 
+# Step 1: capture the current (old) deployment uid before the new one appears
+$baselineUid = $null
+try {
+    $resp        = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop
+    $baselineUid = $resp.deployments[0].uid
+    Write-Host "  Baseline deployment: $baselineUid"
+} catch {
+    Write-Host "  WARNING: Could not get baseline deployment: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 Write-Host "  Waiting for new deployment to appear..."
 
+# Step 2: poll until a different uid appears, then wait for it to be READY
 while ($waited -le $maxWait) {
+    Start-Sleep -Seconds $interval
+    $waited += $interval
+
     try {
         $resp    = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop
-        $new     = $resp.deployments | Where-Object { [long]$_.createdAt -gt $PushStart } | Select-Object -First 1
+        $latest  = $resp.deployments[0]
         $elapsed = [int](Get-Date -UFormat %s) - $PushStart
         $timer   = '{0}:{1:D2}' -f [math]::Floor($elapsed / 60), ($elapsed % 60)
 
-        if ($new) {
-            $state = $new.state
-            Write-Host "  [$timer]  Status: $state"
-            if ($state -eq 'READY') {
-                Write-Host ""
-                Write-Host "  Deployment READY in $timer." -ForegroundColor Green
-                $found = $true
-                break
-            } elseif ($state -eq 'ERROR' -or $state -eq 'CANCELED') {
-                Write-Host ""
-                Write-Host "  Deployment $state after $timer." -ForegroundColor Red
-                exit 1
-            }
-        } else {
-            $elapsed = [int](Get-Date -UFormat %s) - $PushStart
-            $timer   = '{0}:{1:D2}' -f [math]::Floor($elapsed / 60), ($elapsed % 60)
-            Write-Host "  [$timer]  Waiting for deployment to queue..."
+        if ($latest.uid -eq $baselineUid) {
+            Write-Host "  [$timer]  Waiting for new deployment to appear..."
+            continue
         }
+
+        # New uid found - report its state
+        $state = $latest.state
+        Write-Host "  [$timer]  New deployment $($latest.uid) — Status: $state"
+
+        if ($state -eq 'READY') {
+            Write-Host ""
+            Write-Host "  Deployment READY in $timer." -ForegroundColor Green
+            $found = $true
+            break
+        } elseif ($state -eq 'ERROR' -or $state -eq 'CANCELED') {
+            Write-Host ""
+            Write-Host "  Deployment $state after $timer." -ForegroundColor Red
+            exit 1
+        }
+
     } catch {
         Write-Host "  Polling error: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-
-    Start-Sleep -Seconds $interval
-    $waited += $interval
 }
 
 if (-not $found) {
