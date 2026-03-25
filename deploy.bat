@@ -48,7 +48,7 @@ echo.
 
 echo [3/3] Pushing to GitHub (Vercel will auto-deploy)...
 
-REM Record push time for elapsed timer
+REM Record push time as Unix seconds
 for /f "usebackq" %%T in (`powershell -NoProfile -Command "[long](Get-Date -UFormat %%s)"`) do set PUSH_START=%%T
 
 git push origin main
@@ -68,65 +68,7 @@ echo  Pushed. Polling Vercel for deployment status...
 echo ========================================
 echo.
 
-REM Load Vercel polling credentials from deploy.env (not tracked by git)
-if not exist deploy.env (
-    echo ERROR: deploy.env not found. Create it with VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID.
-    pause
-    goto :end
-)
-for /f "usebackq tokens=1,* delims==" %%A in ("deploy.env") do (
-    if "%%A"=="VERCEL_TOKEN"      set VERCEL_TOKEN=%%B
-    if "%%A"=="VERCEL_PROJECT_ID" set VERCEL_PROJECT_ID=%%B
-    if "%%A"=="VERCEL_TEAM_ID"    set VERCEL_TEAM_ID=%%B
-)
-
-REM Poll Vercel API — only match deployments created AFTER the push
-powershell -NoProfile -Command ^
-    "$token     = '%VERCEL_TOKEN%'; ^
-     $projectId = '%VERCEL_PROJECT_ID%'; ^
-     $teamId    = '%VERCEL_TEAM_ID%'; ^
-     $pushStart = %PUSH_START%; ^
-     if (-not $token) { Write-Host '  ERROR: VERCEL_TOKEN not loaded'; exit 1 } ^
-     $headers   = @{ Authorization = 'Bearer ' + $token }; ^
-     $url       = 'https://api.vercel.com/v6/deployments?projectId=' + $projectId + '&teamId=' + $teamId + '&limit=10'; ^
-     $maxWait   = 300; ^
-     $interval  = 5; ^
-     $waited    = 0; ^
-     $found     = $false; ^
-     $pushStartMs = [long]$pushStart; ^
-     Write-Host '  Waiting for new deployment to appear...'; ^
-     while ($waited -le $maxWait) { ^
-         try { ^
-             $resp = Invoke-RestMethod -Uri $url -Headers $headers -Method Get -ErrorAction Stop; ^
-             $new  = $resp.deployments | Where-Object { [long]$_.createdAt -gt $pushStartMs } | Select-Object -First 1; ^
-             $now     = [int](Get-Date -UFormat %%s); ^
-             $elapsed = $now - $pushStart; ^
-             $timer   = ('{0}:{1:D2}' -f [math]::Floor($elapsed/60), $elapsed %% 60); ^
-             if ($new) { ^
-                 $state = $new.state; ^
-                 Write-Host ('  [{0}]  Status: {1}' -f $timer, $state); ^
-                 if ($state -eq 'READY') { ^
-                     Write-Host ''; Write-Host ''; ^
-                     Write-Host ('  Deployment READY in {0}.' -f $timer); ^
-                     $found = $true; break; ^
-                 } elseif ($state -eq 'ERROR') { ^
-                     Write-Host ''; Write-Host ''; ^
-                     Write-Host ('  Deployment FAILED after {0}.' -f $timer); ^
-                     exit 1; ^
-                 } ^
-             } else { ^
-                 Write-Host ('  [{0}]  Waiting for deployment to queue...' -f $timer); ^
-             } ^
-         } catch { ^
-             Write-Host ('  Polling error: ' + $_.Exception.Message); ^
-         } ^
-         Start-Sleep -Seconds $interval; ^
-         $waited += $interval; ^
-     } ^
-     if (-not $found) { ^
-         Write-Host '  Timed out after 5 minutes.'; ^
-         exit 1; ^
-     }"
+powershell -NoProfile -File poll_vercel.ps1 -PushStart %PUSH_START%
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -138,9 +80,8 @@ if %ERRORLEVEL% NEQ 0 (
     goto :end
 )
 
-REM Pause so you can read the deployment time before self-test starts
+echo.
 pause
-
 echo.
 echo [4/4] Running self-test against live deployment...
 echo.
@@ -165,5 +106,3 @@ if %ERRORLEVEL%==0 (
 echo.
 pause
 exit /b 0
-
-
