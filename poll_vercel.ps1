@@ -16,10 +16,11 @@ if (-not $token) {
 
 $headers  = @{ Authorization = 'Bearer ' + $token }
 $url      = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=10"
-$maxWait  = 300
-$interval = 5
-$waited   = 0
-$found    = $false
+$maxWait    = 300
+$interval   = 5
+$waited     = 0
+$found      = $false
+$sawBuilding = $false
 
 Write-Host "  Waiting for new deployment to appear..."
 
@@ -32,12 +33,15 @@ while ($waited -le $maxWait) {
 
         if ($new) {
             $state = $new.state
+            if ($state -eq 'BUILDING' -or $state -eq 'INITIALIZING') { $sawBuilding = $true }
             Write-Host "  [$timer]  Status: $state"
-            if ($state -eq 'READY') {
+            if ($state -eq 'READY' -and $sawBuilding) {
                 Write-Host ""
                 Write-Host "  Deployment READY in $timer." -ForegroundColor Green
                 $found = $true
                 break
+            } elseif ($state -eq 'READY' -and -not $sawBuilding) {
+                Write-Host "  [$timer]  Stale deployment detected — waiting for new build..."
             } elseif ($state -eq 'ERROR') {
                 Write-Host ""
                 Write-Host "  Deployment FAILED after $timer." -ForegroundColor Red
