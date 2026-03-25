@@ -1,4 +1,4 @@
-# poll_vercel.ps1 — called by deploy.bat after git push
+# poll_vercel.ps1 - called by deploy.bat after git push
 # Usage: powershell -File poll_vercel.ps1 -PushStart <unix_seconds>
 param(
     [long]$PushStart = 0
@@ -14,12 +14,12 @@ if (-not $token) {
     exit 1
 }
 
-$headers  = @{ Authorization = 'Bearer ' + $token }
-$url      = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=10"
-$maxWait    = 300
-$interval   = 5
-$waited     = 0
-$found      = $false
+$headers     = @{ Authorization = 'Bearer ' + $token }
+$url         = "https://api.vercel.com/v6/deployments?projectId=$projectId&teamId=$teamId&limit=10"
+$maxWait     = 300
+$interval    = 5
+$waited      = 0
+$found       = $false
 $sawBuilding = $false
 
 Write-Host "  Waiting for new deployment to appear..."
@@ -41,7 +41,7 @@ while ($waited -le $maxWait) {
                 $found = $true
                 break
             } elseif ($state -eq 'READY' -and -not $sawBuilding) {
-                Write-Host "  [$timer]  Stale deployment detected — waiting for new build..."
+                Write-Host "  [$timer]  Stale deployment - waiting for new build..."
             } elseif ($state -eq 'ERROR') {
                 Write-Host ""
                 Write-Host "  Deployment FAILED after $timer." -ForegroundColor Red
