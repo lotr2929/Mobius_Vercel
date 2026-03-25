@@ -49,7 +49,7 @@ echo.
 echo [3/3] Pushing to GitHub (Vercel will auto-deploy)...
 
 REM Record push time for elapsed timer
-for /f "usebackq" %%T in (`powershell -NoProfile -Command "[int](Get-Date -UFormat %%s)"`) do set PUSH_START=%%T
+for /f "usebackq" %%T in (`powershell -NoProfile -Command "[long](Get-Date -UFormat %%s)"`) do set PUSH_START=%%T
 
 git push origin main
 echo.
@@ -93,7 +93,7 @@ powershell -NoProfile -Command ^
      $interval  = 5; ^
      $waited    = 0; ^
      $found     = $false; ^
-     $pushStartMs = $pushStart * 1000; ^
+     $pushStartMs = [long]$pushStart; ^
      Write-Host '  Waiting for new deployment to appear...'; ^
      while ($waited -le $maxWait) { ^
          try { ^
