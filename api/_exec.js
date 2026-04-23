@@ -170,14 +170,18 @@ async function evaluateAnswers(query, answers) {
   ).join('\n\n');
 
   const summaryPrompt =
-    'You are the Brief AI evaluator. Compare these ' + scores.length + ' answers to the same query and produce a clear evaluation summary.\n\n' +
+    'You are the Brief AI evaluator. Compare these ' + scores.length + ' answers to the same query and produce an annotated evaluation summary.\n\n' +
     'Query: "' + query + '"\n\n' + answersForBrief + '\n\n' +
-    'Format the summary as sections with bullet points. Use these sections as appropriate:\n' +
-    '- **Key Points** (what the AIs agreed on)\n' +
-    '- **Differences** (where AIs gave different answers -- briefly what each said)\n' +
-    '- **Concerns** (weak arguments, gaps, or uncertainties)\n' +
-    '- **Overall** (one sentence conclusion)\n\n' +
-    'Write clean, substantive bullet points. Do NOT add inline attribution like [3/5 agree]. Keep it concise.';
+    'Format the summary as sections with bullet points:\n\n' +
+    '## Key Points\n' +
+    '- Each agreed point. After each point add [N/' + scores.length + ' agree: names]\n\n' +
+    '## Differences\n' +
+    '- Each difference. Show which AI said what. Use ⚡ CONFLICT if directly contradictory.\n\n' +
+    '## Concerns\n' +
+    '- Gaps, weak arguments, or single-AI claims. Mark single-AI unverified claims with ⚠ VERIFY.\n\n' +
+    '## Overall\n' +
+    '- One sentence consensus statement.\n\n' +
+    'Be concise and substantive. Omit any section that has nothing to report.';
 
   let summary = 'Evaluation summary unavailable.';
   try {
