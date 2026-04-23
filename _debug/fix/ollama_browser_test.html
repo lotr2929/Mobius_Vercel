@@ -1,0 +1,89 @@
+<!-- _dev/ollama_browser_test.html: Provides a browser-based diagnostic tool for testing connectivity and running diagnostics in the Ollama application -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Ollama Browser Diagnostic</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        h2   { color: #9cdcfe; }
+        .pass { color: #4ec9b0; }
+        .fail { color: #f44747; }
+        .info { color: #dcdcaa; }
+        .dim  { color: #6a9955; }
+        pre  { background: #2d2d2d; padding: 10px; border-radius: 4px; white-space: pre-wrap; }
+        button { background: #0e639c; color: white; border: none; padding: 8px 16px; cursor: pointer; font-family: monospace; font-size: 14px; border-radius: 2px; margin-top: 10px; }
+        button:hover { background: #1177bb; }
+    </style>
+</head>
+<body>
+<h2>Ollama Browser Diagnostic</h2>
+<p class="dim">Open this file in Edge/Chrome. It runs the exact same fetch as connectivity.js.</p>
+<button onclick="runDiagnostics()">Run Diagnostics</button>
+<pre id="output">Click "Run Diagnostics" to start...</pre>
+
+<script>
+function log(msg, cls) {
+    const el = document.getElementById('output');
+    const span = document.createElement('span');
+    span.className = cls || '';
+    span.textContent = msg + '\n';
+    el.appendChild(span);
+}
+
+async function runDiagnostics() {
+    const el = document.getElementById('output');
+    el.innerHTML = '';
+
+    log('=== Ollama Browser Diagnostic ===\n', 'info');
+    log('Page URL:      ' + location.href, 'dim');
+    log('Protocol:      ' + location.protocol, 'dim');
+    log('Online:        ' + navigator.onLine, 'dim');
+    log('');
+
+    // Test 1: Basic fetch to Ollama
+    log('--- Test 1: GET http://localhost:11434/api/tags ---', 'info');
+    try {
+        const r = await fetch('http://localhost:11434/api/tags', {
+            signal: AbortSignal.timeout(5000)
+        });
+        log('  Status:  ' + r.status + ' ' + r.statusText, r.ok ? 'pass' : 'fail');
+        if (r.ok) {
+            const data = await r.json();
+            const models = (data.models || []).map(m => m.name).join(', ');
+            log('  Models:  ' + (models || '(none loaded)'), 'pass');
+            log('  RESULT:  PASS - Ollama reachable from browser', 'pass');
+        } else {
+            log('  RESULT:  FAIL - Ollama returned error', 'fail');
+        }
+    } catch(e) {
+        log('  Error:   ' + e.message, 'fail');
+        if (e.message.includes('Failed to fetch') || e.message.includes('fetch failed')) {
+            log('  Likely causes:', 'info');
+            log('    1. Ollama not running (start with start-ollama.bat)', 'dim');
+            log('    2. CORS blocked (set OLLAMA_ORIGINS=* in env vars)', 'dim');
+            log('    3. Mixed content blocked (HTTPS page -> HTTP localhost)', 'dim');
+        }
+        log('  RESULT:  FAIL', 'fail');
+    }
+
+    log('');
+
+    // Test 2: Check if HTTPS is the issue
+    log('--- Test 2: Protocol check ---', 'info');
+    if (location.protocol === 'https:') {
+        log('  Protocol is HTTPS - browsers may block HTTP localhost requests', 'info');
+        log('  This is the mixed content restriction', 'dim');
+    } else if (location.protocol === 'file:') {
+        log('  Protocol is file:// - no mixed content restriction applies', 'pass');
+        log('  If Test 1 failed, Ollama is simply not running or CORS is blocking', 'dim');
+    } else {
+        log('  Protocol is HTTP - no mixed content restriction applies', 'pass');
+    }
+
+    log('');
+    log('=== Done ===', 'info');
+}
+</script>
+</body>
+</html>

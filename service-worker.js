@@ -1,21 +1,23 @@
-const CACHE_NAME = 'mobius-20260315-1';
+// service-worker.js
+// PWA offline shell. Network-first strategy -- always serves fresh files when
+// online, falls back to cache only when offline. No manual cache-busting needed.
 
-// App shell — everything needed to run the UI offline
+const CACHE_NAME = 'mobius-v1';
+
 const SHELL_URLS = [
   '/',
   '/index.html',
-  '/login.html',
-  '/signup.html',
   '/manifest.json',
-  '/mobius-logo.png',
   '/favicon.ico',
-  '/commands.js',
-  '/google_api.js',
-  '/actions.js',
-  '/service-worker.js'
+  '/mobius-logo.png',
+  '/js/commands.js',
+  '/js/log.js',
+  '/js/router.js',
+  '/js/connectivity.js',
+  '/js/panel.js',
+  '/js/scores.js'
 ];
 
-// ── Install — cache the app shell ────────────────────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -24,7 +26,6 @@ self.addEventListener('install', event => {
   );
 });
 
-// ── Activate — clean up old caches ───────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
@@ -35,43 +36,20 @@ self.addEventListener('activate', event => {
   );
 });
 
-// ── Fetch — network first for API, cache first for shell ─────────────────────
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-
   const url = new URL(event.request.url);
-
-  // API calls and external requests — network only, no caching
-  // If network fails, let the error surface naturally so Mobius can handle it
-  if (
-    url.pathname.startsWith('/api/') ||
-    url.pathname === '/ask' ||
-    url.pathname === '/parse' ||
-    url.pathname === '/upload' ||
-    url.pathname.startsWith('/auth/') ||
-    url.origin !== self.location.origin
-  ) {
-    return; // browser handles normally — fails gracefully if offline
-  }
-
-  // App shell — cache first, network fallback
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname === '/ask') return;
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-
-      return fetch(event.request).then(response => {
-        // Cache successful shell responses
-        if (response && response.status === 200 && response.type === 'basic') {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      }).catch(() => {
-        // Offline fallback — return cached index.html for navigation
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
-    })
+    fetch(event.request).then(response => {
+      if (response && response.status === 200 && response.type === 'basic')
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+      return response;
+    }).catch(() =>
+      caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') return caches.match('/index.html');
+      })
+    )
   );
 });

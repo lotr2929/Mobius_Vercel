@@ -1,0 +1,429 @@
+# Mobius_Coder -- Command Catalogue
+Generated: Mon, 6 Apr 2026, 3:33 pm
+Commands: 53 | Inline: 0 | AI-generated: 53 | Missing: 0
+
+## Commands
+
+ask: all
+  file:    all.js
+  desc:    All cloud models simultaneously -- no args toggles All Mode on/off
+  model:   none
+  context: CLAUDE.md + history only
+  handler: handleAskAll
+  meta:    groq
+
+ask: gemini
+  file:    ask.js
+  desc:    Gemini 2.5 Flash (cloud, coding default)
+  model:   gemini
+  context: history only
+  handler: handleAskGemini
+  meta:    groq
+
+ask: lite
+  file:    ask.js
+  desc:    Gemini 2.5 Flash-Lite (cloud, fast default)
+  model:   gemini-lite
+  context: none
+  handler: handleAskLite
+  meta:    groq
+
+ask: groq
+  file:    ask.js
+  desc:    Llama 3.3 70B via Groq (cloud, fast)
+  model:   groq
+  context: user input only
+  handler: handleAskGroq
+  meta:    groq
+
+ask: codestral
+  file:    ask.js
+  desc:    Codestral via Mistral AI (cloud, code-focused)
+  model:   mistral
+  context: history only
+  handler: handleAskCodestral
+  meta:    groq
+
+ask: gpt
+  file:    ask.js
+  desc:    GPT-4o via GitHub AI (cloud, fallback)
+  model:   none
+  context: github
+  handler: handleAskGPT
+  meta:    groq
+
+ask: qwen35
+  file:    ask.js
+  desc:    Qwen3.5 35B via Ollama (local, most powerful)
+  model:   none
+  context: history only
+  handler: handleAskQwen35
+  meta:    groq
+
+ask: qwen
+  file:    ask.js
+  desc:    Qwen2.5-Coder 7B via Ollama (local, fast)
+  model:   none
+  context: history only
+  handler: handleAskQwen
+  meta:    groq
+
+ask: deepseek
+  file:    ask.js
+  desc:    DeepSeek R1 7B via Ollama (local, reasoning)
+  model:   none
+  context: history only
+  handler: handleAskDeepSeek
+  meta:    groq
+
+ask: web
+  file:    ask.js
+  desc:    Tavily web search
+  model:   none
+  context: history only
+  handler: handleAskWeb
+  meta:    groq
+
+ask: next
+  file:    ask.js
+  desc:    Retry last query on next cloud model
+  model:   none
+  context: last query messages
+  handler: handleAskNext
+  meta:    groq
+
+ask: status
+  file:    ask.js
+  desc:    Check health of all AI models
+  model:   none
+  context: none
+  handler: handleAskStatus
+  meta:    groq
+
+chat: new
+  file:    chat.js
+  desc:    Start a new chat session, clear history
+  model:   none
+  context: history only
+  handler: handleChatNew
+  meta:    groq
+
+chat: history
+  file:    chat.js
+  desc:    View past sessions from Supabase
+  model:   none
+  context: history only
+  handler: handleChatHistory
+  meta:    groq
+
+chat: log
+  file:    chat.js
+  desc:    Show _context/log_summary.md from open project
+  model:   none
+  context: _context/log_summary.md
+  handler: handleChatLog
+  meta:    groq
+
+chat: diary
+  file:    chat.js
+  desc:    Fetch recent dev diary entries from Supabase
+  model:   none
+  context: none
+  handler: handleChatDiary
+  meta:    groq
+
+chat: plan
+  file:    chat.js
+  desc:    AI recommends next task from project context
+  model:   none
+  context: CLAUDE.md + log_summary.md + developer input
+  handler: handleChatPlan
+  meta:    groq
+
+chat: end
+  file:    chat.js
+  desc:    Write session summary, update log_summary.md
+  model:   none
+  context: last log summary + user notes
+  handler: handleChatEnd
+  meta:    groq
+
+chat: date
+  file:    chat.js
+  desc:    Show current date
+  model:   none
+  context: none
+  handler: handleChatDate
+  meta:    groq
+
+chat: time
+  file:    chat.js
+  desc:    Show current time
+  model:   none
+  context: none
+  handler: handleChatTime
+  meta:    groq
+
+code
+  file:    code.js
+  desc:    Generate code from a plain-English request
+  model:   gemini
+  context: S_CODE + user input
+  handler: handleCode
+  meta:    groq
+
+code: fix
+  file:    code.js
+  desc:    Fix broken code -- auto-injects last Project: Read file
+  model:   gemini
+  context: file context from Project: Read [file] command
+  handler: handleCodeFix
+  meta:    groq
+
+code: explain
+  file:    code.js
+  desc:    Explain code -- auto-injects last Project: Read file
+  model:   gemini-lite
+  context: file context if available from Project: Read command
+  handler: handleCodeExplain
+  meta:    groq
+
+code: review
+  file:    code.js
+  desc:    Review code -- auto-injects last Project: Read file
+  model:   gemini
+  context: file context from Project: Read command, if used
+  handler: handleCodeReview
+  meta:    groq
+
+code: file
+  file:    code.js
+  desc:    Read a file + send instruction to AI in one step
+  model:   none
+  context: file content + instruction
+  handler: handleCodeFile
+  meta:    groq
+
+debug
+  file:    debug.js
+  desc:    Step 1 -- triage error (Groq)
+  model:   groq
+  context: error message, recent activity from log_summary
+  handler: handleDebug
+  meta:    groq
+
+debug: diagnose
+  file:    debug.js
+  desc:    Step 2 -- diagnose affected files (Gemini)
+  model:   ollama
+  context: triage data + file contents + error text
+  handler: handleDebugDiagnose
+  meta:    groq
+
+debug: propose
+  file:    debug.js
+  desc:    Step 3 -- propose fix in plain English
+  model:   gemini
+  context: diagnosis and file content
+  handler: handleDebugPropose
+  meta:    groq
+
+debug: sandbox
+  file:    debug.js
+  desc:    Step 4 -- write fix to _debug/fix/ only
+  model:   mistral
+  context: proposal, diagnosis, and current file content
+  handler: handleDebugSandbox
+  meta:    groq
+
+debug: promote
+  file:    debug.js
+  desc:    Step 5 -- promote to real file (CONFIRM)
+  model:   none
+  context: current sandbox file and content
+  handler: handleDebugPromote
+  meta:    groq
+
+deploy: backup
+  file:    deploy.js
+  desc:    Run backup.bat before promoting (instruction + confirmation)
+  model:   none
+  context: The deployment process
+  handler: handleDeployBackup
+  meta:    deepseek
+
+deploy: commit
+  file:    deploy.js
+  desc:    Commit sandboxed file to GitHub dev branch
+  model:   none
+  context: debug pipeline state + user input
+  handler: handleDeployCommit
+  meta:    groq
+
+deploy: push
+  file:    deploy.js
+  desc:    Merge dev into main -- triggers Vercel build
+  model:   none
+  context: CLAUDE.md + history only
+  handler: handleDeployPush
+  meta:    groq
+
+deploy: run
+  file:    deploy.js
+  desc:    Show instructions to run deploy.bat locally
+  model:   none
+  context: none
+  handler: handleDeployRun
+  meta:    groq
+
+?
+  file:    help.js
+  desc:    Master quick reference -- all command families
+  model:   none
+  context: none
+  handler: handleMasterHelp
+  meta:    groq
+
+code?
+  file:    help.js
+  desc:    Code: family detail
+  model:   none
+  context: none
+  handler: handleCodeHelp
+  meta:    groq
+
+debug?
+  file:    help.js
+  desc:    Debug: pipeline detail
+  model:   none
+  context: none
+  handler: handleDebugHelp
+  meta:    groq
+
+project?
+  file:    help.js
+  desc:    Project: family detail
+  model:   none
+  context: none
+  handler: handleProjectHelp
+  meta:    groq
+
+deploy?
+  file:    help.js
+  desc:    Deploy: family detail
+  model:   none
+  context: history only
+  handler: handleDeployHelp
+  meta:    groq
+
+ask?
+  file:    help.js
+  desc:    Ask: model list
+  model:   none
+  context: none
+  handler: handleAskHelp
+  meta:    groq
+
+chat?
+  file:    help.js
+  desc:    Chat: family detail
+  model:   none
+  context: none
+  handler: handleChatHelp
+  meta:    groq
+
+go?
+  file:    help.js
+  desc:    Go: planner detail
+  model:   groq
+  context: project context + history
+  handler: handleGoHelp
+  meta:    groq
+
+map
+  file:    map.js
+  desc:    This command generates a project map of the currently open folder, displaying its file structure and other relevant details.
+  model:   none
+  context: file system and project structure
+  handler: handleMap
+  meta:    groq
+
+updatemap
+  file:    map.js
+  desc:    Updates the map with new information
+  model:   none
+  context: history only
+  handler: handleUpdateMap
+  meta:    groq
+
+go
+  file:    orchestrator.js
+  desc:    Mobius planner -- map intent to command sequence, execute with gates
+  model:   none
+  context: history only
+  handler: handleGo
+  meta:    groq
+
+project: open
+  file:    project.js
+  desc:    Grant read+write access to a project folder
+  model:   none
+  context: none
+  handler: handleProjectOpen
+  meta:    groq
+
+project: list
+  file:    project.js
+  desc:    List files in the root of the opened folder
+  model:   none
+  context: file system access
+  handler: handleProjectList
+  meta:    groq
+
+project: find
+  file:    project.js
+  desc:    Search files by name or keyword
+  model:   none
+  context: project directory and search query
+  handler: handleProjectFind
+  meta:    groq
+
+project: map
+  file:    project.js
+  desc:    Build annotated file tree of the project
+  model:   none
+  context: project file structure
+  handler: handleProjectMap
+  meta:    groq
+
+project: scan
+  file:    project.js
+  desc:    Rebuild map after file changes
+  model:   none
+  context: project directory and file structure
+  handler: handleProjectScan
+  meta:    groq
+
+project: read
+  file:    project.js
+  desc:    Read a specific file into context
+  model:   none
+  context: project directory and file system
+  handler: handleProjectRead
+  meta:    groq
+
+project: parse
+  file:    project.js
+  desc:    Find files missing headers, write them
+  model:   none
+  context: project directory structure and file contents
+  handler: handleProjectParse
+  meta:    groq
+
+ask: scores
+  file:    scores.js
+  desc:    Model win/loss leaderboard by category
+  model:   none
+  context: history only
+  handler: handleAskScores
+  meta:    groq

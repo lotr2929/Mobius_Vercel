@@ -1,44 +1,51 @@
 @echo off
 cd /d "%~dp0"
 echo ========================================
-echo  Mobius Vercel Deployment
+echo  Mobius Deployment
 echo ========================================
 echo.
 
 echo [Checking for changes...]
+for /f %%C in ('git status --short ^| find /c /v ""') do set CHANGE_COUNT=%%C
 git status --short
 echo.
 
-set /p CONFIRM="Proceed with deployment? (Y/N): "
-echo.
-if /i not "%CONFIRM%"=="Y" (
-    echo Deployment cancelled.
+if "%CHANGE_COUNT%"=="0" (
+    echo Nothing to deploy. Working tree is clean.
     echo.
     pause
     exit /b 0
 )
+echo %CHANGE_COUNT% change(s) detected. Deploying...
 
-echo [Backup] Creating pre-deploy snapshot...
-for /f "usebackq" %%T in (`powershell -NoProfile -Command "Get-Date -Format 'ddMMMyy_HHmm'"`) do set TIMESTAMP=%%T
-set BACKUP_NAME=backups\Predeploy-%TIMESTAMP%.zip
-powershell -NoProfile -Command "Compress-Archive -Path 'api','commands.js','index.html','actions.js','vercel.json','server.js','google_api.js','self_test.js' -DestinationPath '%BACKUP_NAME%' -Force"
-if exist "%BACKUP_NAME%" (
-    echo Backup saved: %BACKUP_NAME%
-) else (
-    echo WARNING: Backup failed.
-)
+echo [Cache] Bumping service worker version...
+powershell -NoProfile -Command ^
+  "$f='service-worker.js';" ^
+  "$c=[System.IO.File]::ReadAllText($f);" ^
+  "$m=[regex]::Match($c,'mobius-v(\d+)');" ^
+  "if($m.Success){$n=[int]$m.Groups[1].Value+1;$c=$c-replace'mobius-v\d+',('mobius-v'+$n);[System.IO.File]::WriteAllText($f,$c);Write-Host('  service-worker.js: mobius-v'+$n)}else{Write-Host'  WARNING: version pattern not found in service-worker.js'}"
 echo.
 
-set /p MSG="Enter commit message (or press Enter for default): "
-if "%MSG%"=="" set MSG=Update Mobius
+git add -A 2>nul
 
-echo.
-echo [1/3] Staging all changes...
-git add -A
-echo Done.
+REM Auto-generate commit message: 3Apr26 11:05am - [N] file1 file2 ...
+powershell -NoProfile -Command ^
+  "$d=Get-Date;" ^
+  "$date=[string]$d.Day+$d.ToString('MMM')+$d.ToString('yy');" ^
+  "$time=$d.ToString('h:mmtt').ToLower();" ^
+  "$staged=@(& git diff --cached --name-only 2>$null);" ^
+  "$n=$staged.Count;" ^
+  "$prefix=\"$date $time - [$n] \";" ^
+  "$limit=80-$prefix.Length;" ^
+  "$names='';" ^
+  "foreach($f in $staged){$add=if($names){', '+$f}else{$f}; if(($names+$add).Length -le $limit){$names+=$add}else{break}};" ^
+  "$msg=$prefix+$names;" ^
+  "[System.IO.File]::WriteAllText('_tmp_msg.txt', $msg, [System.Text.UTF8Encoding]::new($false))"
+set /p MSG=<_tmp_msg.txt
+del _tmp_msg.txt
 echo.
 
-echo [2/3] Committing: %MSG%
+powershell -NoProfile -Command "Write-Host '[2/3] Committing: %MSG%' -ForegroundColor Green"
 git commit -m "%MSG%"
 if %ERRORLEVEL% NEQ 0 (
     echo Nothing to commit or commit failed. Checking if push is still needed...
@@ -46,7 +53,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 echo.
 
-echo [3/3] Pushing to GitHub (Vercel will auto-deploy)...
+echo [3/3] Pushing to GitHub...
 
 REM Load Vercel credentials from deploy.env
 if not exist deploy.env (
@@ -63,8 +70,7 @@ for /f "usebackq tokens=1,* delims==" %%A in ("deploy.env") do (
 REM Capture baseline uid BEFORE push
 for /f "usebackq" %%U in (`powershell -NoProfile -Command "(Invoke-RestMethod 'https://api.vercel.com/v6/deployments?projectId=%VERCEL_PROJECT_ID%&teamId=%VERCEL_TEAM_ID%&limit=1' -Headers @{Authorization='Bearer %VERCEL_TOKEN%'}).deployments[0].uid"`) do set BASELINE_UID=%%U
 echo Baseline: %BASELINE_UID%
-
-git push origin main
+git push -q origin main
 echo.
 
 if %ERRORLEVEL% NEQ 0 (
@@ -76,12 +82,10 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo.
-echo ========================================
-echo  Pushed. Polling Vercel for deployment status...
-echo ========================================
+echo Polling Vercel...
 echo.
 
-powershell -NoProfile -File poll_vercel.ps1 -BaselineUid "%BASELINE_UID%"
+powershell -NoProfile -File _dev\poll_vercel.ps1 -BaselineUid "%BASELINE_UID%"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -89,33 +93,16 @@ if %ERRORLEVEL% NEQ 0 (
     echo  Deployment failed or timed out.
     echo  Check: https://vercel.com/lotr2929-7612s-projects/mobius
     echo ========================================
-    pause
-    goto :end
-)
-
-echo.
-pause
-echo.
-echo [4/4] Running self-test against live deployment...
-echo.
-node self_test.js
-
-if %ERRORLEVEL%==0 (
-    echo.
-    echo ========================================
-    echo  Deployment verified. Mobius is healthy.
-    echo  URL:    https://mobius-vercel.vercel.app
-    echo  Backup: %BACKUP_NAME%
-    echo ========================================
 ) else (
     echo.
     echo ========================================
-    echo  Self-test FAILED. Review above.
-    echo  To rollback: git revert HEAD then deploy.bat
+    echo  Deployment verified.
+    echo  URL: https://mobius.vercel.app
     echo ========================================
 )
+
+goto :end
 
 :end
 echo.
 pause
-exit /b 0

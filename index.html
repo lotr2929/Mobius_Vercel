@@ -1,1722 +1,1283 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta charset="UTF-8">
-    <title>Mobius</title>
+    <title>mobius</title>
     <link rel="icon" type="image/png" href="mobius-logo.png">
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#8d7c64">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <meta name="apple-mobile-web-app-title" content="Mobius">
+    <meta name="apple-mobile-web-app-title" content="mobius">
     <style>
-        body {
-            font-family: 'Century Gothic', 'Avenir', 'Segoe UI', 'Verdana', sans-serif;
-            padding: 10px;
+        :root {
+            --bg:         #e2dccd;
+            --surface:    #f5eedd;
+            --surface2:   #ede5d4;
+            --border:     #c9bfae;
+            --border2:    #8d7c64;
+            --text:       #3a2e22;
+            --text-muted: #6a5a48;
+            --text-dim:   #8d7c64;
+            --accent:     #8d7c64;
+            --accent2:    #574d3e;
+            --green:      #4a7c4e;
+            --red:        #8d3a3a;
+            --code-bg:    #2a2118;
+            --user-color: #4a3728;
+            --font:       'Century Gothic', 'Avenir', 'Segoe UI', 'Verdana', sans-serif;
+            --font-mono:  'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 15px;
+            line-height: 1.6;
+            overflow: hidden;
+        }
+
+        /* ── App shell ── */
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* ── Workspace: left chat + right panel ── */
+        #workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        #left {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
             max-width: 800px;
             margin: 0 auto;
-            background: #e2dccd;
+            min-width: 0;
+            overflow: hidden;
         }
-        textarea {
+        body.panel-open #left {
+            max-width: none;
+            margin: 0;
+        }
+        #right {
+            display: none;
+            width: 70%;
+            min-width: 200px;
+            flex-shrink: 0;
+            flex-direction: column;
+            background: var(--surface);
+        }
+        body.panel-open #right { display: flex; }
+
+        /* ── Panel internals ── */
+        #panelBar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--surface2);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        #panelTitle {
+            font-size: 13px;
+            font-weight: bold;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+        .panel-badge {
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 8px;
+            background: var(--border);
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .panel-badge-code   { background: #2a2118; color: #86efac; }
+        .panel-badge-html   { background: var(--surface2); color: var(--green); }
+        .panel-badge-edit   { background: var(--surface2); color: var(--accent2); }
+        .panel-badge-output { background: var(--surface2); color: var(--text-dim); }
+        .panel-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            color: var(--text-dim);
+            padding: 3px 5px;
+            border-radius: 2px;
+            display: flex;
+            align-items: center;
+        }
+        .panel-btn:hover { color: var(--text); background: var(--border); }
+        #panelBody {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: auto;
+        }
+        #panelBody::-webkit-scrollbar { width: 6px; }
+        #panelBody::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+        .panel-body pre {
+            margin: 0;
+            padding: 16px;
+            background: var(--code-bg);
+            color: #d4d4d4;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.5;
+            min-height: 100%;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .panel-body pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+        .panel-body-output pre { background: var(--surface2); color: var(--text); }
+        .panel-html {
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        #panelEditArea {
+            width: 100%;
+            height: calc(100% - 40px);
+            padding: 16px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.5;
+            background: var(--surface);
+            color: var(--text);
+            border: none;
+            outline: none;
+            resize: none;
+        }
+        #panelSaveBar {
+            padding: 6px 12px;
+            border-top: 1px solid var(--border);
+            background: var(--surface2);
+        }
+        .panel-save-btn {
+            padding: 4px 16px;
+            background: var(--green);
+            color: white;
+            border: none;
+            border-radius: 1px;
+            cursor: pointer;
+            font-family: var(--font);
+            font-size: 13px;
+        }
+        /* Panel toggle button active state */
+        .header-btn.active { background: var(--surface2); color: var(--text); }
+
+        /* ── Header ── */
+        #header {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 16px 10px 2px;
+            background: var(--bg);
+            flex-shrink: 0;
+            flex-wrap: nowrap;
+        }
+        #header img {
+            height: 60px;
+            width: 60px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+        #header h1 {
+            font-size: 36px;
+            font-weight: bold;
+            color: var(--accent);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        #header h1 span { color: #4a7c4e; }
+        #headerRight {
+            margin-left: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+            flex-wrap: nowrap;
+        }
+        #headerTop {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #headerClock {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-align: right;
+            white-space: nowrap;
+        }
+        #modelBadge {
+            font-size: 13px;
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+        #statusDot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            flex-shrink: 0;
+        }
+        #statusDot.offline { background: var(--border2); }
+        .header-btn {
+            font-size: 13px;
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--border2);
+            padding: 2px 8px;
+            border-radius: 1px;
+            cursor: pointer;
+            font-family: var(--font);
+            white-space: nowrap;
+            height: auto;
+        }
+        .header-btn:hover { background: var(--surface2); }
+
+        /* ── Input area (TOP) ── */
+        #inputArea {
+            flex-shrink: 0;
+            padding: 4px 10px 10px;
+            background: var(--bg);
+        }
+        #input {
             width: 100%;
             padding: 12px;
             font-size: 16px;
             border-radius: 1px;
             box-sizing: border-box;
-            font-family: 'Century Gothic', 'Avenir', 'Segoe UI', 'Verdana', sans-serif;
+            font-family: var(--font);
             resize: vertical;
             min-height: 60px;
-            background: #f5eedd;
+            max-height: 200px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            outline: none;
+            display: block;
         }
+        #input:focus { border-color: var(--border2); }
+        #input::placeholder { color: var(--text-dim); }
+
+        /* ── Controls toolbar ── */
         .controls {
             display: flex;
-            gap: 2px;
-            margin-top: 4px;
+            gap: 4px;
+            margin-top: 6px;
             align-items: center;
-            height: 31px;
+            height: 28px;
         }
-        button {
-            padding: 2px 10px;
-            height: 32px;
-            font-size: 16px;
-            background: #8d7c64;
-            color: white;
-            border: none;
-            border-radius: 1px;
-            cursor: pointer;
-        }
-        button:hover { background: #574d3e; }
-        button:disabled { background: #b8a898; cursor: not-allowed; }
-
-        /* + upload button */
-        #uploadBtn {
-            width: 31px;
+        .icon-btn {
             background: transparent;
             border: none;
             cursor: pointer;
-            padding: 0;
-            flex-shrink: 0;
-            margin-right: 7px;
-        }
-        #uploadBtn svg { width: 35px; height: 35px; display: block; }
-        #uploadBtn:hover svg rect { fill: #574d3e; }
-
-        /* Ask button */
-        #askBtn {
-            width: 54px;
-            background: #8d7c64;
-            color: #f5eedd;
-            border: none;
-            border-radius: 1px;
-            font-family: inherit;
-            font-size: 20px;
-            font-weight: bold;
-            cursor: pointer;
-            flex-shrink: 0;
-            margin-right: 7px;
-        }
-        #askBtn:hover { background: #574d3e; }
-
-        /* File chips */
-        #fileChips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-        .file-chip {
-            background: #d4c9b5;
-            border: 1px solid #8d7c64;
+            padding: 3px 5px;
             border-radius: 2px;
-            padding: 2px 8px;
-            font-size: 12px;
-            color: #3a2e22;
+            color: var(--text-dim);
             display: flex;
             align-items: center;
-            gap: 6px;
+            justify-content: center;
+            transition: color 0.15s, background 0.15s;
+            height: 28px;
         }
-        .file-chip-remove { cursor: pointer; color: #8d7c64; font-weight: bold; font-size: 14px; line-height: 1; }
-        .file-chip-remove:hover { color: #3a2e22; }
+        .icon-btn:hover { color: var(--text); background: var(--surface2); }
+        .icon-btn.active-up   { color: var(--green); }
+        .icon-btn.active-down { color: var(--red); }
+        .icon-btn svg { display: block; }
 
-        /* Chat panel */
+        /* ── Chat panel ── */
         #chatPanel {
-            margin-top: 16px;
-            margin-bottom: 60px;
-            padding: 16px;
-            background: #e2dccd;
-            border-radius: 1px;
-            max-height: calc(100vh - 280px);
+            flex: 1;
             overflow-y: auto;
+            padding: 16px 16px 120px;  /* bottom padding keeps last entry clear of taskbar */
+            margin-bottom: 0;
         }
+        #chatPanel::-webkit-scrollbar { width: 6px; }
+        #chatPanel::-webkit-scrollbar-track { background: transparent; }
+        #chatPanel::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
-        /* Mobile header: username on its own line, buttons right-aligned below */
-        @media (max-width: 600px) {
-            #headerRight {
-                flex-direction: column !important;
-                align-items: flex-end !important;
-                gap: 4px !important;
-            }
-            #userLabel {
-                font-size: 13px !important;
-            }
-            #chatPanel {
-                max-height: calc(100vh - 320px);
-            }
+        /* ── Chat entries ── */
+        .chat-entry {
+            margin-bottom: 4px;
         }
-        .chat-entry { margin-bottom: 4px; }
-        .chat-query { color: #4a3728; font-weight: bold; margin-bottom: 4px; white-space: pre-wrap; }
-        .chat-answer { color: #2a2a2a; white-space: normal; font-size: 15px; line-height: 1.5; }
-        .chat-answer h1 { font-size: 17px; margin: 6px 0 2px; }
-        .chat-answer h2 { font-size: 16px; margin: 6px 0 2px; }
-        .chat-answer h3 { font-size: 15px; margin: 4px 0 2px; }
-        .chat-answer table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; display: block; overflow-x: auto; }
-        .chat-answer th { background: #8d7c64; color: white; padding: 6px 10px; text-align: left; }
-        .chat-answer td { border: 1px solid #c9bfae; padding: 5px 10px; }
-        .chat-answer tr:nth-child(even) { background: #ede5d4; }
-        .chat-label { font-size: 13px; color: #8d7c64; margin-bottom: 2px; }
-        .chat-divider { border: none; border-top: 1px solid #c9bfae; margin: 12px 0; }
-        .thinking { color: #8d7c64; font-style: italic; }
-
-        /* Mobius query preview */
-        .mq-wrapper {
-            position: relative;
-            display: inline-block;
-            width: 100%;
+        .chat-query {
+            color: var(--user-color);
+            font-weight: bold;
+            margin-bottom: 4px;
+            white-space: pre-wrap;
         }
+        .chat-label {
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 2px;
+        }
+        .chat-ts {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+            opacity: 0.7;
+        }
+        .refine-preview {
+            background: var(--surface2);
+            border: 1px solid var(--accent, #8a7560);
+            border-radius: 2px;
+            padding: 8px 12px;
+            margin: 4px 0 6px;
+            font-size: 12px;
+        }
+        .refine-label {
+            color: var(--accent, #8a7560);
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        .refine-query-text {
+            font-family: var(--font);
+            white-space: pre-wrap;
+            margin-bottom: 6px;
+            color: var(--text);
+        }
+        .refine-files {
+            color: var(--text-dim);
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+        .refine-btns { display: flex; gap: 6px; }
+        .refine-btn {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 11px;
+            padding: 2px 10px;
+            font-family: var(--font);
+        }
+        .refine-btn.accept { border-color: var(--accent, #8a7560); color: var(--accent, #8a7560); }
+        .refine-btn.accept:hover { background: var(--accent, #8a7560); color: #fff; }
+        
+                .code-apply-wrapper { margin: 6px 0; }
+        .code-apply-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--surface3, #e8e0d4);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            border-radius: 2px 2px 0 0;
+            padding: 3px 8px;
+            font-size: 11px;
+        }
+        .code-file-path {
+            flex: 1;
+            color: var(--text-dim);
+            font-family: var(--font);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .code-apply-btn {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 10px;
+            padding: 1px 8px;
+            font-family: var(--font);
+        }
+        .code-apply-btn:hover { background: var(--accent, #8a7560); color: #fff; }
+        .code-apply-wrapper pre { margin: 0; border-radius: 0 0 2px 2px; }
         .mq-block {
-            background: #ede5d4;
-            border: 1px dashed #8d7c64;
+            background: var(--surface2);
+            border: 1px dashed var(--border2);
             border-radius: 1px;
             padding: 10px 14px;
             font-size: 13px;
-            font-family: 'Century Gothic', 'Avenir', 'Segoe UI', 'Verdana', sans-serif;
+            font-family: var(--font);
             white-space: pre-wrap;
-            color: #3a2e22;
+            color: var(--text);
             margin-top: 6px;
         }
-        .mq-block.html-content {
-            white-space: normal;
-        }
-        .mq-label { font-size: 12px; color: #a08060; margin-bottom: 4px; font-family: inherit; }
-        .mq-confirm-btns {
-            position: absolute;
-            bottom: -14px;
-            right: 14px;
-            display: flex;
-            gap: 8px;
-            z-index: 10;
-        }
-        .mq-confirm-btns button {
-            background: transparent;
+        .mq-block.html-content { white-space: normal; }
+        .chat-divider {
             border: none;
-            cursor: pointer;
-            padding: 0;
-            line-height: 1;
-            height: auto;
+            border-top: 1px solid var(--border);
+            margin: 12px 0;
         }
-        .mq-confirm-btns button:hover { background: transparent; }
-        .mq-btn-confirm { font-size: 26px; color: #2e7d32; font-weight: bold; }
-        .mq-btn-cancel  { font-size: 21px; color: #b71c1c; font-weight: bold; }
-        .mq-btn-confirm:hover { color: #1b5e20; }
-        .mq-btn-cancel:hover  { color: #7f0000; }
+        .thinking { color: var(--text-dim); font-style: italic; }
 
-        /* Chat history list */
-        .chat-history-list { margin-top: 2px; }
-        .chat-history-item {
-            padding: 8px 10px;
-            background: #ede5d4;
-            border: 1px solid #c9bfae;
+        /* ── Markdown ── */
+        .chat-answer { color: var(--text); white-space: normal; font-size: 15px; line-height: 1.55; }
+        .chat-answer h1 { font-size: 17px; font-weight: bold; margin: 10px 0 3px; }
+        .chat-answer h2 { font-size: 16px; font-weight: bold; margin: 8px 0 2px; }
+        .chat-answer h3 { font-size: 15px; font-weight: bold; margin: 6px 0 1px; }
+        .chat-answer h1:first-child,
+        .chat-answer h2:first-child,
+        .chat-answer h3:first-child { margin-top: 0; }
+        .chat-answer p  { margin: 0 0 5px; }
+        .chat-answer p + ul, .chat-answer p + ol { margin-top: 0; }
+        .chat-answer ul, .chat-answer ol { margin: 2px 0 6px 20px; padding: 0; }
+        .chat-answer ol  { list-style-type: decimal; }
+        .chat-answer li  { margin: 1px 0; padding-left: 2px; }
+        .chat-answer li.sub-item { padding-left: 14px; list-style-type: disc; }
+        .chat-answer li::marker { color: var(--text-muted); }
+        .chat-answer hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+        .chat-answer code {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            background: var(--code-bg);
+            color: #86efac;
+            border: 1px solid var(--border);
+            padding: 1px 5px;
+            border-radius: 2px;
+        }
+        .chat-answer pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
             border-radius: 1px;
-            margin-bottom: 6px;
-            cursor: pointer;
-            transition: background 0.15s;
-            user-select: none;
+            padding: 12px 14px;
+            overflow-x: auto;
+            margin: 8px 0;
         }
-        .chat-history-item:hover { background: #d9cfbc; }
-        .chi-title { font-weight: bold; color: #3a2e22; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .chi-meta { font-size: 11px; color: #8d7c64; margin-top: 2px; }
-
-        /* Context menu */
-        #contextMenu {
-            position: fixed;
-            background: #f5eedd;
-            border: 1px solid #8d7c64;
-            border-radius: 2px;
-            box-shadow: 2px 4px 10px rgba(0,0,0,0.15);
-            z-index: 9999;
-            min-width: 180px;
-            display: none;
+        .chat-answer pre code {
+            background: none; border: none; padding: 0;
+            font-size: 13px; color: #d4d4d4;
         }
-        .ctx-item { padding: 8px 14px; font-size: 14px; color: #3a2e22; cursor: pointer; font-family: inherit; }
-        .ctx-item:hover { background: #d9cfbc; }
-
-        /* Image thumbnails */
-        .img-thumb { max-width: 100%; max-height: 180px; border: 1px solid #c9bfae; margin-top: 6px; border-radius: 1px; }
-
-        /* Response toolbar */
-        .resp-toolbar {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            margin-top: 6px;
-            padding-top: 4px;
+        .chat-answer table {
+            border-collapse: collapse; width: 100%; margin: 8px 0;
+            font-size: 13px; display: block; overflow-x: auto;
         }
+        .chat-answer th {
+            background: var(--accent); color: white;
+            padding: 6px 10px; text-align: left;
+        }
+        .chat-answer td { border: 1px solid var(--border); padding: 5px 10px; }
+        .chat-answer tr:nth-child(even) { background: var(--surface2); }
+
+        /* ── Response toolbar ── */
+        .resp-toolbar { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding-top: 4px; }
         .resp-btn {
-            background: transparent;
-            border: none;
-            cursor: pointer;
-            font-size: 13px;
-            color: #b8a898;
-            padding: 2px 4px;
-            border-radius: 2px;
-            height: 22px;
-            line-height: 1;
-            font-family: inherit;
-            transition: color 0.15s;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            vertical-align: middle;
+            background: transparent; border: none; cursor: pointer;
+            font-size: 13px; color: var(--text-dim); padding: 2px 4px;
+            border-radius: 2px; height: 22px; line-height: 1;
+            font-family: var(--font); transition: color 0.15s;
+            display: inline-flex; align-items: center; justify-content: center;
         }
-        .resp-btn:hover { color: #4a3728; background: transparent; }
-        .resp-btn svg { display: block; }
-        .resp-btn.active-up   { color: #4a7c4e; }
-        .resp-btn.active-down { color: #8d3a3a; }
+        .resp-btn:hover { color: var(--text); background: transparent; }
+
+        /* ── Mobile ── */
+        @media (max-width: 600px) {
+            #header h1 { font-size: 22px; }
+            #header img { height: 44px; width: 44px; }
+            #chatPanel { padding: 10px; }
+        }
     </style>
 </head>
 <body>
+<div id="app">
+
+    <!-- Workspace: chat left, panel right -->
+    <div id="workspace">
+    <div id="left">
+
     <!-- Header -->
-    <div style="display:flex; align-items:center; gap:4px; margin-bottom:1px; flex-wrap:nowrap;">
-        <img src="mobius-logo.png" alt="Mobius Logo" style="height:60px; flex-shrink:0;">
-        <h1 style="margin:0; font-size:30px; flex-shrink:0;">Mobius</h1>
-        <!-- Desktop: single row; Mobile: two rows -->
-        <div id="headerRight" style="margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px; justify-content:flex-end;">
-            <span id="userLabel" style="font-size:14px; color:#4a3728; white-space:nowrap;"></span>
-            <span id="googleDot" title="Google not connected — type 'status' for details" style="display:none; width:8px; height:8px; background:#c07800; border-radius:50%; flex-shrink:0; cursor:default;"></span>
-            <span id="syncIndicator" title="Sync status" style="font-size:11px; color:#8d7c64; white-space:nowrap; cursor:default;"></span>
-            <div style="display:flex; gap:6px; flex-shrink:0;">
-                <a href="/help" target="_blank" style="font-size:13px; color:#8d7c64; text-decoration:none; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; white-space:nowrap;">Help</a>
-                <button onclick="logout()" style="font-size:13px; background:transparent; color:#8d7c64; border:1px solid #8d7c64; padding:2px 8px; border-radius:1px; cursor:pointer; height:auto; white-space:nowrap;">Log Out</button>
+    <div id="header">
+        <img src="mobius-logo.png" alt="mobius">
+        <h1>Mobius<span>_Coder</span></h1>
+        <div id="headerRight">
+            <div id="headerTop">
+                <span id="modelBadge">Gemini</span>
+                <span id="targetBadge" onclick="window.toggleTarget && window.toggleTarget()" title="Click to toggle target project" style="display:none;cursor:pointer;font-size:10px;background:var(--surface2);color:var(--accent2);padding:1px 8px;border-radius:8px;border:1px solid var(--border2);font-family:var(--font);"></span>
+                <span id="allModeBadge" onclick="window.toggleAllMode && window.toggleAllMode()" title="All Mode ON -- click to toggle off" style="display:none;cursor:pointer;font-size:10px;background:#8d3a3a;color:white;padding:1px 8px;border-radius:8px;text-transform:uppercase;letter-spacing:0.06em;font-family:var(--font);">ALL MODE</span>
+                <span id="statusDot" title="Online"></span>
+                <button class="header-btn" onclick="showHelp()">Help</button>
             </div>
+            <div id="headerClock"></div>
         </div>
     </div>
 
-    <textarea id="input" placeholder="Ask something..." rows="3"></textarea>
-    <div id="fileChips"></div>
-
-    <!-- Toolbar -->
-    <div class="controls">
-        <button id="uploadBtn" title="Attach file" onclick="document.getElementById('fileInput').click()">
-            <svg viewBox="0 0 26 26" fill="#8d7c64" xmlns="http://www.w3.org/2000/svg">
-                <rect x="9.5" y="2" width="7" height="22"/>
-                <rect x="2" y="9.5" width="22" height="7"/>
-            </svg>
-        </button>
-        <input type="file" id="fileInput" style="display:none" multiple accept="image/*,.pdf,.txt,.md,.csv,.js,.py,.html,.json" onchange="handleFileSelect(this)">
-        <button id="askBtn" onclick="handleAsk()">Ask</button>
-        <div style="display:flex; gap:1px; align-items:center; height:31px; flex-shrink:0; margin-right:7px;">
-            <button onclick="navigateChat(-1)" title="Previous query" style="width:30px; height:38px; background:transparent; border:none; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;">
-                <svg width="30" height="38" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><polygon points="10,0 20,20 0,20" fill="#8d7c64"/></svg>
+    <!-- Input area (top) -->
+    <div id="inputArea">
+        <textarea id="input" placeholder="Ask something..." rows="3"></textarea>
+        <div class="controls">
+            <!-- Attach file -->
+            <button id="addBtn" class="icon-btn" title="Attach file">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
             </button>
-            <button onclick="navigateChat(1)" title="Next query" style="width:30px; height:38px; background:transparent; border:none; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;">
-                <svg width="30" height="38" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><polygon points="10,20 20,0 0,0" fill="#8d7c64"/></svg>
+            <!-- Scroll to previous response in panel -->
+            <button id="respUpBtn" class="icon-btn" title="Previous response" onclick="navigateResponses(-1)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/>
+                </svg>
+            </button>
+            <!-- Scroll to next response in panel -->
+            <button id="respDnBtn" class="icon-btn" title="Next response" onclick="navigateResponses(1)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="7 13 12 18 17 13"/><polyline points="7 6 12 11 17 6"/>
+                </svg>
+            </button>
+            <div style="width:1px;height:18px;background:var(--border);margin:0 2px;"></div>
+            <!-- Navigate query history -->
+            <button id="prevBtn" class="icon-btn" title="Previous query" onclick="navigateHistory(-1)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="18 15 12 9 6 15"/>
+                </svg>
+            </button>
+            <!-- Navigate down -->
+            <button id="nextBtn" class="icon-btn" title="Next query" onclick="navigateHistory(1)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </button>
+            <!-- Panel toggle (right side) -->
+            <div style="flex:1"></div>
+            <button id="panelToggleBtn" class="icon-btn" title="Toggle output panel" onclick="window.panel && window.panel.toggle()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="1"/>
+                    <line x1="9" y1="3" x2="9" y2="21"/>
+                </svg>
             </button>
         </div>
-        <input id="chatSearch" type="text" placeholder="Search..." oninput="searchChat(this.value)"
-            style="height:31px; padding:0 8px; font-size:14px; border:1px solid #8d7c64; background:#f5eedd; color:#4a3728; border-radius:1px; flex:1; min-width:0; box-sizing:border-box;">
     </div>
 
+    <!-- Chat panel -->
     <div id="chatPanel"></div>
 
-    <!-- Context menu -->
-    <div id="contextMenu">
-        <div class="ctx-item" onclick="ctxAction('load')">📂 Open chat</div>
-        <div class="ctx-item" onclick="ctxAction('copy-summary')">📋 Copy summary</div>
-        <div class="ctx-item" onclick="ctxAction('copy-full')">📄 Copy full chat</div>
-        <div class="ctx-item" onclick="ctxAction('copy-context')">💬 Copy as context</div>
-    </div>
+    </div><!-- /#left -->
+    <div id="right"></div>
+    </div><!-- /#workspace -->
 
-    <script>
-        // ── Auth helpers ──────────────────────────────────────────────────────
-        function logout() {
-            ['mobius_user_id','mobius_username','mobius_google_connected','mobius_google_attempted'].forEach(k => {
-                localStorage.removeItem(k);
-                sessionStorage.removeItem(k);
-                document.cookie = k + '=; Max-Age=0; Path=/; SameSite=Lax';
-                document.cookie = k + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/';
-            });
-            window.location.href = '/login';
-        }
-        function getCookie(name) {
-            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-            return match ? decodeURIComponent(match[2]) : null;
-        }
-        function getAuth(key) {
-            return localStorage.getItem(key) || sessionStorage.getItem(key) || getCookie(key) || null;
+</div>
+
+<script>
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function escapeHtml(t) {
+    return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function scrollToBottom() {
+    const p = document.getElementById('chatPanel');
+    p.scrollTop = p.scrollHeight;
+}
+
+// ── Session ID ────────────────────────────────────────────────────────────────
+
+function generateSessionId() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+let currentSessionId = generateSessionId();
+window.getCurrentSessionId = () => currentSessionId;
+
+// ── Input history ─────────────────────────────────────────────────────────────
+
+const inputHistory = JSON.parse(localStorage.getItem('mc_input_history') || '[]');
+let inputHistIdx   = -1;
+let inputHistDraft = '';
+
+function saveInputHistory() {
+    try { localStorage.setItem('mc_input_history', JSON.stringify(inputHistory.slice(0, 100))); } catch(e) {}
+}
+
+function navigateHistory(dir) {
+    const textarea = document.getElementById('input');
+    if (!inputHistory.length) return;
+    if (dir === -1) {
+        if (inputHistIdx === -1) inputHistDraft = textarea.value;
+        inputHistIdx = Math.min(inputHistIdx + 1, inputHistory.length - 1);
+    } else {
+        if (inputHistIdx <= 0) { inputHistIdx = -1; textarea.value = inputHistDraft; textarea.focus(); return; }
+        inputHistIdx--;
+    }
+    textarea.value = inputHistory[inputHistIdx];
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+    textarea.focus();
+}
+
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+
+window.markdownToHtml = function markdownToHtml(text) {
+    if (!text) return '';
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // Tables
+    text = text.replace(/\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)+)/g, (match, header, rows) => {
+        const ths = header.split('|').filter(s=>s.trim()).map(s=>`<th>${s.trim()}</th>`).join('');
+        const trs = rows.trim().split('\n').map(row=>{
+            const tds = row.split('|').filter(s=>s.trim()).map(s=>`<td>${s.trim()}</td>`).join('');
+            return `<tr>${tds}</tr>`;
+        }).join('');
+        return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+    });
+
+    // Fenced code blocks
+    const codeBlocks = [];
+    text = text.replace(/```([\w]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+        codeBlocks.push({ lang, code });
+        return `\x00CODE${codeBlocks.length-1}\x00`;
+    });
+
+    const lines = text.split('\n');
+    const out   = [];
+    let inUl = false;
+    let inOl = false;
+
+    function closeLists() {
+        if (inUl) { out.push('</ul>'); inUl = false; }
+        if (inOl) { out.push('</ol>'); inOl = false; }
+    }
+
+    for (const line of lines) {
+        // Headings
+        if (/^### /.test(line)) { closeLists(); out.push('<h3>'+inline(line.slice(4))+'</h3>'); continue; }
+        if (/^## /.test(line))  { closeLists(); out.push('<h2>'+inline(line.slice(3))+'</h2>'); continue; }
+        if (/^# /.test(line))   { closeLists(); out.push('<h1>'+inline(line.slice(2))+'</h1>'); continue; }
+
+        // Horizontal rule
+        if (/^---+$/.test(line.trim())) { closeLists(); out.push('<hr style="border:none;border-top:1px solid #c9bfae;margin:8px 0">'); continue; }
+
+        // Top-level bullet (- or * at column 0)
+        if (/^[\*\-] /.test(line)) {
+            if (inOl) { out.push('</ol>'); inOl = false; }
+            if (!inUl) { out.push('<ul>'); inUl = true; }
+            out.push('<li>'+inline(line.slice(2))+'</li>');
+            continue;
         }
 
-        // ── Google dot: updated by status command and startup ping ──────────────────────
-        function updateGoogleDot(connected) {
-            const dot = document.getElementById('googleDot');
-            if (!dot) return;
-            dot.style.display = connected ? 'none' : 'inline-block';
-        }
-        window.updateGoogleDot = updateGoogleDot;
-
-        // Silent startup ping — check personal Google connection status
-        (async () => {
-            try {
-                const uid = getAuth('mobius_user_id');
-                if (!uid) return;
-                const res  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(uid), { signal: AbortSignal.timeout(5000) });
-                const data = await res.json();
-                updateGoogleDot(!!(data.accounts && data.accounts.length > 0));
-            } catch { /* silent — don't surface startup errors */ }
-        })();
-        function setAuth(key, value) {
-            try { localStorage.setItem(key, value); } catch(e) {}
-            try { sessionStorage.setItem(key, value); } catch(e) {}
+        // Indented sub-item (spaces + - or *)
+        if (/^\s+[\*\-] /.test(line)) {
+            if (!inUl) { out.push('<ul>'); inUl = true; }
+            out.push('<li class="sub-item">'+inline(line.replace(/^\s+[\*\-] /, ''))+'</li>');
+            continue;
         }
 
-        // Restore session from cookie/sessionStorage if localStorage was cleared (mobile PWA)
-        if (!localStorage.getItem('mobius_user_id')) {
-            const id = getCookie('mobius_user_id') || sessionStorage.getItem('mobius_user_id');
-            const un = getCookie('mobius_username') || sessionStorage.getItem('mobius_username');
-            if (id) { setAuth('mobius_user_id', id); setAuth('mobius_username', un); }
+        // Numbered list
+        if (/^\d+\. /.test(line)) {
+            if (inUl) { out.push('</ul>'); inUl = false; }
+            if (!inOl) { out.push('<ol>'); inOl = true; }
+            out.push('<li>'+inline(line.replace(/^\d+\. /, ''))+'</li>');
+            continue;
         }
-        if (!getAuth('mobius_user_id')) {
-            window.location.href = '/login';
+
+        // End any open list before a non-list line
+        closeLists();
+
+        // Blank line -- no output, paragraph margin handles the gap
+        if (!line.trim()) continue;
+
+        // Normal paragraph
+        out.push('<p>'+inline(line)+'</p>');
+    }
+    closeLists();
+
+    // Wrap in chat-answer so CSS rules apply
+    let html = '<div class="chat-answer">' + out.join('') + '</div>';
+    html = html.replace(/\x00CODE(\d+)\x00/g, (_, i) => {
+        const { lang, code } = codeBlocks[i];
+        const safe = code.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        // Detect // path/to/file.ext on first line
+        const firstLine = code.split('\n')[0] || '';
+        const fpMatch = firstLine.startsWith('//') && firstLine.match(/((?:[\w][\w\-]*\/)+[\w][\w.\-]*\.[a-zA-Z]{1,6})/);
+        if (fpMatch) {
+            const fp = fpMatch[1];
+            const safeDisplay = fp.replace(/</g,'&lt;');
+            return `<div class="code-apply-wrapper"><div class="code-apply-bar"><span class="code-file-path">${safeDisplay}</span><button class="code-apply-btn" onclick="applyCodeToFile('${fp}',this)">Apply</button></div><pre><code>${safe}</code></pre></div>`;
+        }
+        return `<pre><code>${safe}</code></pre>`;
+    });
+    return html;
+
+    function inline(s) {
+        return s
+            .replace(/`([^`]+)`/g,'<code>$1</code>')
+            .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g,'<em>$1</em>')
+            .replace(/_(.+?)_/g,'<em>$1</em>');
+    }
+};
+
+// ── Environment context ───────────────────────────────────────────────────────
+
+let mobiusContext = null;
+(async () => {
+    try {
+        const now = new Date();
+        const ua  = navigator.userAgent;
+        const isMobile = /Mobi|Android|iPhone|iPad/.test(ua);
+        mobiusContext = [
+            '[Environment]',
+            'Date/Time: ' + now.toLocaleString('en-AU', { hour12: false }),
+            'Timezone: ' + Intl.DateTimeFormat().resolvedOptions().timeZone,
+            'OS: ' + (/Windows/.test(ua)?'Windows':/Mac/.test(ua)?'macOS':/Android/.test(ua)?'Android':/iPhone|iPad/.test(ua)?'iOS':'Linux'),
+            'Browser: ' + (/Edg\//.test(ua)?'Edge':/Chrome/.test(ua)?'Chrome':/Firefox/.test(ua)?'Firefox':'Safari'),
+            'Device: ' + (isMobile ? 'mobile' : 'desktop'),
+        ].join('\n');
+    } catch(e) {}
+})();
+
+// ── Target project badge ─────────────────────────────────────────────────────
+// Tracks which handle file commands operate on: 'home' or 'project'.
+// Badge is hidden until at least one handle is set.
+
+window._targetMode = 'project'; // default: use open project if available
+
+window.getTargetHandle = function () {
+    const projectHandle = window.getRootHandle ? window.getRootHandle() : null;
+    const homeHandle    = window.coderRootHandle || null;
+    if (window._targetMode === 'home') return homeHandle || projectHandle;
+    return projectHandle || homeHandle;
+};
+
+window.updateTargetBadge = function () {
+    const badge         = document.getElementById('targetBadge');
+    if (!badge) return;
+    const projectHandle = window.getRootHandle ? window.getRootHandle() : null;
+    const homeHandle    = window.coderRootHandle || null;
+    if (!projectHandle && !homeHandle) { badge.style.display = 'none'; return; }
+    badge.style.display = '';
+    // If only one handle exists, no toggle needed -- show it greyed
+    if (!projectHandle || !homeHandle) {
+        const h = projectHandle || homeHandle;
+        badge.textContent = h.name;
+        badge.style.cursor = 'default';
+        badge.title = 'Target: ' + h.name;
+        return;
+    }
+    badge.style.cursor = 'pointer';
+    const active = window._targetMode === 'home' ? homeHandle : projectHandle;
+    badge.textContent = active.name;
+    badge.title = 'Target: ' + active.name + ' -- click to switch to ' +
+        (window._targetMode === 'home' ? projectHandle.name : homeHandle.name);
+};
+
+window.toggleTarget = function () {
+    const projectHandle = window.getRootHandle ? window.getRootHandle() : null;
+    const homeHandle    = window.coderRootHandle || null;
+    if (!projectHandle || !homeHandle) return; // nothing to toggle
+    window._targetMode = window._targetMode === 'home' ? 'project' : 'home';
+    window.updateTargetBadge();
+};
+
+// ── Status dot ────────────────────────────────────────────────────────────────
+
+function updateStatusDot() {
+    const dot = document.getElementById('statusDot');
+    if (!dot) return;
+    if (navigator.onLine) { dot.classList.remove('offline'); dot.title = 'Online'; }
+    else { dot.classList.add('offline'); dot.title = 'Offline'; }
+}
+
+// ── Model badge ───────────────────────────────────────────────────────────────
+
+const MODEL_LABELS = {
+    groq:'Groq', gemini:'Gemini', mistral:'Codestral',
+    qwen35:'Qwen35 (local)', qwen:'Qwen (local)', deepseek:'DeepSeek (local)', web:'Web Search'
+};
+function updateModelBadge(model) {
+    const b = document.getElementById('modelBadge');
+    if (b) b.textContent = MODEL_LABELS[model] || model;
+}
+
+// ── Entry → Panel map ────────────────────────────────────────────────────────
+// Maps each chat entry element to its associated panel data (if any).
+// Populated after each command completes.
+
+const _entryPanelMap = new Map();
+
+// ── runCommandInPanel ─────────────────────────────────────────────────────────
+
+function runCommandInPanel(queryText) {
+    const panel = document.getElementById('chatPanel');
+    const entry = document.createElement('div');
+    entry.className = 'chat-entry';
+
+    const qLine = document.createElement('div');
+    qLine.className = 'chat-query';
+    qLine.textContent = 'Q: ' + queryText;
+    entry.appendChild(qLine);
+
+    const tsLine = document.createElement('div');
+    tsLine.className = 'chat-ts';
+    const _now = new Date();
+    const _h = _now.getHours(), _m = _now.getMinutes();
+    tsLine.textContent = (_h % 12 || 12) + ':' + String(_m).padStart(2,'0') + ' ' + (_h < 12 ? 'am' : 'pm');
+    entry.appendChild(tsLine);
+
+    const outputEl = document.createElement('div');
+    outputEl.className = 'mq-block';
+    entry.appendChild(outputEl);
+
+    panel.appendChild(entry);
+    scrollToBottom();
+
+    // Click entry to restore its linked panel (populated after command completes)
+    entry.addEventListener('click', e => {
+        // Don't trigger if clicking a button inside the entry
+        if (e.target.closest('button, a, input')) return;
+        const data = _entryPanelMap.get(entry);
+        if (data && window.panel) {
+            window.panel.open(data.title, data.content, data.type);
+        } else if (window.panel && window.panel.isOpen()) {
+            window.panel.close();
+        }
+    });
+
+    const outputFn = msg => {
+        if (!outputEl.classList.contains('html-content')) outputEl.textContent = msg;
+        scrollToBottom();
+    };
+    return { entry, outputEl, outputFn, tsLine };
+}
+
+// ── addResponseToolbar ────────────────────────────────────────────────────────
+
+function addResponseToolbar(entry, replyText) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'resp-toolbar';
+
+    // Copy
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'resp-btn';
+    copyBtn.title = 'Copy response';
+    copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+    copyBtn.onclick = () => {
+        navigator.clipboard.writeText(replyText).then(() => {
+            copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+            setTimeout(() => { copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>'; }, 1500);
+        });
+    };
+    toolbar.appendChild(copyBtn);
+
+    // Thumbs up
+    const upBtn = document.createElement('button');
+    upBtn.className = 'resp-btn';
+    upBtn.title = 'Good response';
+    upBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg>';
+    upBtn.onclick = () => {
+        upBtn.style.color   = '#4a7c4e';
+        downBtn.style.color = '';
+    };
+    toolbar.appendChild(upBtn);
+
+    // Thumbs down
+    const downBtn = document.createElement('button');
+    downBtn.className = 'resp-btn';
+    downBtn.title = 'Poor response';
+    downBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg>';
+    downBtn.onclick = () => {
+        downBtn.style.color = '#8d3a3a';
+        upBtn.style.color   = '';
+    };
+    toolbar.appendChild(downBtn);
+
+    entry.appendChild(toolbar);
+}
+
+// ── showHelp -- opens in the right panel ─────────────────────────────────────
+
+function showHelp() {
+    // Build help HTML using the help module
+    const dummy  = document.createElement('div');
+    const dummyFn = msg => { if (!dummy.innerHTML) dummy.textContent = msg; };
+    if (window.COMMANDS && window.COMMANDS['?']) {
+        window.COMMANDS['?'].handler('', dummyFn, dummy);
+        if (window.panel) {
+            window.panel.open('Help', dummy.innerHTML, 'html');
+            return;
+        }
+    }
+    // Fallback: show in chat
+    const { outputEl, outputFn } = runCommandInPanel('?');
+    if (window.COMMANDS && window.COMMANDS['?']) {
+        window.COMMANDS['?'].handler('', outputFn, outputEl);
+    }
+}
+
+// ── Response navigation -- scroll chatPanel to prev/next entry ────────────────
+
+let respNavIdx = -1;
+function navigateResponses(dir) {
+    const panel   = document.getElementById('chatPanel');
+    const entries = Array.from(panel.querySelectorAll('.chat-entry'));
+    if (!entries.length) return;
+    if (respNavIdx === -1) { respNavIdx = dir === -1 ? entries.length - 1 : 0; }
+    else { respNavIdx = Math.max(0, Math.min(entries.length - 1, respNavIdx + dir)); }
+    entries[respNavIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── handleAsk ─────────────────────────────────────────────────────────────────
+
+async function handleAsk() {
+    const input = document.getElementById('input');
+    const text  = input.value.trim();
+    if (!text) return;
+
+    if (!inputHistory.length || inputHistory[0] !== text) {
+        inputHistory.unshift(text);
+        if (inputHistory.length > 100) inputHistory.pop();
+        saveInputHistory();
+    }
+    inputHistIdx = -1; inputHistDraft = '';
+
+    input.value = '';
+    input.style.height = 'auto';
+
+    const { entry, outputEl, outputFn } = runCommandInPanel(text);
+    const detected = window.detectCommand ? window.detectCommand(text) : null;
+
+    if (detected && window.COMMANDS && window.COMMANDS[detected.command]) {
+        await window.COMMANDS[detected.command].handler(detected.args, outputFn, outputEl);
+        if (window.getLastModel) updateModelBadge(window.getLastModel());
+        _linkEntryToPanel(entry);
+        if (!window.allModeActive) saveChatEntry(tsLine.textContent, text, outputEl.textContent);
+        return;
+    }
+
+    await refineAndProceed(text, outputEl, async (finalQuery, _attachedByRefiner) => {
+        // If query was refined (accepted from preview), skip handleConversational
+        // so catalogue/file handlers don't intercept -- go straight to task AIs
+        const wasRefined = finalQuery !== text;
+        if (window.allModeActive && window.runAllModels && wasRefined) {
+            await window.runAllModels(finalQuery, outputFn, outputEl, true);
+            if (window.getLastModel) updateModelBadge(window.getLastModel());
+        } else if (window.handleConversational) {
+            const handled = await window.handleConversational(finalQuery, outputFn, outputEl);
+            if (!handled) {
+                if (window.sendToLastModel) {
+                    await window.sendToLastModel(finalQuery, outputFn, outputEl);
+                }
+            }
+            if (window.getLastModel) updateModelBadge(window.getLastModel());
+        } else if (window.allModeActive && window.runAllModels) {
+            await window.runAllModels(finalQuery, outputFn, outputEl, true);
+        } else if (window.sendToLastModel) {
+            await window.sendToLastModel(finalQuery, outputFn, outputEl);
+            if (window.getLastModel) updateModelBadge(window.getLastModel());
         } else {
-            document.getElementById('userLabel').textContent = 'User: ' + getAuth('mobius_username');
+            outputFn('Error: AI not loaded yet.');
         }
+        _linkEntryToPanel(entry);
+        if (!window.allModeActive) saveChatEntry(tsLine.textContent, text, outputEl.textContent);
+    });
+}
 
-        // ── Event listeners ───────────────────────────────────────────────────
-        document.addEventListener('DOMContentLoaded', () => {
+// ── _linkEntryToPanel ────────────────────────────────────────────────────────
+// After a command completes, checks if the panel was opened and links its
+// data to the chat entry. Entry gets a pointer cursor as a visual hint.
+
+function _linkEntryToPanel(entry) {
+    if (!window.panel || !window.panel.getLastData) return;
+    const data = window.panel.getLastData();
+    if (data && data.content) {
+        _entryPanelMap.set(entry, data);
+        entry.style.cursor = 'pointer';
+        entry.title = 'Click to restore panel: ' + (data.title || '');
+    }
+}
+
+// ── newChat ───────────────────────────────────────────────────────────────────
+
+
+// ── Apply code block to project file ─────────────────────────────────────────
+window.applyCodeToFile = async function(filePath, btn) {
+    const root = window.getRootHandle ? window.getRootHandle() : null;
+    if (!root) { alert('No project open. Run Project: Open first.'); return; }
+    const wrapper = btn.closest('.code-apply-wrapper');
+    const raw = wrapper.querySelector('code').textContent;
+    // Strip the leading // filepath comment line
+    const code = raw.replace(/^\/\/[^\n]*\n/, '');
+    try {
+        btn.textContent = 'Writing...';
+        btn.disabled = true;
+        const parts = filePath.split('/');
+        const fileName = parts.pop();
+        let dir = root;
+        for (const part of parts) {
+            dir = await dir.getDirectoryHandle(part, { create: false });
+        }
+        const fh = await dir.getFileHandle(fileName, { create: false });
+        const writable = await fh.createWritable();
+        await writable.write(code);
+        await writable.close();
+        btn.textContent = 'Applied ✓';
+        btn.style.color = 'var(--green)';
+        btn.style.borderColor = 'var(--green)';
+        btn.disabled = true; // stays permanently
+    } catch (err) {
+        btn.textContent = 'Error: ' + err.message.slice(0, 30);
+        btn.style.color = 'var(--red, #c0392b)';
+        setTimeout(() => { btn.textContent = 'Apply'; btn.style.color = ''; btn.disabled = false; }, 4000);
+        console.error('applyCodeToFile:', err);
+    }
+};
+
+
+// ── addToHistory: called by all.js when thumbs-up selects a winner ────────────
+// Replaces the all-mode multi-response block with just the winning response,
+// saves it as a compact chat entry, and stores it for Brief Protocol context.
+window.addToHistory = function(query, replyText) {
+    const el = window._lastOutputEl;
+    if (el) {
+        // Collapse all-mode cards down to the single winning response
+        el.classList.add('html-content');
+        el.innerHTML = window.markdownToHtml
+            ? window.markdownToHtml(replyText)
+            : '<pre>' + replyText.replace(/</g,'&lt;') + '</pre>';
+    }
+    // Save to localStorage as a compact entry (winner only)
+    const ts = window._lastTsLine ? window._lastTsLine.textContent : '';
+    saveChatEntry(ts, query, replyText);
+    // Store for next Brief Protocol context injection
+    window._lastSelectedReply = replyText;
+};
+
+
+// ── Query refinement preview ──────────────────────────────────────────────────
+async function refineAndProceed(rawQuery, outputEl, proceedFn) {
+    if (!window.tryRefineQuery) { proceedFn(rawQuery, []); return; }
+    outputEl.textContent = 'Refining query...';
+    const result = await window.tryRefineQuery(rawQuery).catch(() => null);
+    if (!result) { outputEl.textContent = ''; proceedFn(rawQuery, []); return; }
+
+    // Show preview
+    outputEl.classList.add('html-content');
+    const div = document.createElement('div');
+    div.className = 'refine-preview';
+    div.innerHTML =
+        '<div class="refine-label">Query refined by Coder:</div>' +
+        '<div class="refine-query-text">' + result.query.replace(/</g,'&lt;') + '</div>' +
+        '<div class="refine-files">Files to attach: ' +
+            (result.files.length ? result.files.join(', ') : 'none') + '</div>' +
+        '<div class="refine-btns">' +
+            '<button class="refine-btn accept" id="refineAccept">Accept &amp; Submit</button>' +
+            '<button class="refine-btn" id="refineSkip">Use original</button>' +
+        '</div>';
+    outputEl.innerHTML = '';
+    outputEl.appendChild(div);
+
+    document.getElementById('refineAccept').onclick = async () => {
+        div.querySelector('.refine-btns').innerHTML = '<em style="font-size:11px;color:var(--text-dim)">Attaching files...</em>';
+        const attached = result.files.length && window.attachProjectFiles
+            ? await window.attachProjectFiles(result.files)
+            : [];
+        outputEl.classList.remove('html-content');
+        outputEl.textContent = '';
+        proceedFn(result.query, attached);
+    };
+    document.getElementById('refineSkip').onclick = () => {
+        outputEl.classList.remove('html-content');
+        outputEl.textContent = '';
+        proceedFn(rawQuery, []);
+    };
+}
+
+// ── Chat persistence (no login required) ─────────────────────────────────────
+const CHAT_STORE = 'mobius_chat';
+
+function _chatLoad() {
+    try { return JSON.parse(localStorage.getItem(CHAT_STORE) || '[]'); } catch { return []; }
+}
+
+function saveChatEntry(ts, query, response) {
+    const entries = _chatLoad();
+    entries.push({ ts, query, response, date: new Date().toLocaleDateString('en-AU') });
+    if (entries.length > 300) entries.splice(0, entries.length - 300);
+    try { localStorage.setItem(CHAT_STORE, JSON.stringify(entries)); } catch (e) { /* storage full */ }
+}
+
+function restoreChat() {
+    const entries = _chatLoad();
+    if (!entries.length) return;
+    const panel = document.getElementById('chatPanel');
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size:10px;color:var(--text-dim);padding:4px 0 10px;opacity:0.55;border-bottom:1px dashed var(--border);margin-bottom:8px;';
+    header.textContent = '-- ' + entries.length + ' entries restored from previous session --';
+    panel.appendChild(header);
+    entries.forEach(e => {
+        const entry = document.createElement('div');
+        entry.className = 'chat-entry';
+        const q = document.createElement('div');
+        q.className = 'chat-query';
+        q.textContent = 'Q: ' + e.query;
+        const ts = document.createElement('div');
+        ts.className = 'chat-ts';
+        ts.textContent = (e.date ? e.date + '  ' : '') + (e.ts || '');
+        const resp = document.createElement('div');
+        resp.className = 'mq-block';
+        resp.textContent = e.response || '';
+        entry.appendChild(q);
+        entry.appendChild(ts);
+        entry.appendChild(resp);
+        panel.appendChild(entry);
+    });
+    scrollToBottom();
+    // Restore last selected reply for Brief Protocol context injection
+    if (entries.length) window._lastSelectedReply = entries[entries.length - 1].response;
+}
+
+
+window.newChat = function(topic) {
+    document.getElementById('chatPanel').innerHTML = '';
+    currentSessionId = generateSessionId();
+    try { localStorage.removeItem(CHAT_STORE); } catch(e) {}
+    if (topic) {
+        document.getElementById('input').value = topic;
+        handleAsk();
+    } else {
+        document.getElementById('input').focus();
+    }
+};
+
+// ── Event listeners ───────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    restoreChat();
+    const textarea = document.getElementById('input');
+
+    textarea.addEventListener('input', () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+    });
+
+    // Attach file button
+    document.getElementById('addBtn').addEventListener('click', () => {
+        const inp = document.createElement('input');
+        inp.type     = 'file';
+        inp.multiple = true;
+        inp.accept   = 'image/*,.pdf,.txt,.js,.ts,.jsx,.tsx,.py,.json,.md,.csv,.html,.css';
+        inp.onchange = () => {
+            const files = Array.from(inp.files);
+            if (!files.length) return;
+            window._attachedFiles = files;          // array (replaces _attachedFile)
+            window._attachedFile  = files[0];       // backward compat
             const textarea = document.getElementById('input');
-            textarea.addEventListener('input', () => {
-                textarea.style.height = 'auto';
-                textarea.style.height = textarea.scrollHeight + 'px';
-            });
-            textarea.addEventListener('keydown', e => {
-                if (e.key === 'Enter' && e.ctrlKey) handleAsk();
-                if (e.key === 'Escape') globalEscape();
-                // ↑/↓ history — only when cursor is on first/last line
-                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                    const val   = textarea.value;
-                    const lines = val.split('\n');
-                    const pos   = textarea.selectionStart;
-                    const onFirstLine = pos <= val.indexOf('\n') || lines.length === 1;
-                    const onLastLine  = pos >= val.lastIndexOf('\n') + 1 || lines.length === 1;
-                    if (!inputHistory.length) return;
-                    if (e.key === 'ArrowUp' && onFirstLine) {
-                        e.preventDefault();
-                        if (inputHistIdx === -1) inputHistDraft = textarea.value;
-                        inputHistIdx = Math.min(inputHistIdx + 1, inputHistory.length - 1);
-                        textarea.value = inputHistory[inputHistIdx];
-                        textarea.style.height = 'auto';
-                        textarea.style.height = textarea.scrollHeight + 'px';
-                        textarea.setSelectionRange(0, 0);
-                    } else if (e.key === 'ArrowDown' && onLastLine) {
-                        e.preventDefault();
-                        if (inputHistIdx <= 0) {
-                            inputHistIdx = -1;
-                            textarea.value = inputHistDraft;
-                        } else {
-                            inputHistIdx--;
-                            textarea.value = inputHistory[inputHistIdx];
-                        }
-                        textarea.style.height = 'auto';
-                        textarea.style.height = textarea.scrollHeight + 'px';
-                        const end = textarea.value.length;
-                        textarea.setSelectionRange(end, end);
-                    }
-                }
-            });
-        });
-        document.addEventListener('click', () => hideContextMenu());
-
-        // ── State ─────────────────────────────────────────────────────────────
-        let chatHistory      = [];   // in-session message history sent to AI
-        let pendingMobiusQuery = null;
-        let attachedFiles    = [];
-        let ctxSession       = null;
-        let currentNavIndex  = -1;
-
-        // ── Session ID ────────────────────────────────────────────────────────
-        // UUID generated once per page load; reset on New: command
-        // Exposed globally so commands.js Code: calls can include it
-        function generateSessionId() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-                const r = Math.random() * 16 | 0;
-                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-            });
-        }
-        let currentSessionId = generateSessionId();
-        window.getCurrentSessionId = () => currentSessionId;
-
-        // ── Input history (PowerShell-style ↑/↓, persisted to localStorage) ─────────
-        const inputHistory   = JSON.parse(localStorage.getItem('mobius_input_history') || '[]');
-        let   inputHistIdx   = -1;
-        let   inputHistDraft = '';
-        function saveInputHistory() {
-            try { localStorage.setItem('mobius_input_history', JSON.stringify(inputHistory.slice(0, 100))); } catch(e) {}
-        }
-
-        // ── Global Esc handler ───────────────────────────────────────────────────────────────
-        function globalEscape() {
-            // 1. Cancel pending Mobius query preview
-            if (pendingMobiusQuery) {
-                pendingMobiusQuery = null;
-                const previews = document.querySelectorAll('.mq-label');
-                if (previews.length) {
-                    const last = previews[previews.length - 1];
-                    last.textContent = '▸ Cancelled';
-                    last.style.color = '#8d3a3a';
-                    if (last.nextSibling) last.nextSibling.textContent = '';
-                }
-                return;
-            }
-            // 2. Fire any registered one-off Esc handler (e.g. Code: map prompt)
-            if (window._escHandler) {
-                window._escHandler();
-                window._escHandler = null;
-                return;
-            }
-            // 3. Clear the input box
-            const input = document.getElementById('input');
-            if (input && input.value.trim()) {
-                input.value = '';
-                return;
-            }
-        }
-
-        const modelLabels = {
-            groq: 'Groq', gemini: 'Gemini', mistral: 'Mistral',
-            websearch: 'Groq+Tavily', system: 'System'
+            const tag = files.map(f => '[Attached: ' + f.name + ']').join('\n');
+            textarea.value = tag + (textarea.value ? '\n' + textarea.value : '');
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+            const btn = document.getElementById('addBtn');
+            btn.style.color = 'var(--green)';
+            btn.title = files.length === 1
+                ? 'Attached: ' + files[0].name + ' (click to change)'
+                : files.length + ' files attached (click to change)';
         };
+        inp.click();
+    });
 
-        // ── Environment context ───────────────────────────────────────────────
-        let mobiusContext = null;
-        buildContextPayload().then(ctx => { mobiusContext = formatContextForPrompt(ctx); });
-
-        async function buildContextPayload() {
-            const ctx = {};
-            const now = new Date();
-            ctx.datetime   = now.toLocaleString('en-AU', { hour12: false });
-            ctx.timezone   = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const off = -now.getTimezoneOffset();
-            const sign = off >= 0 ? '+' : '-';
-            ctx.utc_offset = `UTC${sign}${String(Math.floor(Math.abs(off)/60)).padStart(2,'0')}:${String(Math.abs(off)%60).padStart(2,'0')}`;
-            ctx.locale     = navigator.language || 'unknown';
-            const ua = navigator.userAgent;
-            ctx.os =
-                /Windows NT 10/.test(ua)   ? 'Windows 10/11' :
-                /Mac OS X/.test(ua)        ? 'macOS ' + (ua.match(/Mac OS X ([\d_]+)/)?.[1]?.replace(/_/g,'.') || '') :
-                /Android/.test(ua)         ? 'Android ' + (ua.match(/Android ([\d.]+)/)?.[1] || '') :
-                /iPhone|iPad/.test(ua)     ? 'iOS ' + (ua.match(/OS ([\d_]+)/)?.[1]?.replace(/_/g,'.') || '') :
-                /Linux/.test(ua)           ? 'Linux' : 'Unknown';
-            ctx.browser =
-                /Edg\//.test(ua)     ? 'Edge '    + (ua.match(/Edg\/([\d.]+)/)?.[1]     || '') :
-                /Chrome\//.test(ua)  ? 'Chrome '  + (ua.match(/Chrome\/([\d.]+)/)?.[1]  || '') :
-                /Firefox\//.test(ua) ? 'Firefox ' + (ua.match(/Firefox\/([\d.]+)/)?.[1] || '') :
-                /Safari\//.test(ua)  ? 'Safari '  + (ua.match(/Version\/([\d.]+)/)?.[1] || '') : 'Unknown';
-            const isMobile = /Mobi|Android|iPhone|iPad/.test(ua);
-            const isTablet = /iPad|Tablet/.test(ua) || (isMobile && Math.min(screen.width, screen.height) > 600);
-            ctx.device_type = isTablet ? 'tablet' : isMobile ? 'mobile' : 'desktop';
-            if (!isMobile) ctx.screen_resolution = `${screen.width}x${screen.height}`;
-            ctx.dark_mode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            ctx.online    = navigator.onLine;
-            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-            if (conn) {
-                if (conn.type)     ctx.connection_type = conn.type;
-                if (conn.downlink) ctx.bandwidth_mbps  = conn.downlink;
-                if (conn.rtt)      ctx.latency_ms      = conn.rtt;
-            }
-            try {
-                const geo = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(3000) });
-                if (geo.ok) {
-                    const g = await geo.json();
-                    if (!g.error) {
-                        ctx.city = g.city; ctx.region = g.region;
-                        ctx.country = g.country_name; ctx.currency = g.currency;
-                    }
-                }
-            } catch { /* unavailable */ }
-            Object.keys(ctx).forEach(k => ctx[k] === undefined && delete ctx[k]);
-            return ctx;
-        }
-
-        function formatContextForPrompt(ctx) {
-            if (!ctx || !Object.keys(ctx).length) return '';
-            const lines = ['[User Environment]'];
-            if (ctx.datetime)          lines.push(`Date/Time: ${ctx.datetime}`);
-            if (ctx.timezone)          lines.push(`Timezone: ${ctx.timezone} (${ctx.utc_offset})`);
-            if (ctx.locale)            lines.push(`Locale: ${ctx.locale}`);
-            if (ctx.city)              lines.push(`Location: ${ctx.city}, ${ctx.region}, ${ctx.country}`);
-            if (ctx.currency)          lines.push(`Currency: ${ctx.currency}`);
-            if (ctx.os)                lines.push(`OS: ${ctx.os}`);
-            if (ctx.browser)           lines.push(`Browser: ${ctx.browser}`);
-            if (ctx.device_type)       lines.push(`Device: ${ctx.device_type}`);
-            if (ctx.screen_resolution) lines.push(`Screen: ${ctx.screen_resolution}`);
-            if (ctx.dark_mode != null) lines.push(`Dark mode: ${ctx.dark_mode}`);
-            if (ctx.online != null)    lines.push(`Online: ${ctx.online}`);
-            if (ctx.connection_type)   lines.push(`Connection: ${ctx.connection_type}`);
-            if (ctx.bandwidth_mbps)    lines.push(`Bandwidth: ${ctx.bandwidth_mbps} Mbps`);
-            if (ctx.latency_ms)        lines.push(`Latency: ${ctx.latency_ms} ms`);
-            return lines.join('\n');
-        }
-
-        // ── Utilities ─────────────────────────────────────────────────────────
-        function scrollToBottom() {
-            const p = document.getElementById('chatPanel');
-            p.scrollTop = p.scrollHeight;
-        }
-        function addDivider() { /* divider removed */ }
-        function escapeHtml(t) {
-            return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        }
-        window.markdownToHtml = function markdownToHtml(text) {
-            text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-            // Tables
-            text = text.replace(/\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)+)/g, (match, header, rows) => {
-                const ths = header.split('|').filter(s=>s.trim()).map(s=>`<th>${s.trim()}</th>`).join('');
-                const trs = rows.trim().split('\n').map(row => {
-                    const tds = row.split('|').filter(s=>s.trim()).map(s=>`<td>${s.trim()}</td>`).join('');
-                    return `<tr>${tds}</tr>`;
-                }).join('');
-                return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
-            });
-
-            // Code blocks first (protect content inside)
-            const codeBlocks = [];
-            text = text.replace(/```[\s\S]*?```/g, m => { codeBlocks.push(m); return `\x00CODE${codeBlocks.length-1}\x00`; });
-
-            // Process line by line
-            const lines = text.split('\n');
-            const out   = [];
-            let inList  = false;
-
-            for (let i = 0; i < lines.length; i++) {
-                let line = lines[i];
-
-                // Headings
-                if (/^### /.test(line))      { if (inList) { out.push('</ul>'); inList=false; } out.push('<h3>' + line.slice(4) + '</h3>'); continue; }
-                if (/^## /.test(line))       { if (inList) { out.push('</ul>'); inList=false; } out.push('<h2>' + line.slice(3) + '</h2>'); continue; }
-                if (/^# /.test(line))        { if (inList) { out.push('</ul>'); inList=false; } out.push('<h1>' + line.slice(2) + '</h1>'); continue; }
-
-                // Horizontal rule
-                if (/^---+$/.test(line.trim())) { if (inList) { out.push('</ul>'); inList=false; } out.push('<hr style="border:none;border-top:1px solid #c9bfae;margin:8px 0">'); continue; }
-
-                // Bullet points (* or -)
-                if (/^[\*\-] /.test(line)) {
-                    if (!inList) { out.push('<ul>'); inList = true; }
-                    out.push('<li>' + inline(line.slice(2)) + '</li>');
-                    continue;
-                }
-
-                // Numbered list
-                if (/^\d+\. /.test(line)) {
-                    if (inList) { out.push('</ul>'); inList = false; }
-                    out.push('<li>' + inline(line.replace(/^\d+\. /, '')) + '</li>');
-                    continue;
-                }
-
-                // Close list on blank line or non-list content
-                if (inList) { out.push('</ul>'); inList = false; }
-
-                // Blank line
-                if (line.trim() === '') { out.push('<br>'); continue; }
-
-                out.push('<p style="margin:2px 0">' + inline(line) + '</p>');
-            }
-
-            if (inList) out.push('</ul>');
-
-            // Restore code blocks
-            let html = out.join('');
-            html = html.replace(/\x00CODE(\d+)\x00/g, (_, i) => {
-                const code = codeBlocks[i].replace(/```(\w+)?\n?/, '').replace(/```$/, '');
-                return '<pre><code>' + code.replace(/</g,'&lt;') + '</code></pre>';
-            });
-
-            return html;
-
-            function inline(s) {
-                return s
-                    .replace(/`([^`]+)`/g, '<code>$1</code>')
-                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                    .replace(/_(.+?)_/g, '<em>$1</em>');
+    textarea.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAsk(); return; }
+        if (e.key === 'Escape') { textarea.value = ''; textarea.style.height = 'auto'; return; }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            const val = textarea.value;
+            const pos = textarea.selectionStart;
+            const lines = val.split('\n');
+            const onFirst = lines.length === 1 || pos <= val.indexOf('\n');
+            const onLast  = lines.length === 1 || pos >= val.lastIndexOf('\n') + 1;
+            if (!inputHistory.length) return;
+            if (e.key === 'ArrowUp' && onFirst) {
+                e.preventDefault();
+                navigateHistory(-1);
+            } else if (e.key === 'ArrowDown' && onLast) {
+                e.preventDefault();
+                navigateHistory(1);
             }
         }
-        function formatMobiusQuery(mq) {
-            const lines = [
-                `ASK: ${mq.ASK}`,
-                `INSTRUCTIONS: ${mq.INSTRUCTIONS || 'Brief'}`,
-                `HISTORY: [${(mq.HISTORY || []).length}]`,
-                `QUERY: ${mq.QUERY}`,
-                `FILES: [${(mq.FILES || []).filter(f => f.name !== 'environment.txt').length}]` + ((mq.FILES || []).filter(f => f.name !== 'environment.txt').length > 0 ? '\n' + mq.FILES.filter(f => f.name !== 'environment.txt').map(f => '  ' + f.name).join('\n') : ''),
-                `CONTEXT: ${mobiusContext ? 'Yes' : 'None'}`
-            ];
-            return lines.join('\n');
-        }
+    });
 
-        // ── File handling ─────────────────────────────────────────────────────
-        async function handleFileSelect(input) {
-            for (const file of Array.from(input.files)) {
-                const fd = new FormData();
-                fd.append('file', file);
-                try {
-                    const res  = await fetch('/upload', { method:'POST', body:fd });
-                    const data = await res.json();
-                    if (data.error) { alert('Upload error: ' + data.error); continue; }
-                    attachedFiles.push(data);
-                    addFileChip(data);
-                } catch (err) { alert('Upload failed: ' + err.message); }
+    window.addEventListener('online',  updateStatusDot);
+    window.addEventListener('offline', updateStatusDot);
+    updateStatusDot();
+
+    // Clock — updates every second, zero latency impact
+    function updateClock() {
+        const el = document.getElementById('headerClock');
+        if (!el) return;
+        const now = new Date();
+        el.textContent = now.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short', year:'numeric' })
+            + '  ' + now.toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', second:'2-digit', hour12:true });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    textarea.focus();
+});
+
+// ── WebLLM ────────────────────────────────────────────────────────────────────
+// Extracted to js/webllm.js — not loaded on desktop.
+// To enable on phone: add <script src="js/webllm.js"></script> below commands.js
+// ─────────────────────────────────────────────────────────────────────────────
+
+/* WebLLM extracted to js/webllm.js — not loaded on desktop.
+   To enable: add <script src="js/webllm.js"><\/script> after commands.js */
+</script>
+
+<script src="js/startup.js"></script>
+<script src="js/commands.js"></script>
+<script src="js/memory.js"></script>
+<script src="js/refine.js"></script>
+<script src="js/log.js"></script>
+<script src="js/router.js"></script>
+<script src="js/map.js"></script>
+<script src="js/code.js"></script>
+<script src="js/debug.js"></script>
+<script src="js/project.js"></script>
+<script src="js/deploy.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/ask.js"></script>
+<script src="js/all.js"></script>
+<script src="js/scores.js"></script>
+<script src="js/brief.js"></script>
+<script src="js/protocol.js"></script>
+<script src="js/help.js"></script>
+<script src="js/orchestrator.js"></script>
+<script src="js/panel.js"></script>
+<script src="js/codeindex.js"></script>
+<script src="js/connectivity.js"></script>
+
+<script>
+    // Expose Supabase URL for connectivity check (anon key only — safe to expose)
+    window._supabaseUrl = 'https://sfvwhbzxklscfsnyrwq.supabase.co';
+    window._configuredStables = ['Google', 'Groq', 'Mistral', 'Cerebras', 'OpenRouter'];
+
+    const _origSetLastModel = window.setLastModel;
+    window.setLastModel = function(model) {
+        if (_origSetLastModel) _origSetLastModel(model);
+        updateModelBadge(model);
+    };
+    if ('serviceWorker' in navigator) {
+        // Register SW -- network-first, auto-updates on new deploy
+        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+        // Auto-reload when a new SW takes control (new deploy detected)
+        // refreshing flag prevents double-reload
+        let _swRefreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!_swRefreshing) {
+                _swRefreshing = true;
+                console.log('[sw] New version detected -- reloading');
+                window.location.reload();
             }
-            input.value = '';
-        }
-        function addFileChip(f) {
-            const chips = document.getElementById('fileChips');
-            const chip  = document.createElement('div');
-            chip.className = 'file-chip';
-            chip.dataset.name = f.name;
-            chip.innerHTML = `<span>${escapeHtml(f.name)}</span><span class="file-chip-remove" onclick="removeFile('${escapeHtml(f.name)}',this)">✕</span>`;
-            chips.appendChild(chip);
-        }
-        function removeFile(name, el) {
-            attachedFiles = attachedFiles.filter(f => f.name !== name);
-            el.closest('.file-chip').remove();
-        }
-
-        // ── Context menu ──────────────────────────────────────────────────────
-        function showContextMenu(e, session) {
-            e.preventDefault();
-            ctxSession = session;
-            const menu = document.getElementById('contextMenu');
-            menu.style.display = 'block';
-            menu.style.left = e.clientX + 'px';
-            menu.style.top  = e.clientY + 'px';
-        }
-        function hideContextMenu() {
-            document.getElementById('contextMenu').style.display = 'none';
-        }
-        async function ctxAction(action) {
-            hideContextMenu();
-            if (!ctxSession) return;
-            if (action === 'load') {
-                loadSessionIntoChat(ctxSession);
-            } else if (action === 'copy-summary') {
-                navigator.clipboard.writeText(buildSummary(ctxSession)).then(() => alert('Summary copied!'));
-            } else if (action === 'copy-full') {
-                navigator.clipboard.writeText(buildFullText(ctxSession)).then(() => alert('Full chat copied!'));
-            } else if (action === 'copy-context') {
-                const summary  = buildSummary(ctxSession);
-                const filename = 'context-' + new Date(ctxSession.started_at).toISOString().slice(0,10) + '.txt';
-                const fd = new FormData();
-                fd.append('file', new File([summary], filename, { type:'text/plain' }));
-                try {
-                    const res  = await fetch('/upload', { method:'POST', body:fd });
-                    const data = await res.json();
-                    if (data.error) { alert('Error: ' + data.error); return; }
-                    attachedFiles.push(data);
-                    addFileChip(data);
-                } catch (err) { alert('Failed to attach context: ' + err.message); }
-            }
-        }
-        function buildSummary(s) {
-            let t = `Chat from ${new Date(s.started_at).toLocaleString()}\nTopic: ${s.title}\n\n`;
-            s.messages.slice(0,3).forEach(m => t += `Q: ${m.question}\nA: ${m.answer}\n\n`);
-            if (s.messages.length > 3) t += `[...${s.messages.length - 3} more exchanges]`;
-            return t.trim();
-        }
-        function buildFullText(s) {
-            let t = `Chat from ${new Date(s.started_at).toLocaleString()}\n${'─'.repeat(40)}\n\n`;
-            s.messages.forEach(m => t += `Q: ${m.question}\nA: ${m.answer}\n\n`);
-            return t.trim();
-        }
-        function loadSessionIntoChat(session) {
-            const panel = document.getElementById('chatPanel');
-            panel.innerHTML = '';
-            chatHistory = [];
-            const header = document.createElement('div');
-            header.style.cssText = 'font-size:12px;color:#8d7c64;margin-bottom:12px;font-style:italic;';
-            header.textContent = `📂 Loaded chat from ${new Date(session.started_at).toLocaleString()}`;
-            panel.appendChild(header);
-            for (const m of session.messages) {
-                addDivider();
-                const entry = document.createElement('div');
-                entry.className = 'chat-entry';
-
-                // Build metadata line
-                const metaParts = [];
-                if (m.ask)              metaParts.push('ASK: ' + m.ask);
-                if (m.instructions)     metaParts.push('INSTRUCTIONS: ' + m.instructions);
-                if (m.history_count != null) metaParts.push('HISTORY: [' + m.history_count + ']');
-                const metaLine1 = metaParts.length ? metaParts.join('  |  ') : '';
-
-                const meta2Parts = [];
-                if (m.routing_reason)   meta2Parts.push('ROUTING: ' + m.routing_reason);
-                if (m.latency_ms)       meta2Parts.push(m.latency_ms + 'ms');
-                if (m.tokens_in != null || m.tokens_out != null)
-                    meta2Parts.push((m.tokens_in||0) + ' in / ' + (m.tokens_out||0) + ' out tokens');
-                const metaLine2 = meta2Parts.length ? meta2Parts.join('  |  ') : '';
-
-                const fallbackHtml = (m.failed_models && m.failed_models.length)
-                    ? '<div style="font-size:11px;color:#8d3a3a;margin-top:2px;">Fallbacks: ' +
-                      m.failed_models.map(f => escapeHtml(f.model + ' - ' + f.reason)).join(' | ') + '</div>'
-                    : '';
-
-                const flagsHtml = (m.post_flags && m.post_flags.length)
-                    ? '<div style="font-size:11px;color:#a06800;margin-top:2px;">Flags: ' +
-                      m.post_flags.map(f => escapeHtml(f)).join(' | ') + '</div>'
-                    : '';
-
-                entry.innerHTML = `
-                    <div class="chat-query">Q: ${escapeHtml(m.question)}</div>
-                    ${metaLine1 ? '<div style="font-size:11px;color:#8d7c64;margin-bottom:1px;">' + escapeHtml(metaLine1) + '</div>' : ''}
-                    <div class="chat-label">A:(${escapeHtml(m.model || '')})${metaLine2 ? '  &middot;  ' + escapeHtml(metaLine2) : ''}</div>
-                    ${fallbackHtml}${flagsHtml}
-                    <div class="chat-answer">${markdownToHtml(m.answer)}</div>`;
-                panel.appendChild(entry);
-                chatHistory.push({ role:'user', content:m.question });
-                chatHistory.push({ role:'assistant', content:m.answer });
-            }
-            scrollToBottom();
-        }
-
-        // ── Chat history renderer (exposed to commands.js) ────────────────────
-        window.renderChatHistoryList = function(sessions) {
-            const panel = document.getElementById('chatPanel');
-            addDivider();
-            const wrapper = document.createElement('div');
-            wrapper.innerHTML = `<div class="chat-label" style="margin-bottom:8px;">📋 Chat History (${sessions.length} sessions) — click to open, right-click for options</div>`;
-            const list = document.createElement('div');
-            list.className = 'chat-history-list';
-            for (const session of sessions) {
-                const item  = document.createElement('div');
-                item.className = 'chat-history-item';
-                const count = session.messages.length;
-                item.innerHTML = `
-                    <div class="chi-title">${escapeHtml(session.title)}</div>
-                    <div class="chi-meta">${new Date(session.started_at).toLocaleString()} · ${count} exchange${count!==1?'s':''}</div>`;
-                item.addEventListener('click', () => loadSessionIntoChat(session));
-                item.addEventListener('contextmenu', e => showContextMenu(e, session));
-                list.appendChild(item);
-            }
-            wrapper.appendChild(list);
-            panel.appendChild(wrapper);
-            scrollToBottom();
-        };
-
-        // ── Command output helper ─────────────────────────────────────────────
-        function runCommandInPanel(text, command, args) {
-            const panel = document.getElementById('chatPanel');
-            addDivider();
-            const entry = document.createElement('div');
-            entry.className = 'chat-entry';
-            const firstLine = text.split('\n')[0];
-            const restLines = text.split('\n').slice(1).join('\n');
-            entry.innerHTML = `<div class="chat-query">Q: ${escapeHtml(firstLine)}${restLines ? '<span style="font-weight:normal"> \n' + escapeHtml(restLines) + '</span>' : ''}</div>`;
-            const output = document.createElement('div');
-            output.className = 'mq-block';
-            output.textContent = 'Running...';
-            entry.appendChild(output);
-            panel.appendChild(entry);
-            scrollToBottom();
-            const outputFn = msg => { output.textContent = msg; scrollToBottom(); };
-            return { outputFn, outputEl: output };
-        }
-
-        // ── Main Ask handler ──────────────────────────────────────────────────
-        async function handleAsk() {
-            const userId = getAuth('mobius_user_id');
-            if (!userId) { window.location.href = '/login'; return; }
-
-            const text = document.getElementById('input').value.trim();
-            if (!text && !pendingMobiusQuery) return;
-
-            // Save to input history (deduplicate, most recent first)
-            if (text && (inputHistory.length === 0 || inputHistory[0] !== text)) {
-                inputHistory.unshift(text);
-                if (inputHistory.length > 100) inputHistory.pop();
-                saveInputHistory();
-            }
-            inputHistIdx   = -1;
-            inputHistDraft = '';
-
-            // If an audit is active and this is a plain message (not a command), record it in audit chat
-            if (text && window._auditAppendUserMessage && !detectCommand(text)) {
-                window._auditAppendUserMessage(text);
-            }
-
-            // ── Step 1: Intercept all non-AI commands immediately ─────────────
-            // Access: needs special handling (synchronous user gesture for mobile)
-            const detected = (window.detectCommandExtended || detectCommand)(text);
-            if (detected && detected.command === 'access') {
-                const { outputFn } = runCommandInPanel(text, 'access', '');
-                await handleAccess(outputFn);
-                return;
-            }
-            // All other non-AI commands
-            if (detected && detected.command !== 'ask') {
-                const { outputFn, outputEl } = runCommandInPanel(text, detected.command, detected.args);
-                await runCommand(detected.command, detected.args, outputFn, outputEl);
-                return;
-            }
-
-            // ── Step 2: Pending query confirmation ────────────────────────────
-            if (pendingMobiusQuery) {
-                await executeQuery(userId);
-                return;
-            }
-
-            // ── Step 3: Build query via /parse ────────────────────────────────
-            await parseQuery(userId);
-        }
-
-        async function parseQuery(userId) {
-            const text      = document.getElementById('input').value.trim();
-            if (!text) return;
-            const model     = getAskModel(text) || 'groq';
-            const cleanText = text.replace(/^Ask:\s*\w+[.,]?\s*/i, '').trim() || text;
-            const panel     = document.getElementById('chatPanel');
-
-            addDivider();
-            const entry = document.createElement('div');
-            entry.className = 'chat-entry';
-            const qFirst = text.split('\n')[0];
-            const qRest  = text.split('\n').slice(1).join('\n');
-            entry.innerHTML = `
-                <div class="chat-query">Q: ${escapeHtml(qFirst)}${qRest ? '<span style="font-weight:normal"><br>' + escapeHtml(qRest) + '</span>' : ''}</div>
-                <div class="mq-label">▸ Mobius Query (press Ask to send)</div>`;
-            const mqPreview = document.createElement('div');
-            mqPreview.className = 'mq-block';
-            mqPreview.textContent = 'Building...';
-            entry.appendChild(mqPreview);
-
-            // Show image previews
-            for (const f of attachedFiles) {
-                if (f.mimeType?.startsWith('image/')) {
-                    const img = document.createElement('img');
-                    img.className = 'img-thumb';
-                    img.src = `data:${f.mimeType};base64,${f.base64}`;
-                    entry.appendChild(img);
-                }
-            }
-            panel.appendChild(entry);
-            scrollToBottom();
-
-            // Inject code session context if active
-            let effectiveModel = model;
-            let effectiveContext = mobiusContext; // always just environment data
-            let forceInstructionMode = null;
-            let codeSessionFile = null;           // virtual file for code session content
-            const codeSession = window.getCodeSession ? window.getCodeSession() : null;
-            if (codeSession) {
-                effectiveModel       = 'gemini';
-                forceInstructionMode = 'Code';
-
-                // Parse audit sections — exclude REPO/SCAN (already in code index)
-                let auditPlan = '', auditStatus = '', auditChat = '';
-                if (codeSession.auditContent) {
-                    const auditplanMatch = codeSession.auditContent.match(/^## AUDITPLAN\s*\n([\s\S]*?)(?=^## |$)/m);
-                    const statusMatch    = codeSession.auditContent.match(/^## STATUS\s*\n([\s\S]*?)(?=^## |$)/m);
-                    const chatMatch      = codeSession.auditContent.match(/^## CHAT\s*\n([\s\S]*)/m);
-                    auditPlan   = auditplanMatch ? auditplanMatch[1].trim() : '';
-                    auditStatus = statusMatch    ? statusMatch[1].trim()    : '';
-                    auditChat   = chatMatch      ? chatMatch[1].trim()      : '';
-                }
-
-                // Pre-append current user message so Gemini sees the full conversation
-                const now = new Date().toLocaleString('en-AU');
-                const auditChatWithUser = auditChat
-                    ? auditChat + '\n\n[' + now + '] YOU\n' + cleanText
-                    : '[' + now + '] YOU\n' + cleanText;
-
-                // Build composite session document
-                const sessionDoc =
-                    '# Code Session: ' + codeSession.projectName + '\n\n' +
-                    (codeSession.mapContent  ? '=== PROJECT MAP ===\n'  + codeSession.mapContent  + '\n\n' : '') +
-                    (codeSession.repoContent ? '=== CODE INDEX ===\n'   + codeSession.repoContent + '\n\n' : '') +
-                    (auditPlan               ? '=== AUDIT PLAN ===\n'   + auditPlan               + '\n\n' : '') +
-                    (auditStatus             ? '=== AUDIT STATUS ===\n' + auditStatus             + '\n\n' : '') +
-                    '=== AUDIT CHAT ===\n' + auditChatWithUser;
-
-                // Encode as a virtual file attachment
-                codeSessionFile = {
-                    name:     codeSession.projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_') + '_session.txt',
-                    mimeType: 'text/plain',
-                    base64:   btoa(unescape(encodeURIComponent(sessionDoc))),
-                    size:     sessionDoc.length
-                };
-            }
-
-        try {
-                const res  = await fetch('/parse', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text:cleanText, model:effectiveModel, history:chatHistory, forceInstructionMode })
-                });
-                const data = await res.json();
-                pendingMobiusQuery = data.mobius_query;
-                // Build environment context as a virtual file
-                const envFile = mobiusContext ? {
-                    name:     'environment.txt',
-                    mimeType: 'text/plain',
-                    base64:   btoa(unescape(encodeURIComponent(mobiusContext))),
-                    size:     mobiusContext.length
-                } : null;
-
-                pendingMobiusQuery.FILES = [
-                    ...(envFile         ? [envFile]         : []),
-                    ...(codeSessionFile ? [codeSessionFile] : []),
-                    ...attachedFiles
-                ];
-                // Attach focused file content if active
-                if (window.getFocusFile && window.getFocusFile()) {
-                    const ff = window.getFocusFile();
-                    const focusAttachment = {
-                        name: ff.name,
-                        mimeType: 'text/plain',
-                        base64: btoa(unescape(encodeURIComponent(ff.content || ''))),
-                        size: ff.content ? ff.content.length : 0
-                    };
-                    pendingMobiusQuery.FILES.unshift(focusAttachment);
-                }
-                if (attachedFiles.some(f => f.mimeType?.startsWith('image/'))) {
-                    pendingMobiusQuery.ASK = 'gemini';
-                }
-                // Resolve 'local' to a display-friendly label for the preview
-                if (pendingMobiusQuery.ASK === 'local' || pendingMobiusQuery.ASK === 'webllm') {
-                    const isMobilePreview = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
-                    if (!isMobilePreview) {
-                        // Quick Ollama check for desktop label
-                        try {
-                            const ollamaCheck = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(5000) });
-                            if (ollamaCheck.ok) {
-                                const od = await ollamaCheck.json();
-                                const modelNames = (od.models || []).map(m => m.name.split(':')[0]).join(', ');
-                                pendingMobiusQuery.ASK = 'Ollama (' + (modelNames || 'local') + ')';
-                            } else {
-                                pendingMobiusQuery.ASK = 'WebGPU/WebLLM';
-                            }
-                        } catch { pendingMobiusQuery.ASK = 'WebGPU/WebLLM'; }
-                    } else {
-                        pendingMobiusQuery.ASK = 'WebLLM';
-                    }
-                }
-                // Wrap mqPreview in a relative container and add confirm/cancel buttons
-                const mqWrapper = document.createElement('div');
-                mqWrapper.className = 'mq-wrapper';
-                mqPreview.parentNode.insertBefore(mqWrapper, mqPreview);
-                mqWrapper.appendChild(mqPreview);
-
-                const confirmBtns = document.createElement('div');
-                confirmBtns.className = 'mq-confirm-btns';
-                confirmBtns.innerHTML =
-                    '<button class="mq-btn-confirm" title="Send query" onclick="mqConfirm()">&#10003;</button>' +
-                    '<button class="mq-btn-cancel"  title="Cancel"     onclick="mqCancel()">&#10007;</button>';
-                mqWrapper.appendChild(confirmBtns);
-
-                mqPreview.textContent = formatMobiusQuery(pendingMobiusQuery);
-                document.getElementById('askBtn').disabled = true;
-                scrollToBottom();
-            } catch (err) {
-                mqPreview.textContent = 'Error: ' + err.message;
-                pendingMobiusQuery = null;
-            }
-        }
-
-        function mqConfirm() {
-            document.getElementById('askBtn').disabled = false;
-            const userId = getAuth('mobius_user_id');
-            if (userId && pendingMobiusQuery) executeQuery(userId);
-        }
-
-        function mqCancel() {
-            document.getElementById('askBtn').disabled = false;
-            globalEscape();
-        }
-
-        async function executeQuery(userId) {
-            const panel = document.getElementById('chatPanel');
-            const mq    = pendingMobiusQuery;
-            pendingMobiusQuery = null;
-            attachedFiles = [];
-            document.getElementById('fileChips').innerHTML = '';
-
-            const modelLabel  = mq.ASK; // full name now comes from _ai.js MODEL_FULL_NAMES
-            const answerLabel = document.createElement('div');
-            answerLabel.className = 'chat-label';
-            answerLabel.textContent = `A:(${modelLabel})`;
-            const answerDiv = document.createElement('div');
-            answerDiv.className = 'chat-answer thinking';
-            answerDiv.textContent = 'Thinking...';
-            const wrapper = document.createElement('div');
-            wrapper.appendChild(answerLabel);
-            wrapper.appendChild(answerDiv);
-            panel.appendChild(wrapper);
-            scrollToBottom();
-
-            // ── Local AI path (Ollama or WebLLM) ───────────────────────────────
-            if (mq.ASK === 'qwen' || mq.ASK === 'deepseek') {
-                try {
-                    const ollamaModel = mq.ASK === 'qwen' ? 'qwen2.5-coder:7b' : 'deepseek-r1:7b';
-                    const modelLabel  = mq.ASK === 'qwen' ? 'Ollama Qwen 2.5 Coder (local)' : 'Ollama DeepSeek R1 7B (local)';
-                    answerDiv.textContent = '⚡ Connecting to Ollama...';
-                    const r = await fetch('http://localhost:11434/v1/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            model: ollamaModel,
-                            messages: [...(mq.HISTORY || []), { role: 'user', content: mq.QUERY }]
-                        })
-                    });
-                    if (!r.ok) throw new Error('Ollama returned ' + r.status);
-                    const data    = await r.json();
-                    const content = data.choices?.[0]?.message?.content;
-                    if (!content) throw new Error('No content from Ollama');
-                    answerDiv.className     = 'chat-answer';
-                    answerDiv.innerHTML     = markdownToHtml(content);
-                    answerLabel.textContent = `A:(${modelLabel})`;
-                    addResponseToolbar(wrapper, content, modelLabel, mq.QUERY);
-                    chatHistory.push({ role: 'user',      content: mq.QUERY });
-                    chatHistory.push({ role: 'assistant', content });
-                    document.getElementById('input').value = '';
-                    scrollToBottom();
-                } catch (err) {
-                    answerDiv.className   = 'chat-answer';
-                    answerDiv.textContent = '❌ ' + (err.message.includes('Failed to fetch') || err.message.includes('Ollama')
-                        ? 'Ollama unavailable. Is it running? Start it with start-ollama.bat'
-                        : err.message);
-                }
-                return;
-            }
-
-            if (mq.ASK === 'webllm' || mq.ASK === 'local' || mq.ASK === 'WebLLM' || mq.ASK.startsWith('Ollama')) {
-                try {
-                    const messages = [
-                        ...(mq.HISTORY || []),
-                        { role: 'user', content: mq.QUERY }
-                    ];
-                    const { reply, modelUsed } = await window.askLocal(
-                        messages,
-                        msg => { answerDiv.textContent = msg; scrollToBottom(); }
-                    );
-                    answerDiv.className   = 'chat-answer';
-                    answerDiv.innerHTML   = markdownToHtml(reply);
-                    answerLabel.textContent = `A:(${modelUsed})`;
-                    addResponseToolbar(wrapper, reply, modelUsed, mq.QUERY);
-                    chatHistory.push({ role: 'user',      content: mq.QUERY });
-                    chatHistory.push({ role: 'assistant', content: reply });
-                    document.getElementById('input').value = '';
-                    scrollToBottom();
-                } catch (err) {
-                    answerDiv.className   = 'chat-answer';
-                    answerDiv.textContent = '❌ ' + err.message;
-                }
-                return;
-            }
-
-            try {
-                const res  = await fetch('/ask', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mobius_query:mq, userId, session_id: (typeof getSessionId === 'function' && getSessionId()) || currentSessionId })
-                });
-                const data = await res.json();
-                const reply     = data.reply || data.error;
-                const usedModel = data.modelUsed || mq.ASK;
-                answerDiv.className = 'chat-answer';
-                answerDiv.innerHTML = markdownToHtml(reply);
-                const tokenInfo = (data.tokensIn || data.tokensOut)
-                    ? '  ·  ' + (data.tokensIn ? data.tokensIn.toLocaleString() + ' in' : '') +
-                      (data.tokensIn && data.tokensOut ? ' / ' : '') +
-                      (data.tokensOut ? data.tokensOut.toLocaleString() + ' out' : '') + ' tokens'
-                    : '';
-                answerLabel.textContent = `A:(${modelLabels[usedModel] || usedModel})${tokenInfo}`;
-                addResponseToolbar(wrapper, reply, usedModel, mq.QUERY);
-                // ── Post-processor: surface flags from server ────────────────────────────────
-                if (data.postFlags && data.postFlags.length > 0) {
-                    data.postFlags.forEach(flag => {
-                        if (window.addSessionFlag) window.addSessionFlag(flag);
-                    });
-                    const flagBar = document.createElement('div');
-                    flagBar.style.cssText = 'margin-top:4px;padding:4px 10px;background:#fff8e8;border-left:3px solid #a06800;font-size:12px;color:#a06800;border-radius:1px;';
-                    flagBar.textContent = '⚠️  ' + data.postFlags.join('  |  ');
-                    wrapper.appendChild(flagBar);
-                }
-                // ── Failed models: surface any fallback failures ──────────────────────────────
-                if (data.failedModels && data.failedModels.length > 0) {
-                    const failBar = document.createElement('div');
-                    failBar.style.cssText = 'margin-top:3px;padding:3px 10px;background:#f8efef;border-left:3px solid #8d3a3a;font-size:11px;color:#8d3a3a;border-radius:1px;';
-                    failBar.textContent = '❌ Failed: ' + data.failedModels.map(f => f.model + ' (' + f.reason + ')').join('  |  ');
-                    wrapper.appendChild(failBar);
-                }
-                chatHistory.push({ role:'user', content:mq.QUERY });
-                chatHistory.push({ role:'assistant', content:reply });
-                document.getElementById('input').value = '';
-                scrollToBottom();
-            } catch (err) {
-                answerDiv.className = 'chat-answer';
-                answerDiv.textContent = 'Error: ' + err.message;
-            }
-        }
-
-        // ── New Chat ──────────────────────────────────────────────────────────
-        window.newChat = function(topic) {
-            // Clear chat panel and reset history
-            document.getElementById('chatPanel').innerHTML = '';
-            chatHistory = [];
-            currentSessionId = generateSessionId(); // new session = new UUID
-            attachedFiles = [];
-            document.getElementById('fileChips').innerHTML = '';
-            pendingMobiusQuery = null;
-            currentNavIndex = -1;
-
-            if (topic) {
-                // Show a subtle header, then fire the topic as a new query
-                const header = document.createElement('div');
-                header.style.cssText = 'font-size:12px;color:#8d7c64;margin-bottom:12px;font-style:italic;';
-                header.textContent = '🆕 New chat: ' + topic;
-                document.getElementById('chatPanel').appendChild(header);
-                document.getElementById('input').value = topic;
-                handleAsk();
-            } else {
-                const header = document.createElement('div');
-                header.style.cssText = 'font-size:12px;color:#8d7c64;margin-bottom:12px;font-style:italic;';
-                header.textContent = '🆕 New chat started';
-                document.getElementById('chatPanel').appendChild(header);
-                document.getElementById('input').value = '';
-                document.getElementById('input').focus();
-            }
-        };
-
-        // ── Query category classifier (client-side, fast) ─────────────────
-        function classifyQuery(text) {
-            const t = (text || '').toLowerCase();
-            if (/\b(code|function|script|debug|error|javascript|python|html|css|api|deploy|git|npm)\b/.test(t)) return 'coding';
-            if (/\b(health|medicine|medication|symptom|disease|diagnosis|treatment|doctor|surgery|drug|clinical)\b/.test(t)) return 'health';
-            if (/\b(philosophy|ethics|consciousness|meaning|exist|ontolog|epistemol|metaphysic|plato|aristotle|kant|nietzsche)\b/.test(t)) return 'philosophy';
-            if (/\b(politic|government|policy|election|democracy|law|legal|constitution|rights|justice)\b/.test(t)) return 'politics';
-            if (/\b(science|physics|biology|chemistry|evolution|quantum|climate|research|study|experiment)\b/.test(t)) return 'science';
-            if (/\b(history|war|civilisation|empire|ancient|medieval|revolution|century)\b/.test(t)) return 'history';
-            if (/\b(religion|theology|god|faith|bible|quran|buddhism|spirituality|prayer|church)\b/.test(t)) return 'religion';
-            if (/\b(psychology|behaviour|emotion|cognitive|mental|personality|trauma|therapy)\b/.test(t)) return 'psychology';
-            if (/\b(economy|finance|market|investment|gdp|inflation|trade|business|money)\b/.test(t)) return 'economics';
-            if (/\b(gpr|gprtool|lai|plant|landscape|greenery|architecture|urban|design)\b/.test(t)) return 'gpr';
-            return 'general';
-        }
-        window.classifyQuery = classifyQuery;
-
-        // ── Response toolbar ───────────────────────────────────────────────
-        function addResponseToolbar(entry, replyText, modelUsed, queryText) {
-            const toolbar = document.createElement('div');
-            toolbar.className = 'resp-toolbar';
-
-            // Copy
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'resp-btn';
-            copyBtn.title = 'Copy response';
-            copyBtn.textContent = '⧉';
-            copyBtn.onclick = () => {
-                navigator.clipboard.writeText(replyText).then(() => {
-                    copyBtn.textContent = '✓';
-                    setTimeout(() => { copyBtn.textContent = '⧉'; }, 1500);
-                });
-            };
-
-            // Shorten
-            const shortenBtn = document.createElement('button');
-            shortenBtn.className = 'resp-btn';
-            shortenBtn.title = 'Shorten this response';
-            shortenBtn.textContent = '📏';
-            shortenBtn.onclick = () => {
-                const input = document.getElementById('input');
-                input.value = 'Summarise the following in under 150 words, keeping only the key points:\n\n' + replyText;
-                input.style.height = 'auto';
-                input.style.height = input.scrollHeight + 'px';
-                input.focus();
-            };
-
-            // ── Feedback helpers ────────────────────────────────────────────
-            const category = classifyQuery(queryText || '');
-            const userId   = getAuth('mobius_user_id');
-            let   voted    = null; // 'up' | 'down' | null
-
-            async function sendFeedback(vote) {
-                if (!userId) return;
-                try {
-                    await fetch('/ask', {
-                        method:  'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            mobius_query: { ASK: '__feedback__', INSTRUCTIONS: 'Brief', HISTORY: [], QUERY: '', FILES: [] },
-                            userId,
-                            feedback: { vote, model: modelUsed, category, query: (queryText || '').slice(0, 200) }
-                        })
-                    });
-                } catch(e) { /* silent — feedback never blocks */ }
-            }
-
-            async function handleDownvoteRetry(wrapper) {
-                // Show retry status inline
-                const retryBar = document.createElement('div');
-                retryBar.style.cssText = 'margin-top:4px;padding:4px 10px;background:#fff8e8;border-left:3px solid #a06800;font-size:12px;color:#a06800;border-radius:1px;';
-                retryBar.textContent = '↻ Poor response noted. Trying a different model...';
-                wrapper.appendChild(retryBar);
-
-                // Pick a different model to retry with
-                const fallbackOrder = ['gemini', 'groq', 'github', 'gemini-lite'];
-                const currentProvider = (modelUsed || '').toLowerCase();
-                const nextModel = fallbackOrder.find(m => !currentProvider.includes(m)) || 'gemini';
-
-                try {
-                    const input   = document.getElementById('input');
-                    const lastQ   = chatHistory.length >= 2 ? chatHistory[chatHistory.length - 2].content : '';
-                    if (!lastQ) { retryBar.textContent = '↻ Could not identify query to retry.'; return; }
-
-                    const res  = await fetch('/parse', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: lastQ, model: nextModel, history: chatHistory.slice(0, -2) })
-                    });
-                    const data = await res.json();
-                    const mq   = data.mobius_query;
-                    mq.FILES   = [];
-
-                    const askRes  = await fetch('/ask', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mobius_query: mq, userId, session_id: currentSessionId })
-                    });
-                    const askData = await askRes.json();
-                    const newReply    = askData.reply || askData.error;
-                    const newModel    = askData.modelUsed || nextModel;
-
-                    retryBar.textContent = '↻ Retried with ' + newModel;
-
-                    // Append new answer below
-                    const newWrapper  = document.createElement('div');
-                    const newLabel    = document.createElement('div');
-                    newLabel.className = 'chat-label';
-                    newLabel.textContent = 'A:(' + newModel + ') [retry]';
-                    const newAnswer   = document.createElement('div');
-                    newAnswer.className = 'chat-answer';
-                    newAnswer.innerHTML = markdownToHtml(newReply);
-                    newWrapper.appendChild(newLabel);
-                    newWrapper.appendChild(newAnswer);
-                    addResponseToolbar(newWrapper, newReply, newModel, lastQ);
-                    wrapper.after(newWrapper);
-
-                    // Update chat history with retry answer
-                    chatHistory[chatHistory.length - 1].content = newReply;
-                    scrollToBottom();
-                } catch(err) {
-                    retryBar.textContent = '↻ Retry failed: ' + err.message;
-                }
-            }
-
-            // Upvote
-            const upvote = document.createElement('button');
-            upvote.className = 'resp-btn';
-            upvote.title = 'Good response';
-            upvote.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
-            upvote.onclick = () => {
-                if (voted === 'up') return;
-                voted = 'up';
-                upvote.classList.add('active-up');
-                upvote.querySelector('svg').setAttribute('fill', 'currentColor');
-                downvote.classList.remove('active-down');
-                downvote.querySelector('svg').setAttribute('fill', 'none');
-                sendFeedback('up');
-            };
-
-            // Downvote
-            const downvote = document.createElement('button');
-            downvote.className = 'resp-btn';
-            downvote.title = 'Poor response — retry with different model';
-            downvote.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
-            downvote.onclick = () => {
-                if (voted === 'down') return;
-                voted = 'down';
-                downvote.classList.add('active-down');
-                downvote.querySelector('svg').setAttribute('fill', 'currentColor');
-                upvote.classList.remove('active-up');
-                upvote.querySelector('svg').setAttribute('fill', 'none');
-                sendFeedback('down');
-                handleDownvoteRetry(entry);
-            };
-
-            // Up nav
-            const upBtn = document.createElement('button');
-            upBtn.className = 'resp-btn';
-            upBtn.title = 'Previous';
-            upBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18,15 12,9 6,15"/></svg>';
-            upBtn.onclick = () => navigateChat(-1);
-
-            // Down nav
-            const downBtn = document.createElement('button');
-            downBtn.className = 'resp-btn';
-            downBtn.title = 'Next';
-            downBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>';
-            downBtn.onclick = () => navigateChat(1);
-
-            toolbar.appendChild(copyBtn);
-            toolbar.appendChild(shortenBtn);
-            toolbar.appendChild(upvote);
-            toolbar.appendChild(downvote);
-            toolbar.appendChild(upBtn);
-            toolbar.appendChild(downBtn);
-            entry.appendChild(toolbar);
-        }
-
-        // ── Navigation & search ───────────────────────────────────────────────
-        function getQueryEntries() { return Array.from(document.querySelectorAll('.chat-entry')); }
-        function navigateChat(dir) {
-            const entries = getQueryEntries();
-            if (!entries.length) return;
-            currentNavIndex = Math.max(0, Math.min(entries.length-1, currentNavIndex+dir));
-            entries[currentNavIndex].scrollIntoView({ behavior:'smooth', block:'start' });
-        }
-        function searchChat(term) {
-            const panel = document.getElementById('chatPanel');
-            panel.querySelectorAll('mark').forEach(m => m.replaceWith(document.createTextNode(m.textContent)));
-            panel.normalize();
-            if (!term.trim()) return;
-            const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
-            const matches = [];
-            let node;
-            while (node = walker.nextNode()) {
-                if (node.textContent.toLowerCase().includes(term.toLowerCase())) matches.push(node);
-            }
-            matches.forEach(node => {
-                const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi');
-                const span  = document.createElement('span');
-                span.innerHTML = node.textContent.replace(regex, '<mark style="background:#c8b89a;color:#2a2a2a;">$1</mark>');
-                node.replaceWith(span);
-            });
-            const first = panel.querySelector('mark');
-            if (first) first.scrollIntoView({ behavior:'smooth', block:'center' });
-        }
-
-        // ── Google auto-connect ───────────────────────────────────────────────
-        // Handle returning from Google OAuth
-        if (window.location.search.includes('google_email')) {
-            const params = new URLSearchParams(window.location.search);
-            const googleEmail = params.get('google_email');
-            if (googleEmail) {
-                setAuth('mobius_username', googleEmail);
-                setAuth('mobius_google_connected', '1');
-                document.getElementById('userLabel').textContent = 'User: ' + googleEmail;
-            }
-            history.replaceState({}, '', '/');
-        }
-
-        // Handle returning from Dropbox OAuth
-        if (window.location.search.includes('dropbox_connected')) {
-            history.replaceState({}, '', '/');
-        }
-
-        // ── Sync indicator helpers ─────────────────────────────────────
-        function setSyncStatus(text, color) {
-            const el = document.getElementById('syncIndicator');
-            if (!el) return;
-            el.textContent = text;
-            el.style.color = color || '#8d7c64';
-            el.title       = text;
-        }
-        window.setSyncStatus = setSyncStatus;
-
-        // ── Background sync (Google + Dropbox) ──────────────────────
-        async function backgroundSync(userId, incremental) {
-            setSyncStatus('⟳ syncing', '#a06800');
-            try {
-                // Check if any Google accounts are connected first
-                const accRes  = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId));
-                const accData = await accRes.json();
-                const hasGoogle = (accData.accounts || []).length > 0;
-
-                if (!hasGoogle) {
-                    setSyncStatus('⚠ no accounts', '#a06800');
-                    return;
-                }
-
-                // Sync Google (calendars, emails, drive)
-                const body = { userId, type: 'all' };
-                if (incremental) body.since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-                const res  = await fetch('/api/sync', {
-                    method:  'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body:    JSON.stringify(body)
-                });
-                const data = await res.json();
-                if (data.error) { setSyncStatus('⚠ sync error', '#8d3a3a'); return; }
-
-                // Sync Dropbox silently (only if connected)
-                fetch('/api/dropbox', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId })
-                }).catch(() => {});
-
-                const now = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
-                setSyncStatus('✓ ' + now, '#4a7c4e');
-            } catch {
-                setSyncStatus('⚠ offline', '#8d3a3a');
-            }
-        }
-
-        // ── 5-minute incremental poll ──────────────────────────────────────
-        let syncInterval = null;
-        function startSyncPoll(userId) {
-            if (syncInterval) return;
-            syncInterval = setInterval(() => backgroundSync(userId, true), 5 * 60 * 1000);
-        }
-
-        // Auto-connect personal Google account (first login only)
-        async function autoConnectGoogle() {
-            const userId = getAuth('mobius_user_id');
-            if (!userId) return;
-            if (getAuth('mobius_google_connected') === '1') return;
-            if (sessionStorage.getItem('mobius_google_attempted') === '1') return;
-            sessionStorage.setItem('mobius_google_attempted', '1');
-            window.location.href = '/auth/google?userId=' + userId +
-                '&label=personal' +
-                '&returnTo=' + encodeURIComponent(window.location.origin);
-        }
-
-        // ── Startup status panel ──────────────────────────────
-        async function showStartupStatus(userId) {
-            const panel = document.getElementById('chatPanel');
-            const entry = document.createElement('div');
-            entry.className = 'chat-entry';
-            entry.style.cssText = 'padding:10px 14px;background:#f0ebe0;border:1px solid #d4c9b5;border-radius:1px;margin-bottom:8px;font-size:13px;color:#3a2e22;';
-
-            const title = document.createElement('div');
-            title.style.cssText = 'font-weight:bold;margin-bottom:8px;color:#4a3728;';
-            title.textContent = '⛳ Mobius starting up…';
-            entry.appendChild(title);
-
-            function addRow(id, icon, label) {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;gap:8px;padding:2px 0;align-items:center;';
-                row.innerHTML = '<span style="width:16px;text-align:center;flex-shrink:0;">' + icon + '</span>' +
-                    '<span style="flex:1;">' + label + '</span>' +
-                    '<span id="' + id + '" style="color:#a06800;">checking…</span>';
-                entry.appendChild(row);
-            }
-            addRow('su-google',  '🔗', 'Google accounts');
-            addRow('su-dropbox', '📦', 'Dropbox');
-            const isMobileDev = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
-            addRow('su-local',   '🧠', isMobileDev ? 'Local AI (WebLLM)' : 'Local AI (Ollama)');
-            addRow('su-cloud',   '🤖', 'Cloud AI');
-            addRow('su-sync',    '🔄', 'Background sync');
-            panel.insertBefore(entry, panel.firstChild);
-
-            function setVal(id, text, color) {
-                const el = document.getElementById(id);
-                if (el) { el.textContent = text; el.style.color = color || '#4a7c4e'; }
-            }
-
-            // Check all services in parallel
-            await Promise.allSettled([                // Cloud AI models
-                (async () => {
-                    try {
-                        const r = await fetch('/api/services/status', { signal: AbortSignal.timeout(15000) });
-                        const d = await r.json();
-                        const labels = { groq: 'Groq', gemini: 'Gemini', mistral: 'Mistral', github: 'GitHub' };
-                        const parts = (d.models || []).map(m =>
-                            (m.ok ? '✅' : '❌') + ' ' + (labels[m.key] || m.name)
-                        ).join('  ');
-                        setVal('su-cloud', parts || '⚠️ no models', parts ? '#4a7c4e' : '#a06800');
-                    } catch { setVal('su-cloud', '❌ unreachable', '#8d3a3a'); }
-                })(),
-                // Google accounts
-                (async () => {
-                    try {
-                        const r = await fetch('/api/google/accounts?userId=' + encodeURIComponent(userId));
-                        const d = await r.json();
-                        const accs = d.accounts || [];
-                        setVal('su-google', accs.length ? '✅ ' + accs.map(a => a.label).join(', ') : '⚠️ none connected', accs.length ? '#4a7c4e' : '#a06800');
-                    } catch { setVal('su-google', '❌ error', '#8d3a3a'); }
-                })(),
-                // Dropbox
-                (async () => {
-                    try {
-                        const r = await fetch('/api/dropbox/list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, path: '' }) });
-                        const d = await r.json();
-                        setVal('su-dropbox', d.ok ? '✅ connected' : '⚠️ not connected', d.ok ? '#4a7c4e' : '#a06800');
-                    } catch { setVal('su-dropbox', '⚠️ not connected', '#8d7c64'); }
-                })(),
-                // Local AI — Ollama on desktop, WebGPU/WebLLM on mobile
-                (async () => {
-                    try {
-                        if (isMobileDev) {
-                            if (navigator.gpu) {
-                                const adapter = await navigator.gpu.requestAdapter();
-                                setVal('su-local', adapter ? '✅ WebGPU ready' : '⚠️ WebGPU unavailable', adapter ? '#4a7c4e' : '#a06800');
-                            } else {
-                                setVal('su-local', '⚠️ WebGPU not supported', '#a06800');
-                            }
-                        } else {
-                            const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(5000) });
-                            if (r.ok) {
-                                const d = await r.json();
-                                const models = (d.models || []).map(m => m.name.split(':')[0]).join(', ') || 'running';
-                                setVal('su-local', '✅ ' + models, '#4a7c4e');
-                            } else setVal('su-local', '⚠️ not running', '#a06800');
-                        }
-                    } catch { setVal('su-local', isMobileDev ? '⚠️ WebGPU check failed' : '⚠️ not running (cloud only)', '#8d7c64'); }
-                })()
-            ]);
-
-            // Sync last (sequential — shows progress)
-            setVal('su-sync', '⟳ syncing…', '#a06800');
-            await backgroundSync(userId, false);
-            // Read sync result from indicator (backgroundSync updates it)
-            const syncEl = document.getElementById('syncIndicator');
-            const syncOk = syncEl && syncEl.textContent.startsWith('✓');
-            const now = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
-            if (syncOk) {
-                setVal('su-sync', '✅ done at ' + now, '#4a7c4e');
-            } else if (syncEl && syncEl.textContent.includes('no accounts')) {
-                setVal('su-sync', '⚠️ no accounts connected', '#a06800');
-            } else {
-                setVal('su-sync', '❌ sync failed', '#8d3a3a');
-            }
-            title.textContent = '✅ Mobius ready — ' + new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
-        }
-
-        // ── Startup sequence ──────────────────────────────────────────────
-        (async () => {
-            const userId = getAuth('mobius_user_id');
-            if (!userId) return;
-            await autoConnectGoogle();
-            showStartupStatus(userId);  // show status panel + run full sync
-            startSyncPoll(userId);      // start 5-min incremental poll
-        })();
-    </script>
-
-    <script type="module">
-      import * as webllm from 'https://esm.run/@mlc-ai/web-llm';
-
-      // ── Local AI state ────────────────────────────────────────────────────
-      let webllmEngine  = null;
-      let webllmLoading = false;
-      let webllmReady   = false;
-      let webllmModel   = null;
-
-      // ── Model selection: Qwen2.5-Coder, size by device ───────────────────
-      function selectWebLLMModel() {
-        const mem    = navigator.deviceMemory || 4;
-        const mobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
-        return (mobile || mem <= 4)
-          ? 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC'
-          : 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC';
-      }
-
-      // ── Detect Ollama on localhost ────────────────────────────────────────
-      async function detectOllama() {
-        try {
-          const r = await fetch('http://localhost:11434/api/tags',
-          { signal: AbortSignal.timeout(5000) });
-          return r.ok;
-        } catch { return false; }
-      }
-
-      // ── Ask Ollama directly (bypass /ask serverless) ──────────────────────
-      async function resolveOllamaModelLocal() {
-        try {
-          const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
-          const data = await r.json();
-          const pulled = (data.models || []).map(m => m.name);
-          if (!pulled.length) return 'qwen2.5-coder:7b';
-          return (
-            pulled.find(m => m.includes('qwen') && m.includes('coder')) ||
-            pulled.find(m => m.includes('deepseek'))                     ||
-            pulled.find(m => m.includes('coder'))                        ||
-            pulled[0]
-          );
-        } catch { return 'qwen2.5-coder:7b'; }
-      }
-
-      async function askOllamaLocal(messages, preferredModel) {
-        const model = preferredModel || await resolveOllamaModelLocal();
-        const r = await fetch('http://localhost:11434/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model, messages })
         });
-        if (!r.ok) throw new Error('Ollama returned ' + r.status);
-        const data = await r.json();
-        const content = data.choices?.[0]?.message?.content;
-        if (!content) throw new Error('No content from Ollama');
-        return { reply: content, modelUsed: 'Ollama ' + model + ' (local)' };
-      }
-
-      // ── Init WebLLM engine (downloads model on first use) ────────────────
-      async function initWebLLM(onProgress) {
-        if (webllmReady) return true;
-        if (webllmLoading) return false;
-        webllmLoading = true;
-        // Request persistent storage so Chrome won't evict the model cache
-        if (navigator.storage?.persist) await navigator.storage.persist();
-        webllmModel   = selectWebLLMModel();
-        try {
-          webllmEngine = await webllm.CreateMLCEngine(webllmModel, {
-            initProgressCallback: info => {
-              if (onProgress) onProgress(info.text || String(info));
-            }
-          });
-          webllmReady   = true;
-          webllmLoading = false;
-          return true;
-        } catch (err) {
-          webllmLoading = false;
-          throw err;
-        }
-      }
-
-      // ── Ask WebLLM ────────────────────────────────────────────────────────
-      async function askWebLLMLocal(messages) {
-        if (!webllmReady) throw new Error('WebLLM not ready');
-        const result  = await webllmEngine.chat.completions.create({ messages });
-        const content = result.choices?.[0]?.message?.content;
-        if (!content) throw new Error('No content from WebLLM');
-        return { reply: content, modelUsed: 'WebLLM ' + webllmModel };
-      }
-
-      // ── Install consent prompt ────────────────────────────────────────────
-      window.promptWebLLMInstall = function() {
-        return new Promise(resolve => {
-          if (localStorage.getItem('webllm_consent') === '1') { resolve(true); return; }
-          const overlay = document.createElement('div');
-          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;';
-          const box = document.createElement('div');
-          box.style.cssText = 'background:#f5eedd;border:1px solid #8d7c64;border-radius:2px;padding:24px 28px;max-width:420px;width:90%;font-family:"Century Gothic","Avenir","Segoe UI",sans-serif;color:#3a2e22;';
-          box.innerHTML = `
-            <div style="font-size:17px;font-weight:bold;margin-bottom:12px;">Enable Offline AI?</div>
-            <div style="font-size:14px;line-height:1.6;margin-bottom:18px;">
-              Would you like to enable Mobius to run offline? This will require a one-time download of a local AI model, approximately 1.5\u20134.5 GB depending on your device. The model is stored in your browser \u2014 clearing browser data will remove it.
-            </div>
-            <div style="display:flex;gap:10px;justify-content:flex-end;">
-              <button id="wllm-cancel" style="padding:6px 18px;background:transparent;border:1px solid #8d7c64;border-radius:1px;color:#8d7c64;cursor:pointer;font-family:inherit;font-size:14px;">Cancel</button>
-              <button id="wllm-ok" style="padding:6px 18px;background:#4a7c4e;border:none;border-radius:1px;color:#fff;cursor:pointer;font-family:inherit;font-size:14px;">Download &amp; Enable</button>
-            </div>`;
-          overlay.appendChild(box);
-          document.body.appendChild(overlay);
-          document.getElementById('wllm-ok').onclick = () => {
-            localStorage.setItem('webllm_consent', '1');
-            document.body.removeChild(overlay);
-            resolve(true);
-          };
-          document.getElementById('wllm-cancel').onclick = () => {
-            document.body.removeChild(overlay);
-            resolve(false);
-          };
-        });
-      };
-
-      // ── Main entry: called by executeQuery() when ASK === 'webllm' ────────
-      window.askLocal = async function(messages, onStatus) {
-        const isMobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent);
-
-        // 1. Try Ollama first \u2014 desktop only (not available on mobile)
-        if (!isMobile) {
-          onStatus('\uD83D\uDD0D Checking for Ollama (desktop local AI)...');
-          const ollamaAvailable = await detectOllama();
-          if (ollamaAvailable) {
-            onStatus('\u26A1 Using Ollama...');
-            return await askOllamaLocal(messages);
-          }
-          onStatus('\u26A0\uFE0F Ollama not running \u2014 trying WebGPU...');
-        }
-
-        // 2. Check WebGPU
-        if (!navigator.gpu) {
-          throw new Error(isMobile
-            ? 'WebGPU not supported on this device. Try Ask: Groq or another cloud model.'
-            : 'No local AI available. Ollama not running and WebGPU not supported. Try Ask: Groq or another cloud model.');
-        }
-        // 3. First use \u2014 prompt for download consent
-        if (!webllmReady && !webllmLoading) {
-          const consent = await window.promptWebLLMInstall();
-          if (!consent) throw new Error('Offline AI install cancelled. Try Ask: Groq or another cloud model.');
-        }
-        // 4. Init / load WebLLM (may download model)
-        if (!webllmReady) {
-          await initWebLLM(msg => onStatus('\u2B07\uFE0F ' + msg));
-        }
-        onStatus('\uD83E\uDDE0 Running local AI...');
-        return await askWebLLMLocal(messages);
-      };
-    </script>
-
-    <script src="commands.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/service-worker.js');
-        }
-    </script>
+    }
+</script>
 </body>
 </html>

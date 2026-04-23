@@ -1,0 +1,123 @@
+Stack: JavaScript, HTML/CSS, Node.js, Vercel, Supabase, GitHub
+Key architecture: Progressive Web Application with cloud and local models
+Mobius_Coder is forked from Mobius_Vercel and uses a stripped-down version of its codebase
+It utilises a Supabase project with a schema containing five tables for data storage
+The application has a GitHub repository and a Vercel project for deployment
+
+---
+# Mobius_Coder -- file index
+_context/brief_plan.json
+_context/CLAUDE.md  --  Mobius_Coder -- Project Context
+_context/log_summary.md  --  Mobius_Coder -- Activity Log Summary
+_dev/_dev_guide.md  --  Mobius_Coder — Developer Guide
+_dev/_map.md  --  Mobius_Coder -- Repository Map
+_dev/_session.md  --  Coder Optimisation Session -- 2026-04-10
+_dev/backup.bat
+_dev/check_ollama.ps1  --  check_ollama.ps1
+_dev/download_sessions.bat
+_dev/download_sessions.ps1  --  download_sessions.ps1 - Downloads Mobius conversation sessions from Supabase
+_dev/fetch_logs.ps1  --  fetch_logs.ps1
+_dev/mobius_coder_build_plan.md  --  Mobius_Coder — Build Plan
+_dev/mobius_coder_spec.md  --  Mobius_Coder — Architecture & Logic Spec
+_dev/MobiusServer.bat
+_dev/ollama_browser_test.html
+_dev/open_coder.bat
+_dev/poll_test.ps1  --  poll_test.ps1 - list all projects to verify correct project ID
+_dev/poll_vercel.ps1  --  poll_vercel.ps1 - called by deploy.bat after git push
+_dev/project_open_protocol.md  --  Coder — Project Preparation Protocol
+_dev/push_env.ps1  --  push_env.ps1
+_dev/verify_env.ps1  --  verify_env.ps1
+api/query/[action].js  --  api/query/[action].js ─────────────────────────────────────────────────────
+api/services/[action].js  --  api/services/[action].js ──────────────────────────────────────────────────
+api/_ai.js
+api/_memory.js  --  api/_memory.js -- Mobius Memory System
+api/_supabase.js
+api/agent.js  --  api/agent.js ──────────────────────────────────────────────────────────────
+api/data.js  --  api/data.js ───────────────────────────────────────────────────────────────
+api/health.js
+api/index.js  --  api/index.js -- Code Index handler
+api/status.js  --  api/status.js ─────────────────────────────────────────────────────────────
+chats/chat-20260408-2152.md  --  Session Log -- Mobius_Coder
+chats/chat-20260409-1514.md  --  Session Log -- Mobius_Coder
+chats/chat-20260409-1600.md  --  Session Log -- Mobius_Coder
+chats/chat-20260409-1622.md  --  Session Log -- Mobius_Coder
+chats/chat-20260409-1626.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0721.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0729.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0744.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0755.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0813.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0817.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0826.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0858.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0904.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0909.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0942.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-0949.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1003.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1152.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1225.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1233.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1240.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1305.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1312.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1318.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1331.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1338.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1340.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1402.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1454.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1507.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1511.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1526.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1559.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1607.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1624.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1639.md  --  Session Log -- Mobius_Coder
+chats/chat-20260410-1644.md  --  Session Log -- Mobius_Coder
+chats/chat-20260411-0855.md  --  Session Log -- Mobius_Coder
+chats/chat-20260411-0907.md  --  Session Log -- Mobius_Coder
+chats/chat-20260411-1323.md  --  Session Log -- Mobius_Coder
+chats/chat-20260411-1331.md  --  Session Log -- Mobius_Coder
+chats/chat-20260411-1402.md  --  Session Log -- Mobius_Coder
+chats/README.md  --  Coder Session Logs
+docs/coding-protocol.md  --  Mobius_Coder — Coding Protocol
+docs/dev_notes.md  --  Mobius Dev Notes
+docs/MOBIUS_CONTEXT.md  --  MOBIUS_CONTEXT.md
+docs/mobius.json
+docs/README.md  --  Mobius — Personal AI Assistant PWA
+docs/setup.md  --  Mobius_Coder — Setup & Infrastructure
+docs/test_checklist.md  --  Mobius_Coder — Test Checklist
+js/all.js  --  js/all.js ─────────────────────────────────────────────────────────────────
+js/ask.js  --  js/ask.js ─────────────────────────────────────────────────────────────────
+js/brief.js  --  js/brief.js ──────────────────────────────────────────────────────────────
+js/catalogue.js  --  js/catalogue.js ───────────────────────────────────────────────────────────
+js/chat.js  --  js/chat.js ────────────────────────────────────────────────────────────────
+js/code.js  --  js/code.js ────────────────────────────────────────────────────────────────
+js/codeindex.js  --  js/codeindex.js -- Code Index client
+js/commands.js  --  js/commands.js ── v2 ──────────────────────────────────────────────────────
+js/connectivity.js  --  js/connectivity.js ────────────────────────────────────────────────────────
+js/debug.js  --  js/debug.js ───────────────────────────────────────────────────────────────
+js/deploy.js  --  js/deploy.js ──────────────────────────────────────────────────────────────
+js/help.js  --  js/help.js -- Mobius_Coder help system
+js/log.js  --  js/log.js -- Session log writer
+js/map.js  --  js/map.js ─────────────────────────────────────────────────────────────────
+js/memory.js  --  js/memory.js -- Mobius Memory System (client-side)
+js/orchestrator.js  --  js/orchestrator.js ────────────────────────────────────────────────────────
+js/panel.js  --  js/panel.js ───────────────────────────────────────────────────────────────
+js/project.js  --  js/project.js ─────────────────────────────────────────────────────────────
+js/router.js  --  js/router.js ──────────────────────────────────────────────────────────────
+js/scores.js  --  js/scores.js ──────────────────────────────────────────────────────────────
+js/self_test.js  --  Mobius Self-Test ──────────────────────────────────────────────────────────
+js/server.js  --  Mobius Coder Local Server ──────────────────────────────────────────────────
+js/startup.js  --  js/startup.js -- Auto-restore coderRootHandle from IndexedDB on startup.
+js/webllm.js  --  js/webllm.js ──────────────────────────────────────────────────────────────
+CLAUDE.md  --  Standing Rules
+deploy.bat
+index.html
+manifest.json
+mcp.json
+package-lock.json
+package.json
+service-worker.js  --  service-worker.js ─────────────────────────────────────────────────────────
+vercel.json

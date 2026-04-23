@@ -60,7 +60,6 @@ async function handleThink(req, res) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(500).json({ error: 'GEMINI_API_KEY not set' });
 
-  // Resolve best available Gemini Flash model (same pattern as _ai.js)
   let model = 'gemini-2.5-flash';
   try {
     const r    = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key,
@@ -81,7 +80,6 @@ async function handleThink(req, res) {
   } catch { /* use fallback */ }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-
   const body = { contents: messages };
   if (tools && tools.length > 0) body.tools = tools;
 
@@ -113,7 +111,6 @@ async function handleCommit(req, res) {
     return res.status(500).json({ error: 'GITHUB_PAT not set' });
   }
 
-  // Ensure dev branch exists — create from main if not
   let devExists = true;
   try {
     await githubGet('git/ref/heads/dev');
@@ -127,16 +124,14 @@ async function handleCommit(req, res) {
     await githubPost('git/refs', { ref: 'refs/heads/dev', sha: mainSha });
   }
 
-  // Get current file SHA on dev (required for updates; omit for new files)
   let sha;
   try {
     const existing = await githubGet('contents/' + path + '?ref=dev');
     sha = existing.sha;
   } catch {
-    sha = undefined; // new file
+    sha = undefined;
   }
 
-  // Commit to dev branch only — never main
   const body = { message, content, branch: 'dev' };
   if (sha) body.sha = sha;
 
@@ -157,7 +152,7 @@ async function handleMerge(req, res) {
     return res.status(500).json({ error: 'GITHUB_PAT not set' });
   }
 
-  const commitMessage = message || 'Code: agent — merge dev into main';
+  const commitMessage = message || 'Code: agent - merge dev into main';
 
   try {
     const result = await githubPost('merges', {
@@ -167,7 +162,6 @@ async function handleMerge(req, res) {
     });
     return res.status(200).json({ ok: true, sha: result.sha, mergeUrl: result.html_url || null });
   } catch (err) {
-    // GitHub returns 204 No Content when already up to date — not a real error
     if (err.message.includes('204') || err.message.includes('No Content')) {
       return res.status(200).json({ ok: true, alreadyUpToDate: true });
     }

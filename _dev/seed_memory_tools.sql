@@ -1,0 +1,19 @@
+-- seed_memory_tools.sql
+-- Reusable technical lessons and patterns that apply across projects.
+-- Paste into Supabase SQL editor, then run Memory: Embed to populate vectors.
+
+INSERT INTO memory_tools (id, user_id, content, tags, embedding, created_at, updated_at) VALUES
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Google text-embedding-004 is deprecated; use gemini-embedding-001 with outputDimensionality: 768 for pgvector(768) columns', ARRAY['google','embedding','gemini','supabase'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Supabase PostgREST requires pgvector passed as string "[x,y,z]" not a raw JavaScript array', ARRAY['supabase','pgvector','postgrest','format'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Supabase JS client update() with 0 rows matched returns no error -- use .select("id") after update to verify rows were written', ARRAY['supabase','update','verify','debug'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Always surface raw API error messages to the client during debugging -- generic null messages waste many deploy cycles', ARRAY['debugging','errors','api','logging'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Vercel env vars: set new keys at Team level first, then override at project level for project-specific values', ARRAY['vercel','env','config','deployment'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Git config user.email must be lotr2929@gmail.com (not Curtin email) or Vercel blocks the deployment trigger', ARRAY['git','vercel','email','config'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'filesystem:write_file is a full overwrite -- always verify file size after write; use append-only for large files', ARRAY['filesystem','write','mcp','caution'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Coplanar polygon reconstruction in Three.js requires plane equation keying + BFS flood-fill adjacency for correct surface separation', ARRAY['threejs','polygon','bfs','geometry'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Event delegation replaces direct onclick assignment on dynamically rendered HTML -- prevents listeners being stripped by outerHTML reassignment', ARRAY['javascript','events','delegation','dom'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Vercel serverless functions have a 10-second timeout -- use client-side loops with one server call per item to process large batches', ARRAY['vercel','serverless','timeout','loop'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'IndexedDB FileSystemFileHandle permission is lost on page reload -- use queryPermission() to check silently and requestPermission() on user gesture', ARRAY['indexeddb','filesystem','permission','browser'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Three.js Z-up coordinate system: set renderer and camera so X=East, Y=North, Z=Up to match CAD applications', ARRAY['threejs','coordinates','zup','cad'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'Supabase lazy-initialise client in a db() function to prevent module-load crash when env vars are missing at cold start', ARRAY['supabase','lazy','init','serverless'], NULL, now(), now()),
+  (gen_random_uuid(), '22008c93-c79b-491d-b3c1-efa194c0c871', 'For UI bugs in browser apps: always check DevTools Console output before proposing code changes -- never guess at event sequences', ARRAY['debugging','devtools','browser','ui'], NULL, now(), now());

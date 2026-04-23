@@ -1,13 +1,12 @@
 {
-  "name": "mobius-vercel",
+  "name": "mobius",
   "version": "1.0.0",
   "scripts": {
-    "dev": "node server.js",
+    "dev": "node js/server.js",
     "deploy": "vercel --prod"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.96.0",
-    "busboy": "^1.6.0",
-    "googleapis": "^171.4.0"
+    "busboy": "^1.6.0"
   }
 }

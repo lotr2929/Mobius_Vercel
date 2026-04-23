@@ -1,0 +1,140 @@
+# Mobius_Coder -- function index
+# Generated: 12 Apr 2026  1:34 pm
+
+## api/_ai.js  (21 KB)
+  askGroq(messages), resolveGeminiModel(key), askGemini(messages, imageParts), askGeminiLite(messages), askMistral(messages), askGitHub(messages)
+  askWithFallback(messages, imageParts, startModel, coding), resolveOllamaModel(), askOllama(messages, model), detectsCutoff(text), askWebSearch(messages, depth), askCerebras(messages, model)
+  askCerebrasCascade(messages), askDeepSeekCloud(messages, model), askOpenRouter(messages, model), askOpenRouterCascade(messages), askGroqCascade(messages), askGeminiCascade(messages)
+  askMistralCascade(messages)
+
+## api/_memory.js  (18 KB)
+  db(), generateEmbedding(text), writeGeneral(userId, content, source, sessionId), searchMemory(userId, query), score(row), viewMemory(userId, limit)
+  writeWorking(userId, table, content, tags, projectIds, fileRefs), deleteMemory(userId, id), distilMemory(userId, askGeminiLite, limit), countMemory(userId), embedList(userId), embedOne(userId, id, table, content)
+  updateMemory(userId, id, content)
+
+## api/_supabase.js  (12 KB)
+  saveConversation(userId, query, reply, modelUsed, topic, sessionId, meta), getChatHistory(userId, limit), logModelEvent(userId, {, //, //, //, //, //, //, //, tokensOut, errorMessage, //, //, //, //, //), startSession(userId, project, domain), closeSession(sessionId, userId), heartbeatSession(sessionId, userId)
+  getProfile(userId), saveProfile(userId, profile), getRatings(userId)
+
+## api/agent.js  (7 KB)
+  githubGet(path), githubPost(path, body), githubPut(path, body), handleThink(req, res), handleCommit(req, res), handleMerge(req, res)
+  handler(req, res)
+
+## api/data.js  (12 KB)
+  handler(req, res)
+
+## api/health.js  (1 KB)
+  handler(req, res)
+
+## api/index.js  (11 KB)
+  db(), generateEmbedding(text), handler(req, res)
+
+## api/query/[action].js  (19 KB)
+  handler(req, res), appendFileTexts(), distilAI(messages)
+
+## api/services/[action].js  (5 KB)
+  pingGroq(), pingGemini(), pingMistral(), pingGitHub(), handler(req, res)
+
+## api/status.js  (3 KB)
+  handler(req, res), ping(name, fn)
+
+## js/all.js  (13 KB)
+  getModelsToUse(), setAllMode(on), toggleAllMode(output), buildContext(userQuery), fmtMs(ms), makeRow(container, modelKey, label)
+  voteBtn(emoji, title), classifyQuery(query, userId), runAllModels(query, output, outputEl, panelMode), handleAskAll(args, output, outputEl), register()
+
+## js/ask.js  (10 KB)
+  handleAskGemini(args, output, outputEl), handleAskLite(args, output, outputEl), handleAskGroq(args, output, outputEl), handleAskCodestral(args, output, outputEl), handleAskGPT(args, output, outputEl), handleAskQwen35(args, output, outputEl)
+  handleAskQwen(args, output, outputEl), handleAskDeepSeek(args, output, outputEl), handleAskWeb(args, output, outputEl), handleAskNext(args, output, outputEl), handleAskStatus(args, output, outputEl), section(label)
+  placeholder(label), fill(p, label, ok, detail), register()
+
+## js/brief.js  (58 KB)
+  autoActivate(), esc(s), getUserId(), stableKeyFromName(name), readPlan(), writePlan(plan)
+  writeMcpTask(query, project), CALLS(name), _preScreenResponses(valid, briefText), fmtMs(ms), updateStatus(msg), fmtMsLocal(ms)
+  _buildLogText(eval_, scores, failed, step, total), _renderEvaluation(eval_, scores, failed, stepIdx, total, hasNext, mcpWritten, taskMs, evalMs, totalMs, isGenerative, MAX_SCORE), fmtMs(ms), badgeStyle(criterion, val), _renderError(msg), handleBriefStart(args, output, outputEl)
+  handleBriefStatus(args, output, outputEl), handleBriefMaintain(args, output), extractSection(text, hdr), register()
+
+## js/catalogue.js  (12 KB)
+  parseEnv(filePath), getModuleFiles(), parseCommandEntries(source, fileName), source(first), extractHandlerCode(source, handlerName), askGroq(key, handlerCode, apiKey)
+  askDeepSeek(key, handlerCode), getMetadata(key, handlerCode, groqKey), writeCatalogue(commands, stats), main()
+
+## js/chat.js  (12 KB)
+  esc(s), handleChatNew(args, output), handleChatHistory(args, output, outputEl), handleChatLog(args, output, outputEl), handleChatDiary(args, output, outputEl), handleChatPlan(args, output, outputEl)
+  handleChatEnd(args, output, outputEl), handleChatDate(args, output), handleChatTime(args, output), register()
+
+## js/code.js  (15 KB)
+  buildContext(instruction, files), withFileContext(instruction, fileOverride), findFileByName(dirHandle, target, results, depth), readHandlePath(rootHandle, relPath), resolveFiles(description, output), detectFileRef(args)
+  handleCode(args, output, outputEl), handleCodeFix(args, output, outputEl), handleCodeExplain(args, output, outputEl), handleCodeReview(args, output, outputEl), handleCodeFile(args, output, outputEl), register()
+
+## js/codeindex.js  (11 KB)
+  idxAPI(sub, body), shouldIndex(name), shouldSkipDir(name), walkDir(dirHandle, basePath, files), findFile(dirHandle, filename), parseChunks(content, filePath)
+  foo(, async, //, export, //, const)
+
+## js/commands.js  (20 KB)
+  getLastModel(), setLastModel(model), nextCloudModel(current), addToHistory(userContent, assistantContent), clearHistory(), getAuth(key)
+  openDB(), saveHandle(handle), loadHandle(), clearHandle(), ensureAccess(output, silentOnly), handleAccess(output)
+  formatMs(ms), describeError(raw), sendToAI(model, messages, output, outputEl, options), sendToLocal(startKey, messages, output, outputEl), detectCommand(text), classifyTaskType(text)
+
+## js/connectivity.js  (12 KB)
+  run(), createRow(label, status, items), updateRow(row, status, items, detail), renderRowHtml(label, status, items, detail), iconHtml(status), detailColor(status)
+  escHtml(s), collapse(), chevronUp(), chevronDown(), checkNetwork(), checkVercel()
+  checkSupabase(), checkCloudAI(), checkOllama()
+
+## js/debug.js  (18 KB)
+  initState(errorText), readFile(relPath), writeFile(relPath, content, createIfMissing), parseJSON(text), esc(s), stepBar(current)
+  card(step, title, bodyHtml, nextHint), handleDebug(args, output, outputEl), handleDebugDiagnose(args, output, outputEl), handleDebugPropose(args, output, outputEl), handleDebugSandbox(args, output, outputEl), handleDebugPromote(args, output, outputEl)
+  register()
+
+## js/deploy.js  (8 KB)
+  esc(s), instrCard(title, lines), handleDeployBackup(args, output, outputEl), handleDeployCommit(args, output, outputEl), handleDeployPush(args, output, outputEl), handleDeployRun(args, output, outputEl)
+  register()
+
+## js/help.js  (24 KB)
+  render(title, sections, outputEl), esc(t), helpMaster(args, output, outputEl), helpMemory(args, output, outputEl), helpFormats(args, output, outputEl), helpProject(args, output, outputEl)
+  helpCode(args, output, outputEl), helpAsk(args, output, outputEl), helpChat(args, output, outputEl), helpDeploy(args, output, outputEl), helpGo(args, output, outputEl), register()
+
+## js/log.js  (4 KB)
+  timestamp(), writeToHandle(dirHandle, filename, content), readFromHandle(dirHandle, filename), appendToLog(query, entries, source, brief)
+
+## js/map.js  (9 KB)
+  getHint(fileHandle), buildTree(dirHandle, depth), formatSize(n), renderTree(entries, indent), buildSlimMap(tree, rootName), walk(entries, prefix)
+  handleMap(args, output), handleUpdateMap(args, output), register()
+
+## js/memory.js  (23 KB)
+  memAPI(sub, body), esc(t), showInPanel(title, html, outputEl), applyFilter(entries, appKey), buildSection(label, entries, appKey, realTotal), loadScript(id, url)
+  extractText(fileHandle, filename), chunkText(text, maxChars), getFileHandle(filename)
+
+## js/orchestrator.js  (13 KB)
+  initPlan(intent, steps), clearPlan(), buildRegistrySummary(), buildStateSummary(), renderPlan(plan, outputEl, note), handleGo(args, output, outputEl)
+  goNext(output, outputEl), goSkip(output, outputEl), goStop(output, outputEl), goPlan(output, outputEl), parseJSON(text), register()
+
+## js/panel.js  (16 KB)
+  _pushHistory(title, content, type), _updateNavBtns(), _setSaved(), _setUnsaved(), _updateSaveBtn(content, type), _init()
+  _loadHistory(), _render(content, type), _saveAs(), _copy(), _saveFile(), open(title, content, type)
+  update(content), append(content), setTitle(title), close(), isOpen(), toggle()
+  _updateToggleBtn(active), initResizer(), inject()
+
+## js/project.js  (43 KB)
+  _openInEditPanel(handle, filename, title), handleProjectHome(args, output), handleProjectClose(args, output), checkAndRestoreIndex(handle, output), startTicker(msg), stopTicker()
+  walkForStale(dirHandle, basePath), handleProjectOpen(args, output), handleProjectList(args, output), handleProjectFind(args, output), search(dirHandle, path), handleProjectMap(args, output, outputEl)
+  handleProjectScan(args, output, outputEl), handleProjectRead(args, output, outputEl), generateProjectBrief(handle, output), handleProjectBrief(args, output), handleProjectSlim(args, output), handleProjectParse(args, output, outputEl)
+  scan(dirHandle, path), esc(s), setupProjectContext(handle, output), scanNewer(dir, depth), generateFuncs(handle, output), scanFile(fileHandle, path)
+  walk(dirHandle, basePath), handleProjectFuncs(args, output), generateTechStackHeader(handle), generateSlimFromMap(handle, mapText, rootName, headerText), handleProjectSetup(args, output, outputEl), run(cmdKey, cmdArgs, label)
+  register(), index(.funcs)
+
+## js/router.js  (15 KB)
+  esc(s), buildFileBlock(files), parseJSON(raw), groq(prompt, output), readPath(rootHandle, relPath), readFiles(paths, rootHandle)
+  classifyIntent(text), identifyFiles(topic, output), dispatchAction(text, files, output, outputEl), presentFiles(files, topic, outputEl), presentOpenProject(outputEl), handleConversational(text, output, outputEl)
+
+## js/scores.js  (9 KB)
+  load(), save(data), recordVote(modelKey, category, type), recordLatency(modelKey, ms), getAvgLatency(modelKey), getLeaderboard(category)
+  renderLeaderboard(board, title, total), handleAskScores(args, output, outputEl), register()
+
+## js/self_test.js  (11 KB)
+  req(url, options, body), askMobius(query, files, askOverride), test(name, fn), runTests()
+
+## js/startup.js  (9 KB)
+  openIDB(), idbGet(key), idbSet(key, value), makeStamp(), tryRestore(cfg), tryRestoreProject()
+  fireSessionTask(task), init()
+
+## js/webllm.js  (6 KB)
+  selectWebLLMModel(), detectOllama(), askOllamaLocal(messages), initWebLLM(onProgress), askWebLLMLocal(messages)

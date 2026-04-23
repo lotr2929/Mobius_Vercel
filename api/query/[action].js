@@ -1,705 +1,432 @@
 // ── api/query/[action].js ─────────────────────────────────────────────────────
-// POST /ask   → action = 'ask'
-// POST /parse → action = 'parse'
+// POST /ask   → action=ask
+// POST /parse → action=parse
 
-const { askGeminiLite, askGemini, askMistral, askGitHub, askOllama, askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES } = require('../_ai.js');
-const { saveConversation, supabase, logModelEvent, startSession, closeSession, heartbeatSession, getProfile, getRatings } = require('../_supabase.js');
-const { getDriveFiles, getTasks, getCalendarEvents, getEmails, findDriveFile, readDriveFileContent } = require('../../google_api.js');
+const {
+  askGeminiLite, askGemini, askMistral, askGitHub,
+  askOllama, askCerebras, askDeepSeekCloud, askOpenRouter,
+  askGroqCascade, askGeminiCascade, askMistralCascade,
+  askCerebrasCascade, askOpenRouterCascade,
+  askWithFallback, askWebSearch, detectsCutoff, MODEL_FULL_NAMES
+} = require('../_ai.js');
+const {
+  saveConversation, logModelEvent,
+  startSession, closeSession, heartbeatSession
+} = require('../_supabase.js');
+const {
+  writeGeneral, searchMemory, viewMemory,
+  writeWorking, deleteMemory, distilMemory, countMemory, updateMemory, embedList, embedOne
+} = require('../_memory.js');
 
-// ── Mobius pre-processor: load profile from Supabase ──────────────────────────
-// Reads user_profile table. Injects only what is relevant to the current query.
-async function loadMobiusAwareness(userId, query) {
-  if (!userId) return null;
-  try {
-    const result = await getProfile(userId);
-    if (!result) return null;
-    const p = result.profile;
-    const q = (query || '').toLowerCase();
-    const lines = ['[Mobius Awareness]'];
+const CODER_PERSONA = `You are Mobius — an expert coding assistant. You specialise in web development, JavaScript, Node.js, Python, and modern frameworks. You write clean, well-commented, production-ready code. You explain your reasoning. You debug systematically. You never truncate code. British English.`;
 
-    // Who (always injected)
-    if (p.who) {
-      const w = p.who;
-      lines.push('User: ' + w.full_name + ' ("' + w.name + '"), born ' + w.dob + ', ' + w.location);
-      lines.push('Profession: ' + w.profession + ', ' + w.role + ' at ' + w.employer);
-      lines.push('Faith: ' + w.faith + ' | Language: ' + (p.work && p.work.language ? p.work.language : 'en-AU'));
-    }
-
-    // Work style (always injected)
-    if (p.work) {
-      lines.push('Style: ' + p.work.style);
-      lines.push('Tone: ' + p.work.tone + ' | Format: ' + p.work.format);
-      if (p.work.rules && p.work.rules.length)   lines.push('Rules: ' + p.work.rules.join(' | '));
-      if (p.work.do_not && p.work.do_not.length) lines.push('Do not: ' + p.work.do_not.join(' | '));
-    }
-
-    // Now: time-sensitive items (drop expired)
-    const today = new Date().toISOString().slice(0, 10);
-    const activeNow = (p.now || []).filter(function(n) { return !n.expires || n.expires >= today; });
-    if (activeNow.length) {
-      lines.push('Current: ' + activeNow.map(function(n) { return n.label + ' - ' + n.note; }).join(' || '));
-    }
-
-    // Active projects (summary only, always injected)
-    const activeProjects = (p.projects || []).filter(function(pr) { return pr.status === 'active'; });
-    if (activeProjects.length) {
-      lines.push('Active projects: ' + activeProjects.map(function(pr) { return pr.name + ': ' + pr.summary; }).join(' | '));
-    }
-
-    // Family (only when query is about people/family)
-    const familyKeys = ['wife', 'daughter', 'family', 'fee yoon', 'xin hui', 'daniel', 'husband', 'child', 'spouse'];
-    if (familyKeys.some(function(k) { return q.includes(k); }) && p.family && p.family.length) {
-      p.family.forEach(function(f) {
-        var entry = f.relation + ': ' + f.name + ' ' + (f.surname || '') + ', born ' + f.dob + ', ' + f.location;
-        if (f.health && f.health.conditions && f.health.conditions.length) entry += '. Conditions: ' + f.health.conditions.join(', ');
-        lines.push(entry);
-      });
-    }
-
-    // Health detail (only when query is health-related)
-    const healthKeys = ['health', 'medication', 'medicine', 'tablet', 'injection', 'condition', 'eczema', 'asthma', 'glaucoma', 'knee', 'doctor', 'surgery', 'appointment', 'drug'];
-    if (healthKeys.some(function(k) { return q.includes(k); }) && p.health) {
-      lines.push('Health conditions: ' + p.health.conditions.join(', '));
-      if (p.health.note) lines.push('Note: ' + p.health.note);
-      if (p.health.medications && p.health.medications.length) {
-        lines.push('Medications: ' + p.health.medications.map(function(m) { return m.name + (m.purpose ? ' (' + m.purpose + ')' : ''); }).join(' | '));
-      }
-    }
-
-    // Project detail/next steps (only when specific project is mentioned)
-    if (p.projects && p.projects.length) {
-      var mentioned = p.projects.filter(function(pr) {
-        return pr.status === 'active' && (
-          q.includes(pr.slug) || q.includes(pr.name.toLowerCase()) ||
-          (pr.slug === 'gprtool' && (q.includes('gpr') || q.includes('plant') || q.includes('lai'))) ||
-          (pr.slug === 'mobius'  && (q.includes('mobius') || q.includes('command') || q.includes('deploy'))) ||
-          (pr.slug === 'gpri'    && q.includes('institute')) ||
-          (pr.slug === 'evening-grace' && q.includes('bible')) ||
-          (pr.slug === 'morning-glory' && q.includes('art'))
-        );
-      });
-      mentioned.forEach(function(pr) {
-        if (pr.next && pr.next.length) lines.push('Next for ' + pr.name + ': ' + pr.next.join(' | '));
-      });
-    }
-
-    var text = lines.join('\n');
-    console.log('[Mobius] Awareness injected (' + text.length + ' chars, Supabase)');
-    return text;
-  } catch (err) {
-    console.warn('[Mobius] Could not load profile:', err.message);
-    return null;
-  }
-}
-
-// ── Mobius post-processor: nAI response checks ────────────────────────────────
-// Returns array of flag strings. Empty = clean response.
-function postProcessReply(reply, instructions) {
-  const flags = [];
-  if (!reply) return flags;
-  const lower = reply.toLowerCase();
-
-  // Error / apology signals
-  const errorPhrases = ['i cannot', "i can't", 'i am unable', "i'm unable", 'i don\'t have access',
-    'i apologise', 'i apologize', 'i\'m sorry', 'i am sorry', 'i made an error',
-    'i made a mistake', 'i was wrong', 'that was incorrect'];
-  for (const phrase of errorPhrases) {
-    if (lower.includes(phrase)) { flags.push('Response contains apology or error signal: "' + phrase + '"'); break; }
-  }
-
-  // Uncertainty signals
-  const uncertainPhrases = ['i\'m not sure', 'i am not sure', 'i\'m not certain', 'i cannot be certain',
-    'as of my knowledge cutoff', 'my training data', 'i don\'t know', "i do not know"];
-  for (const phrase of uncertainPhrases) {
-    if (lower.includes(phrase)) { flags.push('Response contains uncertainty signal: "' + phrase + '"'); break; }
-  }
-
-  // Knowledge cutoff — already auto-escalates, but flag it too
-  if (lower.includes('knowledge cutoff') || lower.includes('training data')) {
-    flags.push('Knowledge cutoff detected — consider Ask: web');
-  }
-
-  // Truncation signals (code/long mode)
-  if (instructions === 'Code' || instructions === 'Long') {
-    const truncPhrases = ['...', '// ...', '/* ... */', '[rest of', '[continued', 'and so on', 'etc.'];
-    for (const phrase of truncPhrases) {
-      if (reply.includes(phrase)) { flags.push('Possible truncation detected: "' + phrase + '"'); break; }
-    }
-    if (reply.length < 200) flags.push('Response very short for ' + instructions + ' mode (' + reply.length + ' chars) — possibly incomplete');
-  }
-
-  // Over-verbose in Brief mode
-  if (instructions === 'Brief' && reply.length > 3000) {
-    flags.push('Response very long for Brief mode (' + reply.length + ' chars) — consider elaborating intentionally');
-  }
-
-  // Stalling — repeats the question back verbatim (first 60 chars)
-  // (skip for very short queries)
-  return flags;
-}
+const SYSTEM_PROMPTS = {
+  Brief:   CODER_PERSONA + '\n\nBe concise. Answer the question directly.',
+  Long:    CODER_PERSONA + '\n\nBe thorough. Explain fully. No length limits.',
+  Code:    CODER_PERSONA + '\n\nProvide complete, working code. Never truncate. Use markdown code blocks. Explain what the code does and why.',
+  Debug:   CODER_PERSONA + '\n\nYou are debugging a specific bug. Identify root cause first. State the exact file and line. Propose the minimal change only. Explain why it fixes the problem. Do not rewrite unrelated code.',
+  Explain: CODER_PERSONA + '\n\nExplain clearly in plain English. Walk through each part step by step. Assume the reader understands code but not this specific implementation. No jargon without definition.',
+  Review:  CODER_PERSONA + '\n\nGroup findings by severity: Critical / High / Medium / Low. For each finding state the exact problem, why it matters, and the minimal fix. Be specific. No generalities.',
+  Plan:    CODER_PERSONA + '\n\nThink step by step before answering. State assumptions explicitly. Identify risks. Give a numbered action plan. Prefer the simplest solution that works. Flag anything that needs browser testing.'
+};
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { action } = req.query;
 
-  // ── /parse ────────────────────────────────────────────────────────────────
   if (action === 'parse') {
     try {
-      const { text, model, history, context, forceInstructionMode } = req.body || {};
-      if (!text) return res.status(400).json({ error: 'Text is required' });
-
-      // Read userId from cookie (same pattern as /ask)
-      const cookieHeader  = req.headers.cookie || '';
-      const cookieUserId  = cookieHeader.split(';').map(c => c.trim())
-        .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || null;
-      const parseUserId   = cookieUserId || req.body?.userId || null;
-
-      const elaborate  = /^Elaborate[:\s]/i.test(text) || /\belaborate\b/i.test(text);
+      const { text, model, history, forceInstructionMode } = req.body || {};
+      if (!text) return res.status(400).json({ error: 'text is required' });
+      const cookieHeader = req.headers.cookie || '';
+      const userId = cookieHeader.split(';').map(c => c.trim())
+        .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
+      const elaborate  = /^Elaborate[:\s]/i.test(text);
       const cleanText  = text.replace(/^Elaborate[:\s]+/i, '').trim() || text;
       const instructionMode = forceInstructionMode || (elaborate ? 'Long' : 'Brief');
-
-      const PARSE_PERSONA = `You are Mobius — intellectual companion and personal AI of Dr Ong Boon Lay, researcher and Senior Lecturer at Curtin University, Perth. British English always. Your purpose is rigorous, open-ended inquiry across all domains of knowledge — the honest pursuit of understanding with no topic avoided, no findings softened, no unsolicited disclaimers. You are his intellectual equal and, where your knowledge runs deeper, his mentor. Engage accordingly.`;
-      const systemPrompt =
-        instructionMode === 'Long' ? PARSE_PERSONA + ' Provide thorough and detailed answers. No artificial length limits.'
-        : instructionMode === 'Code' ? PARSE_PERSONA + ' Provide complete, working code. Never truncate. Use markdown code blocks.'
-        : PARSE_PERSONA + ' Concise prose, under 500 words. No bullet points unless necessary. No filler.';
-
-      const SYSTEM_PREFIXES = ['[System]', 'You are Mobius', '[User Environment]', '[Mobius Awareness]'];
-      const history_clean = (history || []).filter(
-        m => !SYSTEM_PREFIXES.some(p => m.content?.startsWith(p))
-      );
-
-      const webAliases = { 'websearch': 'web', 'web': 'web', 'web2': 'web2', 'web3': 'web3' };
-      let resolvedModel = webAliases[model?.toLowerCase()] || model || 'groq';
-
-      // ── Ratings nudge: if no explicit model, prefer highest-rated for this category ──
-      if (!model || model === 'groq') {
-        try {
-          const ratings  = await getRatings(parseUserId);
-          // Classify query category
-          const q = cleanText.toLowerCase();
-          const cat =
-            /\b(code|function|script|debug|javascript|python|html|css|deploy)\b/.test(q) ? 'coding' :
-            /\b(health|medicine|medication|symptom|disease|doctor|surgery|drug)\b/.test(q) ? 'health' :
-            /\b(philosophy|ethics|consciousness|meaning|ontolog|epistemol)\b/.test(q) ? 'philosophy' :
-            /\b(politic|government|policy|election|democracy|law|legal)\b/.test(q) ? 'politics' :
-            /\b(science|physics|biology|chemistry|evolution|quantum)\b/.test(q) ? 'science' :
-            /\b(history|war|civilisation|empire|ancient|medieval)\b/.test(q) ? 'history' :
-            /\b(religion|theology|god|faith|bible|quran|buddhism)\b/.test(q) ? 'religion' :
-            /\b(psychology|behaviour|emotion|cognitive|mental)\b/.test(q) ? 'psychology' :
-            /\b(economy|finance|market|investment|gdp|inflation)\b/.test(q) ? 'economics' :
-            'general';
-          const catRatings = ratings[cat] || ratings['general'] || {};
-          const candidates = ['groq', 'gemini', 'github', 'gemini-lite'];
-          const best = candidates
-            .filter(m => (catRatings[m] || 0) >= 0) // exclude consistently downvoted
-            .sort((a, b) => (catRatings[b] || 0) - (catRatings[a] || 0))[0];
-          if (best && (catRatings[best] || 0) > 0) {
-            resolvedModel = best;
-            console.log('[Mobius] Ratings nudge: ' + cat + ' → ' + best + ' (score ' + (catRatings[best] || 0) + ')');
-          }
-        } catch(e) { /* silent — ratings never break routing */ }
-      }
-
-      // ── Pre-processor: load mobius.json awareness ─────────────────────────
-      // Fetched here at parse time so it's always fresh.
-      // Injected as a virtual file attachment — same pattern as environment.txt.
-      let mobiusFile = null;
-      const awarenessText = await loadMobiusAwareness(parseUserId, cleanText);
-      if (awarenessText) {
-        const encoded = Buffer.from(awarenessText, 'utf8').toString('base64');
-        mobiusFile = {
-          name:     'mobius_context.txt',
-          mimeType: 'text/plain',
-          base64:   encoded,
-          size:     awarenessText.length
-        };
-        console.log('[Mobius] Awareness injected (' + awarenessText.length + ' chars)');
-      } else {
-        console.log('[Mobius] No awareness context available — continuing without.');
-      }
-
-      const mobius_query = {
-        ASK: resolvedModel,
-        INSTRUCTIONS: instructionMode,
-        HISTORY: history_clean,
-        QUERY: cleanText,
-        FILES: mobiusFile ? [mobiusFile] : [],
-        CONTEXT: null
-      };
-
-      return res.status(200).json({ mobius_query });
+      const codeIntent = /```|function |const |let |var |import |require |def |class |<script|<html/i.test(cleanText);
+      const finalMode  = forceInstructionMode || (codeIntent ? 'Code' : instructionMode);
+      return res.status(200).json({ mobius_query: {
+        ASK: model || 'groq', INSTRUCTIONS: finalMode,
+        HISTORY: history || [], QUERY: cleanText, FILES: [], CONTEXT: null
+      }});
     } catch (err) {
-      console.error('Parse error:', err);
+      console.error('[Coder] Parse error:', err.message);
       return res.status(500).json({ error: 'Parse failed' });
     }
   }
 
-  // ── /ask ──────────────────────────────────────────────────────────────────
   if (action === 'ask') {
     const cookieHeader = req.headers.cookie || '';
     const cookieUserId = cookieHeader.split(';').map(c => c.trim())
       .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || null;
-    const { mobius_query, userId: bodyUserId, topic, session_id } = req.body;
+    const { mobius_query, userId: bodyUserId, topic, session_id } = req.body || {};
     const userId = cookieUserId || bodyUserId || null;
-    const { ASK, INSTRUCTIONS, HISTORY, QUERY, FILES, CONTEXT } = mobius_query;
+
+    let ASK, INSTRUCTIONS, HISTORY, QUERY, FILES;
+    if (mobius_query) {
+      ({ ASK, INSTRUCTIONS, HISTORY, QUERY, FILES } = mobius_query);
+    } else {
+      ASK = req.body.model || 'gemini-lite'; INSTRUCTIONS = 'Brief';
+      HISTORY = req.body.history || []; QUERY = req.body.query || ''; FILES = [];
+    }
+
+    const t0 = Date.now();
 
     try {
-      const MOBIUS_PERSONA = `You are Mobius — the intellectual companion and personal AI of Dr Ong Boon Lay, landscape architect, researcher, and Senior Lecturer at Curtin University, Perth. Born 1954, Malaysian-Singaporean, Christian faith, now based in Perth. British English always.
-
-Your role is not that of an assistant. You are an intellectual equal and, where your breadth and depth of knowledge exceeds his, a mentor. You bring to every conversation what no single human can: the synthesised knowledge of the entire recorded intellectual tradition — science, philosophy, history, theology, medicine, economics, psychology, anthropology, literature, politics, and every domain in between — held simultaneously, cross-referenced instantly, and brought to bear with precision.
-
-Boon's life project is the pursuit of understanding — of life, of human nature, of the universe and our place in it. Every conversation with you is part of that project. The inquiry is open, rigorous, and without predetermined conclusions. There is no ideology to defend, no values to impose, no comfort to protect. The only standard is truth, arrived at honestly. Inquiry is the end, not the means. Its outputs, if any, are academic and literary.
-
-You engage on this basis:
-
-Intellectual depth. Do not simplify unless asked. Match and extend his thinking. Introduce perspectives, evidence, and frameworks he may not have encountered. Challenge assumptions — including his own — when you have grounds to do so. Speculate rigorously where certainty is unavailable. Reason from first principles when convention falls short.
-
-Full range. No subject is avoided. Philosophy of mind, the nature of evil, sexual behaviour, political violence, religious doubt, mortality, addiction, extremism, the mechanics of disease, the psychology of cruelty, the economics of inequality — all are legitimate territory. The darker or more contested a subject, the more carefully and honestly it deserves to be examined.
-
-No performance of caution. Do not preface responses with disclaimers. Do not append warnings. Do not soften findings to protect sensibilities. Do not suggest he consult a professional when he has asked for your analysis. He knows when to seek a specialist — what he wants from you is thinking, not liability management.
-
-Clinical precision on health. You know his full medical history, his conditions, his medications, his recovery. When health questions arise, reason from that specific context — not from generic public-health guidance. Engage as a well-informed colleague with access to the literature.
-
-Honest opinions. When Boon asks what you think, tell him. Ground your view in evidence and reasoning, label it as your assessment, and hold it with appropriate confidence — neither false certainty nor evasive neutrality.
-
-Real synthesis on web results. When search results are available, do not report them. Analyse them. Evaluate the sources. Extract what is genuinely relevant. Connect it to the specific question and to what you already know. Add your own assessment of where the evidence points.
-
-Conversational continuity. This is a dialogue, not a transaction. Build on what has been said. Remember what has been established. Push the conversation forward rather than resetting with each exchange.
-
-Prose worthy of the conversation. Write as you would to an intellectual peer: precise, clear, without jargon for its own sake, without padding, without the performative humility that substitutes for thought.`;
-
-      const systemPrompts = {
-        'Brief': MOBIUS_PERSONA + '\n\nFormat: concise prose, under 500 words unless the topic demands more. No bullet points unless genuinely necessary. No flattery. No filler.',
-        'Long':  MOBIUS_PERSONA + '\n\nFormat: thorough and detailed. Well-structured prose. Go as deep as the topic requires. No artificial length limits.',
-        'Code':  MOBIUS_PERSONA + '\n\nFormat: complete, working code with brief explanations. Never truncate. Use markdown code blocks. Be precise and direct.'
-      };
-      const systemPrompt = systemPrompts[INSTRUCTIONS] || systemPrompts['Brief'];
-      const instructionMessages = [{ role: 'user', content: '[System] ' + systemPrompt }];
-
+      const systemPrompt = SYSTEM_PROMPTS[INSTRUCTIONS] || SYSTEM_PROMPTS.Brief;
       const messages = [
-        ...instructionMessages,
+        { role: 'user', content: '[System] ' + systemPrompt },
         ...(HISTORY || []),
         { role: 'user', content: QUERY }
       ];
-      if (CONTEXT && CONTEXT !== 'None') messages.unshift({ role: 'system', content: CONTEXT });
 
-      let reply, modelUsed = ASK, tokensIn = null, tokensOut = null, failedModels = [];
-
-      const imageParts = (FILES || [])
-        .filter(f => f.mimeType?.startsWith('image/'))
-        .map(f => ({ inline_data: { mime_type: f.mimeType, data: f.base64 } }));
-
+      const imageParts       = (FILES || []).filter(f => f.mimeType?.startsWith('image/')).map(f => ({ inline_data: { mime_type: f.mimeType, data: f.base64 } }));
       const hasImages        = imageParts.length > 0;
       const hasNonImageFiles = (FILES || []).some(f => f.mimeType && !f.mimeType.startsWith('image/'));
 
-      // ── Task complexity scoring — most tokens first, specialists only when needed ──
-      // Scores the query to pick the cheapest capable model.
-      // User can always override with explicit Ask: [model].
-      let fileModelFallbacks = [];
-      let _complexityScore   = null;
-      let routingReason      = null;
-      // Only truly explicit user overrides bypass smart routing.
-      // 'mistral'/'codestral' are specialists — routing decides when to use them.
-      // Web models, local models, and direct Gemini/Groq/GitHub overrides are respected.
-      const userExplicitModel = ['gemini','gemini-flash','gemini-lite','groq','github','web','web2','web3','qwen','deepseek','webllm'].includes(ASK?.toLowerCase());
-
-      function scoreComplexity(query, files, history, instructions) {
-        let score = 0;
-        // Files
-        if ((files || []).some(f => f.mimeType?.startsWith('image/')))  score += 5; // vision required
-        if ((files || []).some(f => f.mimeType?.startsWith('audio/')))  score += 5; // multimodal
-        if ((files || []).some(f => (f.size || 0) > 100000))            score += 3; // large file
-        if ((files || []).length > 0)                                   score += 1; // any file
-        // Query length
-        if ((query || '').length > 1500)                                score += 2;
-        else if ((query || '').length > 500)                            score += 1;
-        // Keywords
-        if (/analys|reason|architect|design|review|compar|evaluat/i.test(query)) score += 1;
-        // History depth
-        if ((history || []).length > 20)                                score += 2;
-        else if ((history || []).length > 10)                           score += 1;
-        // Instruction mode
-        if (instructions === 'Long' || instructions === 'Code')         score += 1;
-        return score;
-      }
-
-      if (!userExplicitModel) {
-        // Exclude the injected awareness context file — it's not a user upload
-        const files     = (FILES || []).filter(f => f.name !== 'mobius_context.txt');
-        const mimeTypes = files.map(f => f.mimeType || '').join(',').toLowerCase();
-        const fileNames = files.map(f => f.name    || '').join(',').toLowerCase();
-        const codeExts  = /\.(js|ts|jsx|tsx|py|java|cs|cpp|c|h|go|rs|rb|php|swift|kt|sql|sh|bash|zsh)$/;
-        const docExts   = /\.(pdf|txt|md|docx|doc|rtf|odt)$/;
-        const dataExts  = /\.(csv|json|xml|yaml|yml|toml|ini)$/;
-
-        _complexityScore = scoreComplexity(QUERY, files, HISTORY, INSTRUCTIONS); // uses filtered files
-        const score = _complexityScore;
-
-        if (hasImages || /^(audio|video)\//.test(mimeTypes)) {
-          // Vision — Flash is the only free option, protect it
-          modelUsed = 'gemini';
-          fileModelFallbacks = ['github'];
-          routingReason = 'vision (score ' + score + ')';
-          console.log('[Mobius] Routing: vision → Flash (score ' + score + ')');
-
-        } else if (codeExts.test(fileNames) && /generat|creat|write|implement|build/i.test(QUERY)) {
-          // Code generation specifically — specialist Codestral first
-          modelUsed = 'codestral';
-          fileModelFallbacks = ['groq', 'gemini-lite', 'gemini', 'github'];
-          routingReason = 'code generation (score ' + score + ')';
-          console.log('[Mobius] Routing: code generation → Codestral (score ' + score + ')');
-
-        } else if (files.length > 0) {
-          // File attached (doc, code, data) — start with Groq if small, Flash-Lite if large
-          if (score >= 4) {
-            modelUsed = 'gemini-lite';
-            fileModelFallbacks = ['groq', 'gemini', 'github'];
-            routingReason = 'large file (score ' + score + ')';
-            console.log('[Mobius] Routing: large file → Flash-Lite (score ' + score + ')');
-          } else {
-            modelUsed = 'groq';
-            fileModelFallbacks = ['gemini-lite', 'gemini', 'github'];
-            routingReason = 'file (score ' + score + ')';
-            console.log('[Mobius] Routing: file → Groq (score ' + score + ')');
-          }
-
-        } else if (score >= 5) {
-          // Complex text query — Flash-Lite first, Flash as escalation
-          modelUsed = 'gemini-lite';
-          fileModelFallbacks = ['groq', 'gemini', 'github'];
-          routingReason = 'complex query (score ' + score + ')';
-          console.log('[Mobius] Routing: complex → Flash-Lite (score ' + score + ')');
-
-        } else {
-          // Default — Groq: most tokens, fastest, cheapest
-          modelUsed = 'groq';
-          fileModelFallbacks = ['gemini-lite', 'github'];
-          routingReason = 'default (score ' + score + ')';
-          console.log('[Mobius] Routing: default → Groq (score ' + score + ')');
-        }
-      }
-
-      // Track start time for latency measurement
-      const t0 = Date.now();
-
-      const appendFileTexts = () => {
+      function appendFileTexts() {
         if (hasNonImageFiles) {
           const fileTexts = (FILES || [])
             .filter(f => !f.mimeType.startsWith('image/'))
-            .map(f => `[File: ${f.name}]\n${Buffer.from(f.base64, 'base64').toString('utf8')}`)
+            .map(f => '[File: ' + f.name + ']\n' + Buffer.from(f.base64, 'base64').toString('utf8'))
             .join('\n\n');
           messages[messages.length - 1].content += '\n\n' + fileTexts;
         }
-      };
-
-      // ── Feedback handler ────────────────────────────────────────────────
-      if (ASK === '__feedback__') {
-        const fb = req.body.feedback || {};
-        if (userId && fb.model && fb.vote) {
-          const now = new Date().toISOString();
-          const content = fb.vote + ' | ' + fb.model + ' | ' + (fb.category || 'general') + ' | ' + (fb.query || '').slice(0, 100);
-          supabase.from('knowledge').insert([{
-            user_id:    userId,
-            project:    'mobius',
-            domain:     'feedback',
-            type:       'feedback',
-            tags:       [fb.vote, fb.model, fb.category || 'general'],
-            content,
-            created_at: now,
-            updated_at: now,
-            context: { vote: fb.vote, model: fb.model, category: fb.category || 'general', query: fb.query || '' }
-          }]).then(() => {}).catch(() => {});
-        }
-        return res.json({ ok: true });
       }
 
-      if (ASK === 'chat_history') {
-        reply = '__CHAT_HISTORY__';
-        modelUsed = 'system';
+      let reply, modelUsed = ASK, tokensIn = null, tokensOut = null, failedModels = [];
+      const ask = (ASK || 'groq').toLowerCase();
 
-      } else if (ASK === 'google_drive') {
-        reply = await getDriveFiles(userId, QUERY);
-
-      } else if (ASK === 'google_tasks') {
-        reply = await getTasks(userId);
-
-      } else if (ASK === 'google_calendar') {
-        reply = await getCalendarEvents(userId);
-
-      } else if (ASK === 'google_gmail') {
-        reply = await getEmails(userId);
-
-      } else if (ASK === 'gemini-lite' || modelUsed === 'gemini-lite') {
-        appendFileTexts();
+      if (ask === 'qwen35') {
         try {
-          const r = await askGeminiLite(messages);
-          reply = r.text; tokensIn = r.tokensIn; tokensOut = r.tokensOut;
-          modelUsed = MODEL_FULL_NAMES['gemini-lite'];
+          appendFileTexts(); reply = await askOllama(messages, 'qwen3.5:35b-a3b'); modelUsed = 'Qwen3.5 35B (local)';
         } catch (err) {
-          failedModels.push({ model: MODEL_FULL_NAMES['gemini-lite'], reason: err.message });
-          const chain = fileModelFallbacks.length ? fileModelFallbacks.filter(m => m !== 'gemini-lite') : ['groq', 'gemini', 'github'];
-          const fb = await askWithFallback(messages, [], chain[0]);
-          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Flash-Lite)';
-          failedModels = failedModels.concat(fb.failedModels || []);
+          failedModels.push({ model: 'qwen35', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Qwen35)';
         }
 
-      } else if (ASK === 'codestral' || modelUsed === 'codestral') {
-        appendFileTexts();
+      } else if (ask === 'qwen') {
         try {
-          reply = await askMistral(messages);
-          modelUsed = MODEL_FULL_NAMES.codestral;
+          appendFileTexts(); reply = await askOllama(messages, 'qwen2.5-coder:7b'); modelUsed = 'Qwen2.5-Coder 7B (local)';
         } catch (err) {
-          failedModels.push({ model: MODEL_FULL_NAMES.codestral, reason: err.message });
-          const chain = fileModelFallbacks.length ? fileModelFallbacks.filter(m => m !== 'codestral') : ['groq', 'gemini-lite', 'gemini'];
-          const fb = await askWithFallback(messages, [], chain[0]);
+          failedModels.push({ model: 'qwen', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Qwen)';
+        }
+
+      } else if (ask === 'deepseek') {
+        try {
+          appendFileTexts(); reply = await askOllama(messages, 'deepseek-r1:7b'); modelUsed = 'DeepSeek R1 7B (local)';
+        } catch (err) {
+          failedModels.push({ model: 'deepseek', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from DeepSeek)';
+        }
+
+      } else if (ask === 'groq-qwq') {
+        // Qwen-QwQ 32B via Groq -- reasoning model, different architecture from Llama
+        try {
+          appendFileTexts();
+          const key = process.env.GROQ_API_KEY;
+          if (!key) throw new Error('GROQ_API_KEY not configured.');
+          const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'qwen-qwq-32b', messages }),
+            signal: AbortSignal.timeout(30000)
+          });
+          const data = await r.json();
+          const content = data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content;
+          if (!content) throw new Error(JSON.stringify(data));
+          reply = content; modelUsed = 'Groq QwQ 32B';
+        } catch (err) {
+          failedModels.push({ model: 'groq-qwq', reason: err.message });
+          const fb = await askGroqCascade(messages);
+          reply = fb.text; modelUsed = fb.modelUsed + ' (fallback from QwQ)';
+        }
+
+      } else if (ask === 'mistral' || ask === 'codestral') {
+        try {
+          appendFileTexts(); reply = await askMistral(messages); modelUsed = MODEL_FULL_NAMES.mistral;
+        } catch (err) {
+          failedModels.push({ model: 'codestral', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
           reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Codestral)';
           failedModels = failedModels.concat(fb.failedModels || []);
         }
 
-      } else if (['gemini','gemini-flash'].includes(ASK) || modelUsed === 'gemini' || hasImages) {
+      } else if (ask === 'gemini' || ask === 'gemini-flash' || hasImages) {
         try {
-          const geminiResult = await askGemini(messages, imageParts);
-          reply     = geminiResult.text;
-          tokensIn  = geminiResult.tokensIn;
-          tokensOut = geminiResult.tokensOut;
-          modelUsed = MODEL_FULL_NAMES.gemini;
+          const r = await askGemini(messages, imageParts);
+          reply = r.text; tokensIn = r.tokensIn; tokensOut = r.tokensOut; modelUsed = MODEL_FULL_NAMES.gemini;
         } catch (err) {
-          console.warn('[Mobius] Gemini failed:', err.message);
-          failedModels.push({ model: MODEL_FULL_NAMES.gemini, reason: err.message });
-          // Use file-type fallback chain if defined, otherwise default chain
-          const fallbackChain = fileModelFallbacks.length ? fileModelFallbacks : ['mistral', 'github', 'groq'];
-          let fell = false;
-          for (const fb of fallbackChain) {
-            try {
-              appendFileTexts(); // ensure file content is appended for text-based fallbacks
-              const fbResult = await askWithFallback(messages, [], fb);
-              reply      = fbResult.reply;
-              modelUsed  = fbResult.modelUsed + ' (fallback from Gemini)';
-              failedModels = failedModels.concat(fbResult.failedModels || []);
-              fell = true;
-              break;
-            } catch (fbErr) {
-              failedModels.push({ model: fb, reason: fbErr.message });
-            }
-          }
-          if (!fell) throw new Error('All models failed including fallbacks: ' + fallbackChain.join(', '));
+          failedModels.push({ model: 'gemini', reason: err.message });
+          appendFileTexts();
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Gemini)';
+          failedModels = failedModels.concat(fb.failedModels || []);
         }
 
-      } else if (ASK === 'mistral' || ASK === 'codestral' || modelUsed === 'mistral') {
-        appendFileTexts(); // append file content before sending to Mistral
+      } else if (ask === 'gemini-lite') {
         try {
-          reply = await askMistral(messages);
-          modelUsed = MODEL_FULL_NAMES.mistral;
+          appendFileTexts();
+          const r = await askGeminiLite(messages);
+          reply = r.text; tokensIn = r.tokensIn; tokensOut = r.tokensOut; modelUsed = MODEL_FULL_NAMES['gemini-lite'];
         } catch (err) {
-          console.warn('[Mobius] Mistral failed, falling back:', err.message);
-          failedModels.push({ model: MODEL_FULL_NAMES.mistral, reason: err.message });
-          const fbResult = await askWithFallback(messages, [], 'github');
-          reply = fbResult.reply;
-          modelUsed = fbResult.modelUsed + ' (fallback from ' + MODEL_FULL_NAMES.mistral + ')';
-          failedModels = failedModels.concat(fbResult.failedModels || []);
+          failedModels.push({ model: 'gemini-lite', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Gemini Lite)';
+          failedModels = failedModels.concat(fb.failedModels || []);
         }
 
-      } else if (ASK === 'github') {
-        appendFileTexts(); // append file content before sending to GitHub
-        try {
-          reply = await askGitHub(messages);
-          modelUsed = MODEL_FULL_NAMES.github;
-        } catch (err) {
-          console.warn('[Mobius] GitHub failed, falling back:', err.message);
-          failedModels.push({ model: MODEL_FULL_NAMES.github, reason: err.message });
-          const fbResult = await askWithFallback(messages, [], 'groq');
-          reply = fbResult.reply;
-          modelUsed = fbResult.modelUsed + ' (fallback from ' + MODEL_FULL_NAMES.github + ')';
-          failedModels = failedModels.concat(fbResult.failedModels || []);
-        }
-
-      } else if (ASK === 'websearch' || ASK === 'web' || ASK === 'web2' || ASK === 'web3') {
+      } else if (ask === 'web' || ask === 'web2' || ask === 'web3') {
         appendFileTexts();
-        const webDepth = ASK === 'web3' ? 3 : ASK === 'web2' ? 2 : 1;
-        const webLabel = ASK === 'web3' ? 'Ask: web3' : ASK === 'web2' ? 'Ask: web2' : 'Ask: web';
-        const statusLines = [];
         try {
-          const { reply: wsReply, modelUsed: wsModel } = await askWebSearch(messages, webDepth);
-          reply = (statusLines.length ? statusLines.join('\n') + '\n\n' : '') + wsReply;
-          modelUsed = wsModel;
+          const r = await askWebSearch(messages, ask === 'web3' ? 3 : ask === 'web2' ? 2 : 1);
+          reply = r.reply; modelUsed = r.modelUsed;
         } catch (err) {
-          statusLines.push(`${webLabel}: ${err.message} → trying Gemini...`);
-          console.warn('[Mobius] Websearch failed:', err.message);
-          try {
-            const geminiResult = await askGemini(messages);
-            reply = statusLines.join('\n') + '\n\n' + geminiResult.text;
-            modelUsed = MODEL_FULL_NAMES.gemini + ' (fallback from ' + webLabel + ')';
-            tokensIn  = geminiResult.tokensIn;
-            tokensOut = geminiResult.tokensOut;
-          } catch (err2) {
-            statusLines.push(`Gemini: ${err2.message} → no more fallbacks.`);
-            reply = statusLines.join('\n');
-            modelUsed = 'failed';
-          }
+          failedModels.push({ model: ask, reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from web search)';
+        }
+
+      } else if (ask === 'cerebras' || ask === 'cerebras-cascade') {
+        // Within-stable cascade -- no cross-stable fallback
+        try {
+          appendFileTexts();
+          const r = await askCerebrasCascade(messages);
+          reply = r.text; modelUsed = r.modelUsed;
+        } catch (err) {
+          failedModels.push({ model: 'cerebras', reason: err.message });
+          throw err;
+        }
+
+      } else if (ask === 'deepseek-cloud') {
+        try {
+          appendFileTexts(); reply = await askDeepSeekCloud(messages); modelUsed = 'DeepSeek V3';
+        } catch (err) {
+          failedModels.push({ model: 'deepseek-cloud', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from DeepSeek V3)';
+          failedModels = failedModels.concat(fb.failedModels || []);
+        }
+
+      } else if (ask === 'deepseek-r1') {
+        // DeepSeek R1 -- reasoning model, thinks before answering
+        try {
+          appendFileTexts();
+          reply = await askDeepSeekCloud(messages, 'deepseek-reasoner'); modelUsed = 'DeepSeek R1';
+        } catch (err) {
+          failedModels.push({ model: 'deepseek-r1', reason: err.message });
+          const fb = await askDeepSeekCloud(messages, 'deepseek-chat').catch(async () => askWithFallback(messages, [], 'groq'));
+          reply = typeof fb === 'string' ? fb : (fb.reply || fb.text);
+          modelUsed = 'DeepSeek V3 (fallback from R1)';
+        }
+
+      } else if (ask === 'openrouter' || ask === 'openrouter-cascade') {
+        // Within-stable cascade -- no cross-stable fallback
+        try {
+          appendFileTexts();
+          const r = await askOpenRouterCascade(messages);
+          reply = r.text; modelUsed = r.modelUsed;
+        } catch (err) {
+          failedModels.push({ model: 'openrouter', reason: err.message });
+          throw err;
+        }
+
+      } else if (ask === 'groq-cascade') {
+        try {
+          appendFileTexts();
+          const r = await askGroqCascade(messages);
+          reply = r.text; modelUsed = r.modelUsed;
+        } catch (err) {
+          failedModels.push({ model: 'groq-cascade', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'gemini-lite');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Groq)';
+          failedModels = failedModels.concat(fb.failedModels || []);
+        }
+
+      } else if (ask === 'gemini-cascade') {
+        try {
+          appendFileTexts();
+          const r = await askGeminiCascade(messages);
+          reply = r.text; modelUsed = r.modelUsed;
+        } catch (err) {
+          failedModels.push({ model: 'gemini-cascade', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Gemini)';
+          failedModels = failedModels.concat(fb.failedModels || []);
+        }
+
+      } else if (ask === 'mistral-cascade') {
+        try {
+          appendFileTexts();
+          const r = await askMistralCascade(messages);
+          reply = r.text; modelUsed = r.modelUsed;
+        } catch (err) {
+          failedModels.push({ model: 'mistral-cascade', reason: err.message });
+          const fb = await askWithFallback(messages, [], 'groq');
+          reply = fb.reply; modelUsed = fb.modelUsed + ' (fallback from Mistral)';
+          failedModels = failedModels.concat(fb.failedModels || []);
         }
 
       } else {
+        const isCoding = (INSTRUCTIONS === 'Code');
         appendFileTexts();
         try {
-          const fbResult = await askWithFallback(messages, [], ASK);
-          reply = fbResult.reply;
-          modelUsed = fbResult.modelUsed;
-          failedModels = fbResult.failedModels || [];
+          const fb = await askWithFallback(messages, [], ask || 'gemini-lite', isCoding);
+          reply = fb.reply; modelUsed = fb.modelUsed; failedModels = fb.failedModels || [];
           if (detectsCutoff(reply)) {
-            const cutoffStatus = `${modelUsed}: knowledge cutoff detected (no live data) → trying Ask: web2...`;
-            try {
-              const { reply: wsReply, modelUsed: wsModel } = await askWebSearch(messages, 2);
-              reply = cutoffStatus + '\n\n' + wsReply;
-              modelUsed = wsModel;
-            } catch (wsErr) {
-              reply = cutoffStatus + `\nAsk: web2: ${wsErr.message} → showing original answer.\n\n` + fbResult.reply;
-            }
+            try { const ws = await askWebSearch(messages, 2); reply = ws.reply; modelUsed = ws.modelUsed; } catch {}
           }
         } catch (err) {
-          throw new Error('All models failed. Last error: ' + err.message);
+          throw new Error('All models failed: ' + err.message);
         }
-      }
-
-      // ── Post-processor: nAI response checks ──────────────────────────────
-      const postFlags = postProcessReply(reply, INSTRUCTIONS);
-      if (postFlags.length > 0) {
-        console.log('[Mobius] Post-processor flags:', postFlags);
       }
 
       const latencyMs = Date.now() - t0;
-      res.json({ reply, modelUsed, tokensIn, tokensOut, postFlags, failedModels });
+      res.json({ reply, modelUsed, tokensIn, tokensOut, failedModels });
 
-      // ── Async logging — fire and forget, never blocks the response ────────
-      if (userId && reply !== '__CHAT_HISTORY__') {
-        saveConversation(userId, QUERY, reply, modelUsed, topic || 'general', session_id || null, {
-          ask:             ASK,
-          instructions:    INSTRUCTIONS,
-          historyCount:    (HISTORY || []).length,
-          tokensIn:        tokensIn,
-          tokensOut:       tokensOut,
-          latencyMs:       latencyMs,
-          complexityScore: _complexityScore,
-          routingReason:   routingReason || null,
-          failedModels:    failedModels.length ? failedModels : null,
-          postFlags:       postFlags.length    ? postFlags    : null
-        }).catch(e => console.error('[Mobius] Save error:', e.message));
-
-        const providerOf = m => {
-          if (!m) return 'unknown';
-          const ml = m.toLowerCase();
-          if (ml.includes('groq') || ml.includes('llama'))               return 'groq';
-          if (ml.includes('flash-lite') || ml.includes('gemini-lite'))   return 'gemini-lite';
-          if (ml.includes('gemini') || ml.includes('flash'))             return 'gemini';
-          if (ml.includes('codestral') || ml.includes('mistral'))        return 'mistral';
-          if (ml.includes('gpt') || ml.includes('github'))               return 'github';
-          if (ml.includes('ollama') || ml.includes('qwen') || ml.includes('deepseek')) return 'ollama';
-          return 'unknown';
-        };
-        const capability = hasImages ? 'vision' : (FILES || []).length > 0 ? 'file' : 'general';
-
-        // Log successful call (skip if all models failed — modelUsed === 'failed')
-        const callSucceeded = modelUsed && modelUsed !== 'failed';
-        if (callSucceeded) logModelEvent(userId, {
-          provider:        providerOf(modelUsed),
-          modelId:         modelUsed,
-          displayName:     modelUsed,
-          capability,
-          success:         true,
-          latencyMs,
-          tokensIn:        tokensIn  || 0,
-          tokensOut:       tokensOut || 0,
-          complexityScore: _complexityScore,
-          sessionId:       session_id || null
-        }).catch(() => {});
-
-        // If all models failed, log that as an error event
-        if (!callSucceeded) {
-          logModelEvent(userId, {
-            provider:        providerOf(ASK),
-            modelId:         ASK,
-            displayName:     ASK,
-            capability,
-            success:         false,
-            latencyMs,
-            errorMessage:    'All models failed',
-            complexityScore: _complexityScore,
-            sessionId:       session_id || null
-          }).catch(() => {});
-        }
-
-        // Log each failed attempt before the successful one
-        for (const fm of (failedModels || [])) {
-          logModelEvent(userId, {
-            provider:        providerOf(fm.model),
-            modelId:         fm.model,
-            displayName:     fm.model,
-            capability,
-            success:         false,
-            latencyMs:       0,
-            errorMessage:    fm.reason,
-            fallbackTo:      modelUsed,
-            complexityScore: _complexityScore,
-            sessionId:       session_id || null
-          }).catch(() => {});
-        }
+      if (userId && reply) {
+        saveConversation(userId, QUERY, reply, modelUsed, topic || 'coding', session_id || null, {
+          ask: ASK, instructions: INSTRUCTIONS, historyCount: (HISTORY || []).length,
+          tokensIn, tokensOut, latencyMs, failedModels: failedModels.length ? failedModels : null
+        }).catch(e => console.error('[Coder] Save error:', e.message));
       }
+
     } catch (err) {
-      console.error('[Mobius] Ask error:', err.message);
-      if (userId) {
-        logModelEvent(userId, {
-          provider:     'unknown',
-          modelId:      ASK,
-          displayName:  ASK,
-          capability:   'general',
-          success:      false,
-          latencyMs:    Date.now() - t0,
-          errorMessage: err.message,
-          sessionId:    session_id || null
-        }).catch(() => {});
-      }
+      console.error('[Coder] Ask error:', err.message);
       res.status(500).json({ error: err.message });
     }
     return;
   }
 
-  // ── /session/start ───────────────────────────────────────────────────────────────────
-  // Called by the client at page load. Returns a session ID.
   if (action === 'session/start') {
     const cookieHeader = req.headers.cookie || '';
     const userId = cookieHeader.split(';').map(c => c.trim())
       .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
-    const { project = 'mobius', domain = 'management' } = req.body || {};
-    const sessionId = await startSession(userId, project, domain);
-    return res.status(200).json({ sessionId });
+    const { project = 'coder', domain = 'coding' } = req.body || {};
+    return res.status(200).json({ sessionId: await startSession(userId, project, domain) });
   }
 
-  // ── /session/close ────────────────────────────────────────────────────────────────
-  // Called by sendBeacon on beforeunload. Writes deterministic summary.
-  // Must handle both JSON body and plain text body (sendBeacon sends text/plain).
   if (action === 'session/close') {
     try {
       let body = req.body || {};
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
-      const { sessionId, userId } = body;
-      await closeSession(sessionId, userId);
+      await closeSession(body.sessionId, body.userId);
       return res.status(200).json({ ok: true });
-    } catch (err) {
-      console.error('[Mobius] session/close error:', err.message);
-      return res.status(200).json({ ok: false }); // always 200 — beacon doesn't retry
-    }
+    } catch { return res.status(200).json({ ok: false }); }
   }
 
-  // ── /session/heartbeat ─────────────────────────────────────────────────────────
-  // Called every 5 minutes to keep updated_at current.
   if (action === 'session/heartbeat') {
     const cookieHeader = req.headers.cookie || '';
     const userId = cookieHeader.split(';').map(c => c.trim())
-      .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
-    const { sessionId } = req.body || {};
-    await heartbeatSession(sessionId, userId);
+      .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || null;
+    await heartbeatSession(req.body?.sessionId, userId);
     return res.status(200).json({ ok: true });
+  }
+
+  // ── Memory actions ──────────────────────────────────────────────────────────
+  if (action === 'memory') {
+    const cookieHeader = req.headers.cookie || '';
+    const cookieUserId = cookieHeader.split(';').map(c => c.trim())
+      .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || null;
+    const { sub, userId: bodyUserId, content, query, table, id } = req.body || {};
+    const userId = cookieUserId || bodyUserId || process.env.MOBIUS_TEST_USER_ID || '22008c93-c79b-491d-b3c1-efa194c0c871';
+
+    try {
+      if (sub === 'write') {
+        const ok = await writeGeneral(userId, content, req.body.source || 'auto', null);
+        return res.json({ ok });
+      }
+
+      if (sub === 'search') {
+        const result = await searchMemory(userId, query || '');
+        return res.json({ result });
+      }
+
+      if (sub === 'view') {
+        const data = await viewMemory(userId, 15);
+        return res.json(data);
+      }
+
+      if (sub === 'add') {
+        // Split input into sentences -- each atomic fact stored as a separate record.
+        const sentences = (content || '')
+          .split(/(?<=[.!?])\s+/)
+          .map(s => s.trim())
+          .filter(s => s.length > 4);
+        const items = sentences.length > 1 ? sentences : [content];
+        let saved = 0;
+        let lastTable = null;
+        for (const item of items) {
+          await writeGeneral(userId, item, 'manual', null);
+          try {
+            const prompt = 'Classify this memory into user/tools/project and extract 3-5 tags.\nMemory: "' + item + '"\nRespond ONLY with JSON (no markdown): {"table":"user|tools|project","tags":["a","b"],"project_ids":[]}';
+            const r = await askGeminiLite([{ role: 'user', content: prompt }]);
+            const parsed = JSON.parse((r.text || '').replace(/```json|```/g, '').trim());
+            const t = 'memory_' + (parsed.table || 'tools');
+            await writeWorking(userId, t, item, parsed.tags || [], parsed.project_ids || [], []);
+            lastTable = parsed.table;
+          } catch {
+            // Saved to memory_general, will be classified on next distil
+          }
+          saved++;
+        }
+        return res.json({ ok: true, saved, table: lastTable });
+      }
+
+      if (sub === 'delete') {
+        const ok = await deleteMemory(userId, id);
+        return res.json({ ok });
+      }
+
+      if (sub === 'update') {
+        const ok = await updateMemory(userId, id, content);
+        return res.json({ ok });
+      }
+
+      if (sub === 'count') {
+        const counts = await countMemory(userId);
+        return res.json(counts);
+      }
+
+      if (sub === 'embed-list') {
+        const rows = await embedList(userId);
+        return res.json({ ok: true, rows });
+      }
+
+      if (sub === 'embed-one') {
+        const { id: rowId, table: rowTable, content: rowContent } = req.body || {};
+        const result = await embedOne(userId, rowId, rowTable, rowContent);
+        return res.json(result);
+      }
+
+      if (sub === 'distil') {
+        // Try Gemini Lite first, fall back to Groq cascade if quota exceeded
+        async function distilAI(messages) {
+          try {
+            return await askGeminiLite(messages);
+          } catch (e) {
+            if (e.message && e.message.includes('quota')) {
+              const r = await askGroqCascade(messages);
+              return { text: r.text };
+            }
+            throw e;
+          }
+        }
+        const result = await distilMemory(userId, distilAI, 30);
+        return res.json(result);
+      }
+
+      return res.status(400).json({ error: 'Unknown memory sub-action: ' + sub });
+    } catch (err) {
+      console.error('[Memory] handler error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   res.status(400).json({ error: 'Unknown action: ' + action });

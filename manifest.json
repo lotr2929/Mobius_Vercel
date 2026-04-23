@@ -1,7 +1,8 @@
 {
+  "id": "mobius-lotr2929",
   "name": "Mobius",
   "short_name": "Mobius",
-  "description": "AI Coordinator",
+  "description": "AI Orchestrator with multi-gate consensus",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fff0d5",
@@ -9,12 +10,18 @@
   "icons": [
     {
       "src": "favicon.ico",
-      "sizes": "192x192",
+      "sizes": "48x48",
       "type": "image/x-icon",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "mobius_logo.png",
+      "src": "mobius-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "mobius-logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
