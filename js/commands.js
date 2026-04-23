@@ -428,26 +428,8 @@ function classifyTaskType(text) {
 window.classifyTaskType = classifyTaskType;
 
 window.sendToLastModel = async function (text, output, outputEl) {
-  const last     = getLastModel();
-  const messages = [{ role: 'user', content: text }];
-
-  // ── Auto-protocol routing ────────────────────────────────────────────────
-  // If images are attached OR query looks diagnostic/fix and a project is open,
-  // route through the full Brief: Protocol pipeline automatically.
-  // No "Brief: Protocol" command needed -- this is the default for complex queries.
-  const hasImages    = window._protocolImages && window._protocolImages.length > 0;
-  const projectOpen  = !!(window.getRootHandle && window.getRootHandle());
-  const isDiagnostic = /\b(diagnos|what.s wrong|fix|resolve|why|bug|broken|wrong|not work|incorrect|issue|compass|npoint|3d view)\b/i.test(text);
-  if ((hasImages || (projectOpen && isDiagnostic)) && window.handleBriefProtocol) {
-    // Set up retry state: up to 3 autonomous attempts
-    window._autoProtocolState = { query: text, output, outputEl, remaining: 2, max: 2 };
-    window._protocolRetryContext = null;
-    await window.handleBriefProtocol(text, output, outputEl);
-    return;
-  }
-
-  // ── Orchestrator intercept ───────────────────────────────────────────────
-  // Orch: prefix still accepted; all other plain queries also default here
+  // All queries route through the Mobius orchestration pipeline.
+  // Orch: prefix is accepted but not required.
   if (window.runOrchestrator) {
     const query = text.replace(/^Orch:\s*/i, '').trim();
     const chatPanel = document.getElementById('chatPanel');
@@ -455,8 +437,7 @@ window.sendToLastModel = async function (text, output, outputEl) {
     return;
   }
 
-  // Fallback if orchestrator not loaded: single model routing
-  const routed = classifyTaskType(text);
-  const model  = routed || last || 'gemini-lite';
-  await sendToAI(model, messages, output, outputEl);
+  // Fallback if orchestrator not loaded
+  const messages = [{ role: 'user', content: text }];
+  await sendToAI(getLastModel() || 'gemini-lite', messages, output, outputEl);
 };
