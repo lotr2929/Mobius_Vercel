@@ -186,3 +186,60 @@ Test the full pipeline at <https://mobius-pwa.vercel.app>:
 4. If SSE buffered on Vercel Hobby -- switch Step 2 back to JSON endpoint
 
 ---
+
+## Session 3 — Fri 25 Apr 2026
+
+**With:** Claude Desktop (Sonnet 4.6) **Status:** Deployed — protocol redesigned
+
+### Protocol redesign
+
+Replaced autonomous Gate 1/2 consensus loop with Boon-directed workflow.
+
+**Step 1** (POST /orchestrate step:1):
+
+- 5 Task AIs each suggest a prompt rewrite in parallel
+- Brief AI synthesises one combined prompt from all suggestions
+- Source discovery runs in parallel (placeholder -- search TBD)
+- Returns: suggestions\[\], synthesised_prompt, sources\[\]
+
+**Step 2** (POST /orchestrate/stream SSE):
+
+- 5 Task AIs answer with Boon-approved prompt + selected sources
+- Race resolves on first 3; waits up to 2 min for all 5
+- Brief AI produces annotated evaluation summary
+- Summary format: bullet points with \[N/5 agree: names\] + VERIFY/CONFLICT flags
+
+**Panel discipline:**
+
+- Right (preview): Task AI prompt suggestions, then Task AI answers
+- Left (chat): query, status log, source card, prompt approval card, eval summary
+
+**Decision points:**
+
+1. Source card -- select URLs or skip
+2. Prompt card -- Approve / Edit textarea / Redo with feedback
+3. Eval card -- Accept / Edit prompt and redo (Step 2 only)
+
+**Reject paths:**
+
+- Reject prompt -- Boon adds feedback -- Step 1 reruns with feedback
+- Reject answer -- Boon edits the PROMPT (not query) -- Step 2 reruns only
+
+### Also fixed
+
+- OpenRouter HTTP-Referer corrected to mobius-pwa.vercel.app
+- OpenRouter model cascade updated to stable free models
+
+### Removed
+
+- Gate 1 evaluator scoring
+- Gate 2 autonomous consensus loop
+- 5-cycle restart logic
+
+### Next session
+
+1. Test full flow: <https://mobius-pwa.vercel.app>
+2. Discuss search integration (Firecrawl vs Tavily)
+3. Review AI lineup and system prompts
+
+---

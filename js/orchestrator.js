@@ -323,10 +323,12 @@ function buildEvalCard(summary, scores, approvedPrompt, onDecision) {
   heading.textContent = 'Evaluation Summary';
   card.appendChild(heading);
 
-  // Annotated summary text
+  // Annotated summary text -- rendered as markdown
+  const md = window.markdownToHtml || (t => '<div style="white-space:pre-wrap">' + t.replace(/</g,'&lt;') + '</div>');
   const summaryEl = document.createElement('div');
-  summaryEl.style.cssText = 'font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap;margin-bottom:10px;';
-  summaryEl.textContent = summary;
+  summaryEl.className = 'chat-answer';
+  summaryEl.style.cssText = 'font-size:13px;margin-bottom:10px;';
+  summaryEl.innerHTML = md(summary).replace('<div class="chat-answer">', '<div>');
   card.appendChild(summaryEl);
 
   // Score table
