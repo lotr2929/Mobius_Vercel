@@ -449,21 +449,48 @@ async function askMistralCascade(messages) {
 // Requires GOOGLE_API_KEY and GOOGLE_CSE_ID env vars.
 // Returns array of { title, url, snippet } objects.
 
+// ── Google Search via Gemini grounding ───────────────────────────────────────
+// Uses Gemini's built-in Google Search tool -- no CSE or separate API key needed.
+// Returns array of { title, url, snippet } from grounding metadata.
+
 async function askGoogleSearch(query, numResults = 10) {
-  const key = process.env.GOOGLE_API_KEY;
-  const cx  = process.env.GOOGLE_CSE_ID;
-  if (!key || !cx) throw new Error('GOOGLE_API_KEY or GOOGLE_CSE_ID not configured.');
-  const url = 'https://www.googleapis.com/customsearch/v1?key=' + key +
-    '&cx=' + cx + '&q=' + encodeURIComponent(query) + '&num=' + Math.min(10, numResults);
-  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY not configured.');
+
+  const model = 'gemini-2.0-flash';
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+
+  const body = {
+    contents: [{ role: 'user', parts: [{ text: 'Find the best sources for: ' + query + '\n\nList the top ' + numResults + ' most authoritative sources with their URLs.' }] }],
+    tools: [{ google_search: {} }]
+  };
+
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000)
+  });
   const data = await r.json();
-  if (data.error) throw new Error('Google Search error: ' + (data.error.message || JSON.stringify(data.error)));
-  const items = data.items || [];
-  return items.map(item => ({
-    title:   item.title   || '',
-    url:     item.link    || '',
-    snippet: item.snippet || ''
-  }));
+  if (data.error) throw new Error('Gemini Search error: ' + data.error.message);
+
+  // Extract sources from grounding metadata
+  const chunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const sources = chunks
+    .filter(c => c.web?.uri)
+    .map(c => ({
+      title:   c.web.title   || c.web.uri,
+      url:     c.web.uri,
+      snippet: ''
+    }));
+
+  // If grounding returned sources, use them; otherwise parse from text
+  if (sources.length > 0) return sources.slice(0, numResults);
+
+  // Fallback: extract URLs from response text
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const urlMatches = text.match(/https?:\/\/[^\s\)\"\']+/g) || [];
+  return [...new Set(urlMatches)].slice(0, numResults).map(u => ({ title: u, url: u, snippet: '' }));
 }
 
 module.exports = {

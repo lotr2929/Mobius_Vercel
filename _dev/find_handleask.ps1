@@ -1,0 +1,1 @@
+Select-String -Path 'C:\_myProjects\Mobius\Mobius\js\commands.js' -Pattern 'handleAsk|window\.handleAsk' | Select-Object -First 10 | ForEach-Object { Write-Host ($_.LineNumber.ToString() + ': ' + $_.Line) }
