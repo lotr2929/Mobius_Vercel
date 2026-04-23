@@ -135,6 +135,7 @@ async function runGate1(query, previousFeedback = '') {
   const log = [];
   let bestPrompt = null;
   let bestScore = 0;
+  const allCandidates = []; // collect across all iterations for alternatives
 
   for (let iter = 1; iter <= CONFIG.maxGate1Iterations; iter++) {
     const feedbackNote = previousFeedback
@@ -176,6 +177,7 @@ async function runGate1(query, previousFeedback = '') {
 
     const iteration = { iter, prompts: evaluated.length, best: best.consensus };
     log.push(iteration);
+    allCandidates.push(...evaluated);
 
     if (best.consensus.passed) {
       return { passed: true, prompt: best.text, iterations: iter, log, avgScore: best.consensus.avgScore };
@@ -188,14 +190,26 @@ async function runGate1(query, previousFeedback = '') {
       (best.consensus.scores[0]?.reasoning || 'unclear focus');
   }
 
-  // Gate 1 failed -- return best prompt found anyway
+  // Gate 1 failed -- build alternatives from top candidates, return best prompt anyway
+  const alternatives = allCandidates
+    .sort((a, b) => b.consensus.avgScore - a.consensus.avgScore)
+    .slice(0, 4)
+    .map(p => ({
+      prompt:    p.text,
+      aiId:      p.aiId,
+      avgScore:  p.consensus.avgScore,
+      passCount: p.consensus.passCount,
+      reasoning: p.scores?.[0]?.reasoning || ''
+    }));
+
   return {
     passed: false,
     prompt: bestPrompt || query,
     iterations: CONFIG.maxGate1Iterations,
     log,
     avgScore: bestScore,
-    fallback: true
+    fallback: true,
+    alternatives
   };
 }
 
@@ -398,12 +412,25 @@ module.exports = async function handler(req, res) {
     const qId = await logQuery(userId, query);
 
     try {
-      // Gate 1
-      const gate1 = await runGate1(query);
-      const consensusPrompt = gate1.prompt;
+      // Gate 1 + Gate 1.5 -- with Gate 1.5-failure retry (max 2 Gate 1 attempts)
+      let gate1, gate15, consensusPrompt;
+      let gate1Retries = 0;
+      let retryFeedback = '';
 
-      // Gate 1.5
-      const gate15 = await runGate15(query, consensusPrompt);
+      do {
+        gate1 = await runGate1(query, retryFeedback);
+        consensusPrompt = gate1.prompt;
+        gate15 = await runGate15(query, consensusPrompt);
+        if (!gate15.passed && gate1Retries < 1) {
+          retryFeedback = 'Source consensus failed. Reframe the prompt to be more specific and unambiguous to aid source discovery.';
+          gate1Retries++;
+        } else {
+          break;
+        }
+      } while (gate1Retries <= 1);
+
+      gate1.gate15Retry  = gate1Retries > 0;
+      gate15.gate1Retried = gate1Retries > 0;
 
       await updateQueryStatus(qId, {
         gate1_iterations:    gate1.iterations,
