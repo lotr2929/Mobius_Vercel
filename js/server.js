@@ -5,7 +5,7 @@ const fs    = require('fs');
 const path  = require('path');
 
 const PORT        = process.env.PORT || 3000;
-const VERCEL_HOST = 'mobius.vercel.app';
+const VERCEL_HOST = 'mobius-pwa.vercel.app';
 const ROOT_DIR    = path.resolve(__dirname, '..');  // server.js lives in js/ -- root is one level up
 
 const MIME = {

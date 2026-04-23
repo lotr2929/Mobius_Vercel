@@ -97,7 +97,7 @@ if %ERRORLEVEL% NEQ 0 (
     echo.
     echo ========================================
     echo  Deployment verified.
-    echo  URL: https://mobius.vercel.app
+    echo  URL: https://mobius-pwa.vercel.app
     echo ========================================
 )
 

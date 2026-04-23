@@ -20,7 +20,7 @@ Runs silently (no window).
 
 **How it works:**
 - Proxies `/ollama/*` → `localhost:11434` with `Access-Control-Allow-Origin: *`
-- Proxies `/api/*` → `mobius.vercel.app` (Vercel serverless)
+- Proxies `/api/*` → `mobius-pwa.vercel.app` (Vercel serverless)
 - Runs on `http://localhost:3000`
 
 **Note:** Vercel serverless functions cannot reach `localhost:11434` on the user's
@@ -52,12 +52,12 @@ allowed to make cross-origin requests to its API.
 
 **Current value (Machine level):**
 ```
-https://mobius-plum.vercel.app,https://mobius-vercel.vercel.app,https://mobius.vercel.app
+https://mobius-plum.vercel.app,https://mobius-vercel.vercel.app,https://mobius-pwa.vercel.app
 ```
 
 **Set via PowerShell (run as Administrator):**
 ```powershell
-[System.Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "https://mobius-plum.vercel.app,https://mobius-vercel.vercel.app,https://mobius.vercel.app", "Machine")
+[System.Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "https://mobius-plum.vercel.app,https://mobius-vercel.vercel.app,https://mobius-pwa.vercel.app", "Machine")
 ```
 
 **Note:** Machine-level value takes effect after Ollama restarts. User-level
