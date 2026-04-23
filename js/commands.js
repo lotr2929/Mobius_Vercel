@@ -446,6 +446,15 @@ window.sendToLastModel = async function (text, output, outputEl) {
     return;
   }
 
+  // ── Orchestrator intercept ───────────────────────────────────────────────
+  // Orch: prefix routes through the 5-AI consensus pipeline
+  if (/^Orch:\s*/i.test(text) && window.runOrchestrator) {
+    const query = text.replace(/^Orch:\s*/i, '').trim();
+    const chatPanel = document.getElementById('chatPanel');
+    await window.runOrchestrator(query, chatPanel);
+    return;
+  }
+
   // All Mode takes priority -- fires all 5 stables
   if (window.allModeActive && window.runAllModels) {
     await window.runAllModels(text, output, outputEl, !!(window.panel));
