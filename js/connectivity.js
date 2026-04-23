@@ -66,7 +66,6 @@ const Connectivity = (() => {
             { key: 'vercel',   label: 'Vercel API', fn: checkVercel   },
             { key: 'supabase', label: 'Supabase',   fn: checkSupabase },
             { key: 'cloud',    label: 'Cloud AI',   fn: checkCloudAI  },
-            { key: 'local',    label: 'Local AI',   fn: checkOllama   },
         ];
 
         const rowEls = {};
@@ -76,14 +75,35 @@ const Connectivity = (() => {
             rowEls[c.key] = row;
         }
 
+        const results = {};
         await Promise.all(checks.map(async c => {
             try {
                 const result = await c.fn();
                 updateRow(rowEls[c.key], result.status, result.items || [], result.detail || '');
+                results[c.key] = result;
             } catch {
                 updateRow(rowEls[c.key], 'fail', [], 'error');
+                results[c.key] = { status: 'fail', items: [] };
             }
         }));
+
+        // Update statusDot based on task AI health (5 task AIs required)
+        const taskAINames = ['Analyst AI', 'Critical AI', 'Researcher AI', 'Technical AI', 'Synthesiser AI'];
+        const cloudItems  = (results.cloud && results.cloud.items) || [];
+        const taskItems   = cloudItems.filter(i => i.note && taskAINames.includes(i.note));
+        const okCount     = taskItems.filter(i => i.ok).length;
+        const dot = document.getElementById('statusDot');
+        if (dot) {
+            if (taskItems.length === 0) {
+                dot.style.background = '#a06800'; dot.title = 'Task AI status unknown';
+            } else if (okCount === taskItems.length) {
+                dot.style.background = '#4a7c4e'; dot.title = 'All ' + okCount + ' task AIs ready';
+            } else if (okCount > 0) {
+                dot.style.background = '#a06800'; dot.title = okCount + '/' + taskItems.length + ' task AIs ready';
+            } else {
+                dot.style.background = '#8d3a3a'; dot.title = 'Task AIs unavailable';
+            }
+        }
     }
 
     function createRow(label, status, items) {
@@ -206,7 +226,7 @@ const Connectivity = (() => {
                 'Google - Gemini 2.5 Flash-Lite':{ provider:'Google',   model:'Gemini 2.5 Flash-Lite',  role:'Critical AI'      },
                 'Google - Gemini 2.5 Flash':   { provider:'Google',     model:'Gemini 2.5 Flash',        role:'Researcher AI'    },
                 'Codestral (Mistral AI)':       { provider:'Mistral AI', model:'Codestral',               role:'Technical AI'     },
-                'GPT-4o (GitHub AI)':           { provider:'GitHub AI',  model:'GPT-4o (Azure)',          role:''                 },
+                'GPT-4o (GitHub AI)':           { provider:'GitHub AI',  model:'GPT-4o (Azure)',          role:'General'          },
                 'OpenRouter':                   { provider:'OpenRouter', model:'Mistral 7B',              role:'Synthesiser AI'   },
             };
             const items = raw.map(m => {

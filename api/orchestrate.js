@@ -9,126 +9,9 @@
 
 'use strict';
 
-const {
-  askGroqCascade, askGeminiCascade, askMistralCascade,
-  askOpenRouterCascade, askGeminiLite, askGoogleSearch
-} = require('./_ai.js');
-const { supabase } = require('./_supabase.js');
-
-// ── Configuration ─────────────────────────────────────────────────────────────
-const CONFIG = {
-  taskAICount:        5,
-  evaluatorCount:     5,
-  consensusThreshold: 90,     // score >= 90 to pass
-  consensusMajority:  3,      // 3/5 must pass
-  sourceVoteMajority: 4,      // 4/5 votes = consensus source
-  minConsensusSources:3,
-  maxGate1Iterations: 3,
-  maxGate2Iterations: 3,
-  maxGate15Attempts:  2
-};
-
-// ── 5 Task AI definitions (specialist persona + model) ────────────────────────
-const TASK_AIS = [
-  {
-    id: 'analyst',
-    label: 'Analytical Specialist',
-    persona: 'You are an analytical specialist. You break problems into components, identify patterns, and provide structured reasoning. Focus on logic, trade-offs, and evidence.',
-    call: (msgs) => askGroqCascade(msgs)
-  },
-  {
-    id: 'researcher',
-    label: 'Research Specialist',
-    persona: 'You are a research specialist. You draw on authoritative sources, cite evidence, and provide comprehensive background. Focus on accuracy and depth.',
-    call: (msgs) => askGeminiCascade(msgs)
-  },
-  {
-    id: 'technical',
-    label: 'Technical Specialist',
-    persona: 'You are a technical specialist. You focus on implementation details, practical constraints, and concrete solutions. Provide specific, actionable guidance.',
-    call: (msgs) => askMistralCascade(msgs)
-  },
-  {
-    id: 'critical',
-    label: 'Critical Reviewer',
-    persona: 'You are a critical reviewer. You identify weaknesses, edge cases, and unstated assumptions. Play devil\'s advocate. Focus on what could go wrong.',
-    call: async (msgs) => { const r = await askGeminiLite(msgs); return { text: r.text, modelUsed: 'Gemini Lite' }; }
-  },
-  {
-    id: 'synthesiser',
-    label: 'Synthesis Specialist',
-    persona: 'You are a synthesis specialist. You integrate multiple perspectives, identify common ground, and produce clear, balanced, well-structured answers.',
-    call: (msgs) => askOpenRouterCascade(msgs)
-  }
-];
-
-// ── Evaluator scoring prompt ──────────────────────────────────────────────────
-function buildEvalPrompt(item, context) {
-  return `You are an expert evaluator. Score the following on a scale of 1-100.
-
-CONTEXT: ${context}
-
-ITEM TO EVALUATE:
-${item}
-
-Score across 4 dimensions (each 0-25):
-- Accuracy (0-25): Factually correct, no hallucinations
-- Relevance (0-25): Directly addresses the query
-- Completeness (0-25): Covers the key aspects
-- Clarity (0-25): Well-structured and easy to understand
-
-Respond with ONLY a JSON object, no markdown:
-{"accuracy":N,"relevance":N,"completeness":N,"clarity":N,"total":N,"reasoning":"one sentence"}`;
-}
-
-async function scoreItem(item, context) {
-  const prompt = buildEvalPrompt(item, context);
-  const msgs = [{ role: 'user', content: prompt }];
-  // Use fast model for scoring -- Gemini Lite
-  try {
-    const r = await askGeminiLite(msgs);
-    const parsed = JSON.parse((r.text || '').replace(/```json|```/g, '').trim());
-    return {
-      accuracy:     Math.min(25, Math.max(0, parsed.accuracy     || 0)),
-      relevance:    Math.min(25, Math.max(0, parsed.relevance    || 0)),
-      completeness: Math.min(25, Math.max(0, parsed.completeness || 0)),
-      clarity:      Math.min(25, Math.max(0, parsed.clarity      || 0)),
-      total:        Math.min(100, Math.max(0, parsed.total       || 0)),
-      reasoning:    parsed.reasoning || ''
-    };
-  } catch {
-    // Fallback: ask for just a number
-    try {
-      const fb = await askGroqCascade([{ role: 'user', content: 'Score 1-100: ' + item.slice(0, 200) + '\n\nContext: ' + context.slice(0, 100) + '\n\nRespond with ONLY a number.' }]);
-      const n = parseInt((fb.text || '50').match(/\d+/)?.[0] || '50', 10);
-      const q = Math.floor(Math.min(100, Math.max(1, n)) / 4);
-      return { accuracy: q, relevance: q, completeness: q, clarity: q, total: n, reasoning: 'fallback score' };
-    } catch {
-      return { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, reasoning: 'eval failed' };
-    }
-  }
-}
-
-// Score an item with all 5 evaluators in parallel
-async function evaluateItem(item, context) {
-  const results = await Promise.allSettled(
-    TASK_AIS.map(() => scoreItem(item, context))
-  );
-  return results.map((r, i) =>
-    r.status === 'fulfilled' ? r.value
-    : { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, reasoning: 'eval ' + i + ' failed' }
-  );
-}
-
-function checkConsensus(scores) {
-  const passing = scores.filter(s => s.total >= CONFIG.consensusThreshold);
-  return {
-    passed: passing.length >= CONFIG.consensusMajority,
-    passCount: passing.length,
-    avgScore: scores.reduce((a, s) => a + s.total, 0) / scores.length,
-    scores
-  };
-}
+const { askGeminiCascade, askGoogleSearch } = require('./_ai.js');
+const { supabase }                          = require('./_supabase.js');
+const { CONFIG, TASK_AIS, raceAtLeast, evaluateItem, checkConsensus, runGate2 } = require('./_exec.js');
 
 // ── Gate 1: Prompt Consensus ──────────────────────────────────────────────────
 async function runGate1(query, previousFeedback = '') {
@@ -213,36 +96,30 @@ async function runGate1(query, previousFeedback = '') {
   };
 }
 
-// ── Gate 1.5: Source Consensus ────────────────────────────────────────────────
-async function runGate15(query, consensusPrompt) {
-  // Brief AI discovers sources via Google Custom Search
-  async function discoverSources(searchQuery) {
-    try {
-      const results = await askGoogleSearch(searchQuery, 10);
-      return results.map(r => ({
-        url:       r.url,
-        title:     r.title,
-        snippet:   r.snippet,
-        authority: estimateAuthority(r.url)
-      }));
-    } catch (err) {
-      console.warn('[Gate 1.5] Google Search unavailable:', err.message);
-      // Graceful fallback -- return a minimal placeholder so the pipeline continues
-      return [{
-        url:       'no-search-available',
-        title:     'Search unavailable -- answer from model knowledge',
-        snippet:   '',
-        authority: 2
-      }];
-    }
-  }
+// ── Module-level source discovery (runs in parallel with Gate 1) ─────────────
+function estimateAuthority(url) {
+  if (/\.gov|\.edu/.test(url)) return 5;
+  if (/\.org|wikipedia/.test(url)) return 4;
+  if (/github|stackoverflow|docs\./.test(url)) return 4;
+  return 3;
+}
 
-  function estimateAuthority(url) {
-    if (/\.gov|\.edu/.test(url)) return 5;
-    if (/\.org|wikipedia/.test(url)) return 4;
-    if (/github|stackoverflow|docs\./.test(url)) return 4;
-    return 3;
+async function discoverSources(searchQuery) {
+  try {
+    const results = await askGoogleSearch(searchQuery, 10);
+    return results.map(r => ({
+      url: r.url, title: r.title, snippet: r.snippet,
+      authority: estimateAuthority(r.url)
+    }));
+  } catch (err) {
+    console.warn('[discoverSources] unavailable:', err.message);
+    return [{ url: 'no-search-available', title: 'Search unavailable -- answer from model knowledge', snippet: '', authority: 2 }];
   }
+}
+
+// ── Gate 1.5: Source Consensus ────────────────────────────────────────────────
+// preSources: if provided (from parallel discovery), skip initial fetch
+async function runGate15(query, consensusPrompt, preSources) {
 
   // Vote: each task AI ranks the sources in parallel
   async function voteSources(sources, q) {
@@ -266,8 +143,8 @@ async function runGate15(query, consensusPrompt) {
     return votes;
   }
 
-  // Attempt 1
-  const sources1 = await discoverSources(consensusPrompt);
+  // Attempt 1 -- use pre-discovered sources if available, else fetch now
+  const sources1 = (preSources && preSources.length > 0) ? preSources : await discoverSources(consensusPrompt);
   const votes1   = await voteSources(sources1, query);
   const consensus1 = sources1.filter((_, i) => votes1[i] >= CONFIG.sourceVoteMajority);
   const partial1   = sources1.filter((_, i) => votes1[i] >= 2 && votes1[i] < CONFIG.sourceVoteMajority);
@@ -293,26 +170,37 @@ async function runGate15(query, consensusPrompt) {
 }
 
 // ── Steps 6-9: Execution + Synthesis ─────────────────────────────────────────
-async function runExecution(query, consensusPrompt, selectedSources) {
+async function runExecution(query, consensusPrompt, selectedSources, uploadedFiles) {
   const sourceContext = selectedSources.length > 0
     ? '\n\nUse these sources in your answer:\n' + selectedSources.map(s => `- ${s.title}: ${s.url}`).join('\n')
     : '';
+  const fileContext = (uploadedFiles || []).length > 0
+    ? '\n\nUploaded documents to reference:\n' + uploadedFiles.map(f => `--- ${f.name} ---\n${(f.content || '').slice(0, 4000)}`).join('\n\n')
+    : '';
 
-  // Step 6: All 5 task AIs answer in parallel
-  const answerResults = await Promise.allSettled(
-    TASK_AIS.map(ai => ai.call([{
-      role: 'user',
-      content: ai.persona + '\n\n' + consensusPrompt + sourceContext + '\n\nQuery: ' + query
-    }]))
+  // Step 6: Fire all 5 task AIs simultaneously; take the first 3 that respond
+  // (raceAtLeast avoids waiting for a slow AI to unblock the whole pipeline)
+  const raceResults = await raceAtLeast(
+    TASK_AIS.map(ai => ({
+      id:      ai.id,
+      label:   ai.label,
+      promise: ai.call([{
+        role:    'user',
+        content: ai.persona + '\n\n' + consensusPrompt + sourceContext + fileContext + '\n\nQuery: ' + query
+      }])
+    })),
+    3   // synthesise as soon as 3 of 5 respond
   );
 
-  const answers = answerResults.map((r, i) => ({
-    aiId:      TASK_AIS[i].id,
-    aiLabel:   TASK_AIS[i].label,
-    text:      r.status === 'fulfilled' ? (r.value.text || '') : '',
-    modelUsed: r.status === 'fulfilled' ? (r.value.modelUsed || TASK_AIS[i].id) : 'failed',
-    failed:    r.status === 'rejected'
-  })).filter(a => !a.failed && a.text.length > 20);
+  const answers = raceResults
+    .filter(r => r.value && (r.value.text || '').length > 20)
+    .map(r => ({
+      aiId:      r.id,
+      aiLabel:   r.label,
+      text:      r.value.text,
+      modelUsed: r.value.modelUsed || r.id,
+      failed:    false
+    }));
 
   // Step 8: Evaluate all answers with all evaluators in parallel
   const evalMatrix = await Promise.allSettled(
@@ -341,42 +229,6 @@ async function runExecution(query, consensusPrompt, selectedSources) {
   return { answers: scoredAnswers, synthesis };
 }
 
-// ── Gate 2: Answer Consensus ──────────────────────────────────────────────────
-async function runGate2(query, synthesis, answers) {
-  const log = [];
-
-  for (let iter = 1; iter <= CONFIG.maxGate2Iterations; iter++) {
-    const scores = await evaluateItem(synthesis, 'Query: ' + query);
-    const consensus = checkConsensus(scores);
-    log.push({ iter, consensus });
-
-    if (consensus.passed) {
-      return { passed: true, iterations: iter, log, avgScore: consensus.avgScore, synthesis };
-    }
-
-    if (iter < CONFIG.maxGate2Iterations) {
-      // Rewrite synthesis with feedback
-      const feedback = scores.map((s, i) => `Evaluator ${i+1}: ${s.total}/100 — ${s.reasoning}`).join('\n');
-      try {
-        const r = await askGeminiCascade([{
-          role: 'user',
-          content: `The following answer scored poorly (avg ${consensus.avgScore.toFixed(0)}/100). Rewrite it to score higher.\n\nFeedback:\n${feedback}\n\nOriginal answer:\n${synthesis}\n\nQuery: ${query}\n\nRewrite the answer only. No preamble.`
-        }]);
-        synthesis = r.text;
-      } catch { /* keep existing synthesis */ }
-    }
-  }
-
-  // Gate 2 failed — return best answer from execution as fallback
-  const fallback = answers[0]?.text || synthesis;
-  return {
-    passed: false, iterations: CONFIG.maxGate2Iterations, log,
-    avgScore: log[log.length - 1]?.consensus?.avgScore || 0,
-    synthesis: fallback, fallback: true,
-    alternatives: answers.slice(0, 3).map(a => ({ label: a.aiLabel, text: a.text, score: a.avgScore }))
-  };
-}
-
 // ── Supabase logging ──────────────────────────────────────────────────────────
 async function logQuery(userId, query) {
   try {
@@ -403,7 +255,7 @@ module.exports = async function handler(req, res) {
   const userId = cookieHeader.split(';').map(c => c.trim())
     .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
 
-  const { step, query, consensus_prompt, selected_sources, query_id } = req.body || {};
+  const { step, query, consensus_prompt, selected_sources, uploaded_files, query_id } = req.body || {};
 
   if (!query) return res.status(400).json({ error: 'query is required' });
 
@@ -412,25 +264,26 @@ module.exports = async function handler(req, res) {
     const qId = await logQuery(userId, query);
 
     try {
-      // Gate 1 + Gate 1.5 -- with Gate 1.5-failure retry (max 2 Gate 1 attempts)
-      let gate1, gate15, consensusPrompt;
-      let gate1Retries = 0;
-      let retryFeedback = '';
+      // Gate 1 + source discovery run IN PARALLEL (saves ~5-10 seconds)
+      const [gate1Result, preDiscovered] = await Promise.all([
+        runGate1(query, ''),
+        discoverSources(query)
+      ]);
 
-      do {
-        gate1 = await runGate1(query, retryFeedback);
+      let gate1 = gate1Result;
+      let consensusPrompt = gate1.prompt;
+      let gate15 = await runGate15(query, consensusPrompt, preDiscovered);
+
+      // Gate 1.5 failed: retry Gate 1 once with tighter prompt, re-discover sources
+      if (!gate15.passed) {
+        const retried = await runGate1(query, 'Source consensus failed. Make the prompt more specific and unambiguous.');
+        gate1 = { ...retried, gate15Retry: true };
         consensusPrompt = gate1.prompt;
-        gate15 = await runGate15(query, consensusPrompt);
-        if (!gate15.passed && gate1Retries < 1) {
-          retryFeedback = 'Source consensus failed. Reframe the prompt to be more specific and unambiguous to aid source discovery.';
-          gate1Retries++;
-        } else {
-          break;
-        }
-      } while (gate1Retries <= 1);
-
-      gate1.gate15Retry  = gate1Retries > 0;
-      gate15.gate1Retried = gate1Retries > 0;
+        gate15 = { ...(await runGate15(query, consensusPrompt, null)), gate1Retried: true };
+      } else {
+        gate1.gate15Retry   = false;
+        gate15.gate1Retried = false;
+      }
 
       await updateQueryStatus(qId, {
         gate1_iterations:    gate1.iterations,
@@ -468,7 +321,7 @@ module.exports = async function handler(req, res) {
 
     try {
       // Execute
-      const execution = await runExecution(query, consensus_prompt, sources);
+      const execution = await runExecution(query, consensus_prompt, sources, uploaded_files || []);
 
       // Gate 2
       const gate2 = await runGate2(query, execution.synthesis, execution.answers);
@@ -497,6 +350,12 @@ module.exports = async function handler(req, res) {
           label:    a.aiLabel,
           model:    a.modelUsed,
           avgScore: a.avgScore
+        })),
+        answers: execution.answers.map(a => ({
+          label:    a.aiLabel,
+          model:    a.modelUsed,
+          avgScore: a.avgScore,
+          text:     a.text.slice(0, 3000)
         }))
       });
     } catch (err) {
