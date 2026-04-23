@@ -56,6 +56,17 @@ module.exports = async function handler(req, res) {
       });
       return r.ok || r.status === 400;
     }),
+    ping('OpenRouter', async () => {
+      const key = process.env.OPENROUTER_API_KEY;
+      if (!key) return false;
+      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'mistralai/mistral-7b-instruct', messages: [{ role:'user', content:'hi' }], max_tokens: 1 }),
+        signal: AbortSignal.timeout(8000)
+      });
+      return r.ok || r.status === 400 || r.status === 422;
+    }),
   ]);
 
   return res.status(200).json({ models: results });

@@ -305,22 +305,34 @@ function buildAnswerCard(answer, citations, gate2, scores) {
 }
 
 // ── Main orchestrator entry point ─────────────────────────────────────────────
-window.runOrchestrator = async function(query, chatPanel) {
-  const container = document.createElement('div');
-  container.className = 'chat-entry';
-  container.style.cssText = 'border-left:3px solid var(--accent);padding-left:10px;';
+// reuseOutputEl: if passed (from sendToLastModel), the orchestrator writes into
+// the existing chat entry instead of creating a duplicate container.
+window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
+  let container;
 
-  const queryLabel = document.createElement('div');
-  queryLabel.className = 'chat-query';
-  queryLabel.textContent = 'Orch: ' + query;
-  container.appendChild(queryLabel);
+  if (reuseOutputEl) {
+    // Reuse the existing mq-block element from handleAsk
+    container = reuseOutputEl;
+    container.classList.add('html-content');
+    container.style.cssText += ';border-left:3px solid var(--accent);padding-left:10px;';
+  } else {
+    // Standalone mode -- create our own entry (e.g. called from session task)
+    container = document.createElement('div');
+    container.className = 'chat-entry';
+    container.style.cssText = 'border-left:3px solid var(--accent);padding-left:10px;';
+    const queryLabel = document.createElement('div');
+    queryLabel.className = 'chat-query';
+    queryLabel.textContent = query;
+    container.appendChild(queryLabel);
+    chatPanel.appendChild(container);
+    chatPanel.scrollTop = chatPanel.scrollHeight;
+  }
 
   const progressBox = document.createElement('div');
   progressBox.id = 'orch-progress-' + Date.now();
   progressBox.style.cssText = 'margin:6px 0;';
   container.appendChild(progressBox);
-  chatPanel.appendChild(container);
-  chatPanel.scrollTop = chatPanel.scrollHeight;
+  if (!reuseOutputEl) chatPanel.scrollTop = chatPanel.scrollHeight;
 
   const pid = progressBox.id;
   const log = (msg, type) => orchProgress(pid, msg, type);

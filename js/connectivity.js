@@ -5,7 +5,7 @@
 
 const Connectivity = (() => {
 
-    const PING_ENABLED = false; // set to true to re-enable connectivity checks
+    const PING_ENABLED = true;
 
     let panelEl = null;
 
@@ -18,7 +18,7 @@ const Connectivity = (() => {
             const el = document.createElement('div');
             el.id = 'startupPanel';
             el.style.cssText = 'font-size:12px;color:var(--text-dim);padding:4px 10px 8px;';
-            el.textContent = 'mobius ready \u2014 ' + new Date().toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', hour12:true });
+            el.textContent = 'Mobius ready \u2014 ' + new Date().toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', hour12:true });
             chatPanel.insertBefore(el, chatPanel.firstChild);
             return;
         }
@@ -30,7 +30,7 @@ const Connectivity = (() => {
             const el = document.createElement('div');
             el.id = 'startupPanel';
             el.style.cssText = 'font-size:12px;color:var(--text-dim);padding:4px 10px 8px;';
-            el.textContent = 'mobius ready \u2014 ' + new Date().toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', hour12:true });
+            el.textContent = 'Mobius ready \u2014 ' + new Date().toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', hour12:true });
             chatPanel.insertBefore(el, chatPanel.firstChild);
             return;
         }
@@ -50,7 +50,7 @@ const Connectivity = (() => {
 
         const title = document.createElement('div');
         title.style.cssText = 'font-weight:bold;color:var(--text);margin-bottom:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;';
-        title.innerHTML = '<span>mobius ready \u2014 ' + new Date().toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', hour12:true }) + '</span>'
+        title.innerHTML = '<span>Mobius ready \u2014 ' + new Date().toLocaleTimeString('en-AU', { hour:'numeric', minute:'2-digit', hour12:true }) + '</span>'
             + '<span id="panelToggle" style="color:var(--text-dim);display:flex;align-items:center;">' + chevronUp() + '</span>';
         title.onclick = () => collapse();
         panelEl.appendChild(title);
@@ -202,15 +202,16 @@ const Connectivity = (() => {
             const raw  = data.models || [];
             if (raw.length === 0) return { status:'warn', items:[], detail:'no models' };
             const display = {
-                'Groq Llama 3.3':              { provider:'Groq',       model:'Llama 3.3 70B'         },
-                'Google - Gemini 2.5 Flash-Lite':{ provider:'Google',    model:'Gemini 2.5 Flash-Lite'  },
-                'Google - Gemini 2.5 Flash':   { provider:'Google',     model:'Gemini 2.5 Flash'       },
-                'Codestral (Mistral AI)':       { provider:'Mistral AI', model:'Codestral'              },
-                'GPT-4o (GitHub AI)':           { provider:'GitHub AI',  model:'GPT-4o (Azure)'         },
+                'Groq Llama 3.3':              { provider:'Groq',       model:'Llama 3.3 70B',          role:'Analyst AI'       },
+                'Google - Gemini 2.5 Flash-Lite':{ provider:'Google',   model:'Gemini 2.5 Flash-Lite',  role:'Critical AI'      },
+                'Google - Gemini 2.5 Flash':   { provider:'Google',     model:'Gemini 2.5 Flash',        role:'Researcher AI'    },
+                'Codestral (Mistral AI)':       { provider:'Mistral AI', model:'Codestral',               role:'Technical AI'     },
+                'GPT-4o (GitHub AI)':           { provider:'GitHub AI',  model:'GPT-4o (Azure)',          role:''                 },
+                'OpenRouter':                   { provider:'OpenRouter', model:'Mistral 7B',              role:'Synthesiser AI'   },
             };
             const items = raw.map(m => {
-                const d = display[m.name] || { provider: m.name, model: '' };
-                return { ok: m.ok, provider: d.provider, model: d.model };
+                const d = display[m.name] || { provider: m.name, model: '', role: '' };
+                return { ok: m.ok, provider: d.provider, model: d.model, note: d.role || undefined };
             });
             const allOk = items.every(i => i.ok);
             const anyOk = items.some(i => i.ok);
@@ -255,5 +256,6 @@ const Connectivity = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
+    localStorage.removeItem('mc_connectivity_ts'); // always re-ping on fresh load
     setTimeout(() => Connectivity.run(), 300);
 });

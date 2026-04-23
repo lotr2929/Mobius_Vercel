@@ -447,24 +447,15 @@ window.sendToLastModel = async function (text, output, outputEl) {
   }
 
   // ── Orchestrator intercept ───────────────────────────────────────────────
-  // Orch: prefix routes through the 5-AI consensus pipeline
-  if (/^Orch:\s*/i.test(text) && window.runOrchestrator) {
+  // Orch: prefix still accepted; all other plain queries also default here
+  if (window.runOrchestrator) {
     const query = text.replace(/^Orch:\s*/i, '').trim();
     const chatPanel = document.getElementById('chatPanel');
-    await window.runOrchestrator(query, chatPanel);
+    await window.runOrchestrator(query, chatPanel, outputEl);
     return;
   }
 
-  // All Mode takes priority -- fires all 5 stables
-  if (window.allModeActive && window.runAllModels) {
-    await window.runAllModels(text, output, outputEl, !!(window.panel));
-    return;
-  }
-  if (LOCAL_KEYS.has(last)) {
-    await sendToLocal(last, messages, output, outputEl);
-    return;
-  }
-  // Task-type routing for plain conversational input
+  // Fallback if orchestrator not loaded: single model routing
   const routed = classifyTaskType(text);
   const model  = routed || last || 'gemini-lite';
   await sendToAI(model, messages, output, outputEl);
