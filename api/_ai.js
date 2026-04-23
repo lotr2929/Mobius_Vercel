@@ -445,6 +445,27 @@ async function askMistralCascade(messages) {
   throw lastErr || new Error('All Mistral models failed');
 }
 
+// ── Google Custom Search ──────────────────────────────────────────────────────
+// Requires GOOGLE_API_KEY and GOOGLE_CSE_ID env vars.
+// Returns array of { title, url, snippet } objects.
+
+async function askGoogleSearch(query, numResults = 10) {
+  const key = process.env.GOOGLE_API_KEY;
+  const cx  = process.env.GOOGLE_CSE_ID;
+  if (!key || !cx) throw new Error('GOOGLE_API_KEY or GOOGLE_CSE_ID not configured.');
+  const url = 'https://www.googleapis.com/customsearch/v1?key=' + key +
+    '&cx=' + cx + '&q=' + encodeURIComponent(query) + '&num=' + Math.min(10, numResults);
+  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  const data = await r.json();
+  if (data.error) throw new Error('Google Search error: ' + (data.error.message || JSON.stringify(data.error)));
+  const items = data.items || [];
+  return items.map(item => ({
+    title:   item.title   || '',
+    url:     item.link    || '',
+    snippet: item.snippet || ''
+  }));
+}
+
 module.exports = {
   askGroq,
   askGeminiLite,
@@ -462,6 +483,7 @@ module.exports = {
   askOpenRouterCascade,
   askWithFallback,
   askWebSearch,
+  askGoogleSearch,
   detectsCutoff,
   MODEL_FULL_NAMES,
   MODEL_CHAIN,

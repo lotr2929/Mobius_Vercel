@@ -11,7 +11,7 @@
 
 const {
   askGroqCascade, askGeminiCascade, askMistralCascade,
-  askOpenRouterCascade, askGeminiLite, askWebSearch
+  askOpenRouterCascade, askGeminiLite, askGoogleSearch
 } = require('./_ai.js');
 const { supabase } = require('./_supabase.js');
 
@@ -201,32 +201,25 @@ async function runGate1(query, previousFeedback = '') {
 
 // ── Gate 1.5: Source Consensus ────────────────────────────────────────────────
 async function runGate15(query, consensusPrompt) {
-  // Brief AI discovers sources via Tavily web search
+  // Brief AI discovers sources via Google Custom Search
   async function discoverSources(searchQuery) {
     try {
-      const r = await askWebSearch(
-        [{ role: 'user', content: searchQuery }], 2
-      );
-      // Parse source URLs from Tavily response -- extract cited sources
-      const sources = [];
-      const lines = (r.reply || '').split('\n');
-      let idx = 0;
-      for (const line of lines) {
-        const urlMatch = line.match(/https?:\/\/[^\s\)]+/);
-        if (urlMatch) {
-          sources.push({
-            url:        urlMatch[0],
-            title:      line.replace(urlMatch[0], '').replace(/[\[\]]/g, '').trim() || 'Source ' + (idx + 1),
-            snippet:    '',
-            authority:  estimateAuthority(urlMatch[0])
-          });
-          idx++;
-          if (idx >= 20) break;
-        }
-      }
-      return sources.length > 0 ? sources : [{ url: 'web-search', title: 'Web search results', snippet: r.reply?.slice(0, 300) || '', authority: 3 }];
-    } catch {
-      return [];
+      const results = await askGoogleSearch(searchQuery, 10);
+      return results.map(r => ({
+        url:       r.url,
+        title:     r.title,
+        snippet:   r.snippet,
+        authority: estimateAuthority(r.url)
+      }));
+    } catch (err) {
+      console.warn('[Gate 1.5] Google Search unavailable:', err.message);
+      // Graceful fallback -- return a minimal placeholder so the pipeline continues
+      return [{
+        url:       'no-search-available',
+        title:     'Search unavailable -- answer from model knowledge',
+        snippet:   '',
+        authority: 2
+      }];
     }
   }
 

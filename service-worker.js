@@ -2,7 +2,7 @@
 // PWA offline shell. Network-first strategy -- always serves fresh files when
 // online, falls back to cache only when offline. No manual cache-busting needed.
 
-const CACHE_NAME = 'mobius-v3';
+const CACHE_NAME = 'mobius-v4';
 
 const SHELL_URLS = [
   '/',
