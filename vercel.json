@@ -1,6 +1,7 @@
 {
   "version": 2,
   "routes": [
+    {"src": "/orchestrate",              "dest": "/api/orchestrate"},
     {"src": "/codeindex",                  "dest": "/api/index"},
     {"src": "/api/services/status",       "dest": "/api/status"},
     {"src": "/api/health",               "dest": "/api/health"},
