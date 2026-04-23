@@ -331,7 +331,7 @@ async function askOpenRouter(messages, model = 'meta-llama/llama-3.3-70b-instruc
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://mobius.vercel.app', 'X-Title': 'mobius'
+      'HTTP-Referer': 'https://mobius-pwa.vercel.app', 'X-Title': 'Mobius'
     },
     body: JSON.stringify({ model, messages }), signal: AbortSignal.timeout(60000)
   });
@@ -345,15 +345,11 @@ async function askOpenRouter(messages, model = 'meta-llama/llama-3.3-70b-instruc
 }
 
 async function askOpenRouterCascade(messages) {
-  // openrouter/free auto-selects from all available free models -- immune to individual deprecations.
-  // Fallbacks are current free models as of Apr 2026 (gemini-2.0-flash-exp deprecated Feb 2026).
-  // Updated Apr 2026: minimax-m2.5 (80.2% SWE-bench), qwen3-coder-480b (top free coding),
-  // gpt-oss-120b (OpenAI open-weight), openrouter/free (auto-selects best available).
   const models = [
-    { id: 'minimax/minimax-m2.5:free',                   label: 'OpenRouter MiniMax M2.5'     },
-    { id: 'qwen/qwen3-coder-480b-a35b-instruct:free',    label: 'OpenRouter Qwen3 Coder 480B' },
-    { id: 'openai/gpt-oss-120b:free',                    label: 'OpenRouter GPT-OSS 120B'     },
-    { id: 'openrouter/free',                             label: 'OpenRouter (auto-free)'      },
+    { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter Llama 3.3 70B' },
+    { id: 'qwen/qwen-2.5-72b-instruct:free',        label: 'OpenRouter Qwen 2.5 72B'  },
+    { id: 'mistralai/mistral-7b-instruct:free',     label: 'OpenRouter Mistral 7B'    },
+    { id: 'google/gemini-2.0-flash-exp:free',       label: 'OpenRouter Gemini 2.0'    },
   ];
   let lastErr;
   for (const m of models) {

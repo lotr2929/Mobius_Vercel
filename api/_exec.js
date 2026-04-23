@@ -1,6 +1,6 @@
 // api/_exec.js
 // Shared execution core -- imported by orchestrate.js and orchestrate-stream.js.
-// Contains: CONFIG, TASK_AIS, raceAtLeast, eval helpers, runGate2.
+// Exports: CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers
 
 'use strict';
 
@@ -11,15 +11,10 @@ const {
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 const CONFIG = {
-  taskAICount:        5,
-  evaluatorCount:     5,
-  consensusThreshold: 90,
-  consensusMajority:  3,
-  sourceVoteMajority: 4,
-  minConsensusSources:3,
-  maxGate1Iterations: 3,
-  maxGate2Iterations: 3,
-  maxGate15Attempts:  2
+  taskAICount:       5,
+  raceMin:           3,       // proceed when this many AIs have responded
+  executionTimeout:  120000,  // 2 min -- wait for all 5, proceed on raceMin
+  promptTimeout:     45000,   // 45s for prompt suggestion step
 };
 
 // ── 5 Task AI definitions ─────────────────────────────────────────────────────
@@ -42,7 +37,10 @@ const TASK_AIS = [
   {
     id: 'critical', label: 'Critical Reviewer',
     persona: 'You are a critical reviewer. You identify weaknesses, edge cases, and unstated assumptions. Play devil\'s advocate. Focus on what could go wrong.',
-    call: async (msgs) => { const r = await askGeminiLite(msgs); return { text: r.text, modelUsed: 'Gemini Lite' }; }
+    call: async (msgs) => {
+      const r = await askGeminiLite(msgs);
+      return { text: r.text, modelUsed: 'Gemini Lite' };
+    }
   },
   {
     id: 'synthesiser', label: 'Synthesis Specialist',
@@ -54,14 +52,16 @@ const TASK_AIS = [
   }
 ];
 
-// ── Race helper: resolve with first `min` fulfilled results ──────────────────
-function raceAtLeast(namedPromises, min, timeoutMs = 45000) {
+// ── Race helper ───────────────────────────────────────────────────────────────
+// Resolves with all results received within timeoutMs.
+// Proceeds early once `min` results are in.
+function raceAtLeast(namedPromises, min, timeoutMs = CONFIG.executionTimeout) {
   return new Promise(resolve => {
     const results = [];
     let done = false;
     let settled = 0;
     const finish = () => { if (!done) { done = true; resolve(results); } };
-    const timer  = setTimeout(finish, timeoutMs);
+    const timer = setTimeout(finish, timeoutMs);
     namedPromises.forEach(({ id, label, promise }) => {
       promise
         .then(value => {
@@ -77,96 +77,116 @@ function raceAtLeast(namedPromises, min, timeoutMs = 45000) {
   });
 }
 
-// ── Evaluator helpers ─────────────────────────────────────────────────────────
-function buildEvalPrompt(item, context) {
-  return `You are an expert evaluator. Score the following on a scale of 1-100.
+// ── Step A: Generate prompt suggestions ──────────────────────────────────────
+// All 5 Task AIs suggest a rewritten prompt in parallel.
+// Brief AI (Gemini) synthesises one combined prompt from all suggestions.
+// Returns: { suggestions: [{id, label, model, text}], synthesised: string }
 
-CONTEXT: ${context}
+async function generatePromptSuggestions(query, feedback = '') {
+  const feedbackNote = feedback
+    ? '\n\nUser feedback on previous attempt: ' + feedback
+    : '';
 
-ITEM TO EVALUATE:
-${item}
+  // Each AI rewrites the query as a precise prompt
+  const rawResults = await Promise.allSettled(
+    TASK_AIS.map(ai => ai.call([{ role: 'user', content:
+      ai.persona + '\n\nRewrite the following query as a clear, precise, well-structured prompt that will get the best answer from an AI. Output ONLY the improved prompt. No preamble, no explanation.\n\nQuery: "' + query + '"' + feedbackNote
+    }]))
+  );
 
-Score across 4 dimensions (each 0-25):
-- Accuracy (0-25): Factually correct, no hallucinations
-- Relevance (0-25): Directly addresses the query
-- Completeness (0-25): Covers the key aspects
-- Clarity (0-25): Well-structured and easy to understand
+  const suggestions = rawResults.map((r, i) => ({
+    id:    TASK_AIS[i].id,
+    label: TASK_AIS[i].label,
+    model: r.status === 'fulfilled' ? (r.value.modelUsed || TASK_AIS[i].id) : 'failed',
+    text:  r.status === 'fulfilled' ? (r.value.text || '').trim() : ''
+  })).filter(s => s.text.length > 10);
 
-Respond with ONLY a JSON object, no markdown:
-{"accuracy":N,"relevance":N,"completeness":N,"clarity":N,"total":N,"reasoning":"one sentence"}`;
+  // Brief AI synthesises one best prompt
+  const synthInput = suggestions.map((s, i) =>
+    '[' + (i + 1) + '] ' + s.label + ':\n' + s.text
+  ).join('\n\n');
+
+  let synthesised = suggestions[0]?.text || query;
+  try {
+    const r = await askGeminiCascade([{ role: 'user', content:
+      'You are the Brief AI. Below are ' + suggestions.length + ' rewritten prompts from different AI specialists for the same user query.\n\n' +
+      'Original query: "' + query + '"\n\n' +
+      'Specialist suggestions:\n' + synthInput + '\n\n' +
+      'Produce ONE synthesised prompt that combines the strongest elements from all suggestions. ' +
+      'Output ONLY the final prompt. No preamble, no labels, no explanation.' +
+      (feedback ? '\n\nUser feedback to incorporate: ' + feedback : '')
+    }]);
+    synthesised = r.text.trim();
+  } catch { /* keep first suggestion */ }
+
+  return { suggestions, synthesised };
 }
 
-async function scoreItem(item, context) {
-  const msgs = [{ role: 'user', content: buildEvalPrompt(item, context) }];
+// ── Step B: Evaluate answers ──────────────────────────────────────────────────
+// Scores each answer independently, then asks Brief AI to produce an
+// annotated summary showing agreement, disagreement, and hallucination flags.
+//
+// Returns: {
+//   scores:  [{ label, model, total, note }],
+//   summary: string  -- annotated text with inline attribution
+// }
+
+async function scoreOne(text, query) {
   try {
-    const r = await askGeminiLite(msgs);
+    const r = await askGeminiLite([{ role: 'user', content:
+      'Score this AI answer 0-100.\n\nQuery: "' + query + '"\n\nAnswer:\n' + text.slice(0, 2000) + '\n\n' +
+      'Score on 4 dimensions (each 0-25): accuracy, relevance, completeness, clarity.\n' +
+      'Respond ONLY with valid JSON, no markdown:\n{"accuracy":N,"relevance":N,"completeness":N,"clarity":N,"total":N,"note":"one sentence"}'
+    }]);
     const parsed = JSON.parse((r.text || '').replace(/```json|```/g, '').trim());
     return {
-      accuracy:     Math.min(25, Math.max(0, parsed.accuracy     || 0)),
-      relevance:    Math.min(25, Math.max(0, parsed.relevance    || 0)),
-      completeness: Math.min(25, Math.max(0, parsed.completeness || 0)),
-      clarity:      Math.min(25, Math.max(0, parsed.clarity      || 0)),
-      total:        Math.min(100, Math.max(0, parsed.total       || 0)),
-      reasoning:    parsed.reasoning || ''
+      accuracy:     Math.min(25, Math.max(0, +parsed.accuracy     || 0)),
+      relevance:    Math.min(25, Math.max(0, +parsed.relevance    || 0)),
+      completeness: Math.min(25, Math.max(0, +parsed.completeness || 0)),
+      clarity:      Math.min(25, Math.max(0, +parsed.clarity      || 0)),
+      total:        Math.min(100, Math.max(0, +parsed.total       || 0)),
+      note:         parsed.note || ''
     };
   } catch {
-    try {
-      const fb = await askGroqCascade([{ role: 'user', content: 'Score 1-100: ' + item.slice(0, 200) + '\n\nContext: ' + context.slice(0, 100) + '\n\nRespond with ONLY a number.' }]);
-      const n = parseInt((fb.text || '50').match(/\d+/)?.[0] || '50', 10);
-      const q = Math.floor(Math.min(100, Math.max(1, n)) / 4);
-      return { accuracy: q, relevance: q, completeness: q, clarity: q, total: n, reasoning: 'fallback score' };
-    } catch {
-      return { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, reasoning: 'eval failed' };
-    }
+    return { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, note: 'eval failed' };
   }
 }
 
-async function evaluateItem(item, context) {
-  const results = await Promise.allSettled(TASK_AIS.map(() => scoreItem(item, context)));
-  return results.map((r, i) =>
-    r.status === 'fulfilled' ? r.value
-    : { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, reasoning: 'eval ' + i + ' failed' }
-  );
+async function evaluateAnswers(query, answers) {
+  // Score all answers in parallel
+  const scoreResults = await Promise.allSettled(answers.map(a => scoreOne(a.text, query)));
+  const scores = answers.map((a, i) => ({
+    label: a.aiLabel || a.label,
+    model: a.modelUsed || a.id || '',
+    score: scoreResults[i].status === 'fulfilled'
+      ? scoreResults[i].value
+      : { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, note: 'eval failed' }
+  }));
+
+  // Brief AI produces annotated comparison summary
+  const answersForBrief = scores.map((s, i) =>
+    '=== ' + s.label + ' [' + s.model + ', score: ' + s.score.total + '/100] ===\n' +
+    (answers[i].text || '').slice(0, 1500)
+  ).join('\n\n');
+
+  const summaryPrompt =
+    'You are the Brief AI evaluator. Compare these ' + scores.length + ' answers to the same query and produce an annotated evaluation summary.\n\n' +
+    'Query: "' + query + '"\n\n' + answersForBrief + '\n\n' +
+    'Write the summary as bullet points. For each key point:\n' +
+    '- State the point clearly\n' +
+    '- Add [N/' + scores.length + ' agree: names] or [only NAME] in brackets\n' +
+    '- Mark unverified claims (only one AI states it, no corroboration) with: ⚠ VERIFY\n' +
+    '- Mark direct contradictions between AIs with: ⚡ CONFLICT\n\n' +
+    'End with a single line: "Overall: [one sentence consensus]"\n\n' +
+    'Be concise and substantive. Focus on what the AIs said, not how they said it.';
+
+  let summary = 'Evaluation summary unavailable.';
+  try {
+    const r = await askGeminiCascade([{ role: 'user', content: summaryPrompt }]);
+    summary = r.text.trim();
+  } catch { /* use fallback */ }
+
+  return { scores, summary };
 }
 
-function checkConsensus(scores) {
-  const passing = scores.filter(s => s.total >= CONFIG.consensusThreshold);
-  return {
-    passed:    passing.length >= CONFIG.consensusMajority,
-    passCount: passing.length,
-    avgScore:  scores.reduce((a, s) => a + s.total, 0) / scores.length,
-    scores
-  };
-}
-
-// ── Gate 2: Answer Consensus ──────────────────────────────────────────────────
-async function runGate2(query, synthesis, answers) {
-  const log = [];
-  for (let iter = 1; iter <= CONFIG.maxGate2Iterations; iter++) {
-    const scores    = await evaluateItem(synthesis, 'Query: ' + query);
-    const consensus = checkConsensus(scores);
-    log.push({ iter, consensus });
-    if (consensus.passed) {
-      return { passed: true, iterations: iter, log, avgScore: consensus.avgScore, synthesis };
-    }
-    if (iter < CONFIG.maxGate2Iterations) {
-      const feedback = scores.map((s, i) => `Evaluator ${i+1}: ${s.total}/100 -- ${s.reasoning}`).join('\n');
-      try {
-        const r = await askGeminiCascade([{
-          role: 'user',
-          content: `The following answer scored poorly (avg ${consensus.avgScore.toFixed(0)}/100). Rewrite it to score higher.\n\nFeedback:\n${feedback}\n\nOriginal answer:\n${synthesis}\n\nQuery: ${query}\n\nRewrite the answer only. No preamble.`
-        }]);
-        synthesis = r.text;
-      } catch { /* keep existing */ }
-    }
-  }
-  const fallback = answers[0]?.text || synthesis;
-  return {
-    passed: false, iterations: CONFIG.maxGate2Iterations, log,
-    avgScore: log[log.length - 1]?.consensus?.avgScore || 0,
-    synthesis: fallback, fallback: true,
-    alternatives: answers.slice(0, 3).map(a => ({ label: a.aiLabel || a.label, text: a.text, score: a.avgScore }))
-  };
-}
-
-module.exports = { CONFIG, TASK_AIS, raceAtLeast, evaluateItem, checkConsensus, runGate2 };
+module.exports = { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers };
