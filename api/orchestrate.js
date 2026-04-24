@@ -12,7 +12,7 @@
 
 const { askTavilySearch, askGoogleSearch }                         = require('./_ai.js');
 const { supabase }                                                 = require('./_supabase.js');
-const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers } = require('./_exec.js');
+const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers, buildTaskPrompt } = require('./_exec.js');
 
 // ── Source discovery ──────────────────────────────────────────────────────────
 // Primary: Tavily /search (1,000 credits/mo free, renews monthly, no CC required).
@@ -37,39 +37,15 @@ async function discoverSources(query) {
 // ── Execution ─────────────────────────────────────────────────────────────────
 // Fire all 5 Task AIs with the approved prompt + ACTUAL CONTENT from selected sources.
 // Race: proceed when raceMin respond; wait full timeout for the rest.
-//
-// Anti-hallucination design: Task AIs receive the full cleaned article text for each
-// selected source, not just URL + title. This lets them quote and cite real content
-// instead of fabricating based on URL patterns alone. Raw content is truncated per
-// source to keep total prompt under ~12K tokens (safe for every model in the lineup).
-async function runExecution(query, approvedPrompt, selectedSources) {
-  // Per-source truncation budget. 3000 chars ≈ 750 tokens. With 5 sources that's
-  // ~3750 tokens of RAG context -- comfortable even for the smallest Task AIs.
-  const MAX_CHARS_PER_SOURCE = 3000;
-
-  let sourceContext = '';
-  if (selectedSources.length > 0) {
-    sourceContext = '\n\n=== SOURCE MATERIAL ===\n' +
-      'Base your answer strictly on the following sources. Quote and cite them by URL. ' +
-      'If the sources do not contain the information needed, say so explicitly rather than guessing.\n\n' +
-      selectedSources.map((s, i) => {
-        const content = (s.raw_content || s.description || '').trim();
-        const truncated = content.length > MAX_CHARS_PER_SOURCE
-          ? content.slice(0, MAX_CHARS_PER_SOURCE) + '... [truncated]'
-          : content;
-        return '--- Source ' + (i + 1) + ': ' + (s.title || s.url) + ' ---\n' +
-               'URL: ' + s.url + '\n' +
-               (truncated ? '\n' + truncated + '\n' : '(no content available)\n');
-      }).join('\n') +
-      '\n=== END SOURCE MATERIAL ===\n';
-  }
-
+// Prompt-building logic is shared with orchestrate-stream.js via buildTaskPrompt
+// in _exec.js -- keep them in sync by editing that single function.
+async function runExecution(query, approvedPrompt, selectedSources, today) {
   const results = await raceAtLeast(
     TASK_AIS.map(ai => ({
       id:      ai.id,
       label:   ai.label,
-      promise: ai.call([{ role: 'user', content:
-        ai.persona + '\n\n' + approvedPrompt + sourceContext + '\n\nQuery: ' + query
+      promise: ai.call([{ role: 'user',
+        content: buildTaskPrompt(ai.persona, approvedPrompt, query, selectedSources, today)
       }])
     })),
     CONFIG.raceMin
@@ -99,11 +75,39 @@ async function logQuery(userId, query) {
   } catch { return null; }
 }
 
+// Persist every Task AI response (both Step 1 suggestions AND Step 6 answers) so
+// they can be reviewed later in Supabase. Fire-and-forget: DB failure warns but
+// does not break the user-facing response.
+//   phase = 'suggestion' (Step 1 prompt rewrites) | 'execution' (Step 6 answers)
+//   evaluation is optional; included rows get score_total + score_note populated
+async function logTaskResponses(queryId, phase, responses, evaluation = null) {
+  if (!queryId || !Array.isArray(responses) || responses.length === 0) return;
+  try {
+    const rows = responses.map((r, i) => ({
+      query_id:    queryId,
+      phase,
+      ai_id:       r.id      || r.aiId     || null,
+      ai_label:    r.label   || r.aiLabel  || null,
+      model_used:  r.model   || r.modelUsed || null,
+      text:        r.text    || '',
+      failed:      Boolean(r.failed) || !(r.text && r.text.length > 0),
+      ms:          r.ms      || null,
+      score_total: evaluation?.scores?.[i]?.score?.total ?? null,
+      score_note:  evaluation?.scores?.[i]?.score?.note  ?? null
+    }));
+    const { error } = await supabase.from('mobius_task_responses').insert(rows);
+    if (error) throw error;
+    console.log('[logTaskResponses] ' + phase + ': saved ' + rows.length + ' rows for query ' + queryId);
+  } catch (err) {
+    console.warn('[logTaskResponses] failed (' + phase + '):', err.message);
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { step, query, feedback, approved_prompt, selected_sources, query_id } = req.body || {};
+  const { step, query, feedback, approved_prompt, selected_sources, query_id, today } = req.body || {};
   const userId = (req.headers.cookie || '').split(';').map(c => c.trim())
     .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
 
@@ -114,9 +118,13 @@ module.exports = async function handler(req, res) {
     const qId = await logQuery(userId, query);
     try {
       const [promptResult, grounding] = await Promise.all([
-        generatePromptSuggestions(query, feedback || ''),
+        generatePromptSuggestions(query, feedback || '', today),
         discoverSources(query)
       ]);
+
+      // Persist the 5 prompt-rewrite suggestions for later review
+      await logTaskResponses(qId, 'suggestion', promptResult.suggestions || []);
+
       return res.json({
         query_id:           qId,
         suggestions:        promptResult.suggestions,
@@ -140,8 +148,12 @@ module.exports = async function handler(req, res) {
   if (step === 2) {
     if (!approved_prompt) return res.status(400).json({ error: 'approved_prompt required' });
     try {
-      const answers    = await runExecution(query, approved_prompt, selected_sources || []);
+      const answers    = await runExecution(query, approved_prompt, selected_sources || [], today);
       const evaluation = await evaluateAnswers(query, answers);
+
+      // Persist the 5 Task AI answers with their evaluation scores
+      await logTaskResponses(query_id, 'execution', answers, evaluation);
+
       try {
         await supabase.from('mobius_queries').update({
           gate1_best_prompt: approved_prompt,
@@ -158,3 +170,6 @@ module.exports = async function handler(req, res) {
 
   return res.status(400).json({ error: 'step must be 1 or 2' });
 };
+
+// Named export so orchestrate-stream.js can import logTaskResponses for Step 2 logging
+module.exports.logTaskResponses = logTaskResponses;

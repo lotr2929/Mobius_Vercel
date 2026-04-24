@@ -372,7 +372,7 @@ function parseGeminiRetryDelay(data) {
   return m ? parseFloat(m[1]) : null;
 }
 
-async function geminiPost(url, body, fetchTimeoutMs = 20000) {
+async function geminiPost(url, body, fetchTimeoutMs = 12000) {
   const opts = {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -451,11 +451,14 @@ async function resolveGroqCascade() {
 async function resolveMistralCascade() {
   if (_mistralCache) return _mistralCache;
   // Use Mistral's "-latest" aliases (they always point at the newest stable).
-  // This only validates that these aliases are still in the live catalogue.
+  // Order matters: Mobius queries are general research, so prefer the general
+  // model over the coding specialist. Codestral is kept as a fallback for the
+  // rare case Mistral Small is down -- even a code model is better than no
+  // answer at all.
   const preferred = [
-    { id: 'codestral-latest',     label: 'Mistral: Codestral' },
     { id: 'mistral-small-latest', label: 'Mistral: Small'     },
     { id: 'open-mistral-nemo',    label: 'Mistral: Nemo'      },
+    { id: 'codestral-latest',     label: 'Mistral: Codestral' },
   ];
   try {
     const r = await fetch('https://api.mistral.ai/v1/models', {

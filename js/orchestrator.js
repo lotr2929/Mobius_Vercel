@@ -51,6 +51,177 @@ function stopTicker(h) {
   if (h.ticker && h.ticker.parentNode) h.ticker.remove();
 }
 
+// ── Mobius mode (User vs Dev) ─────────────────────────────────────────────────
+// Persisted in localStorage. Default is 'user' -- simple chat experience with
+// auto-advance, no gates, clean prose synthesis, no pinging status messages.
+// Dev Mode shows the full pipeline: source card, prompt approval, preview panel,
+// eval card with Accept/Redo. Toggle by clicking the "Mobius_PWA" logo/title.
+function getMobiusMode() {
+  try { return localStorage.getItem('mobius_mode') === 'dev' ? 'dev' : 'user'; } catch { return 'user'; }
+}
+
+function setMobiusMode(mode) {
+  try { localStorage.setItem('mobius_mode', mode === 'dev' ? 'dev' : 'user'); } catch {}
+}
+
+// Client-formatted current date in the user's local timezone. Sent to the server
+// with every orchestrate request so Task AIs know exactly what "today" means --
+// no more [Current Date/Time] placeholder ambiguity across models.
+function todayFormatted() {
+  return new Date().toLocaleDateString('en-GB', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  });
+}
+
+// Perth-style short time -- e.g. "4:35pm" -- stamped on every Mobius response.
+function timestampStr() {
+  const d = new Date();
+  let h   = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12 || 12;
+  return h + ':' + m + ampm;
+}
+
+// Expose for other scripts and for manual toggling from DevTools
+window.getMobiusMode  = getMobiusMode;
+window.setMobiusMode  = setMobiusMode;
+window.timestampStr   = timestampStr;
+
+// Inject the Mode toggle INTO the logo title. Default (User Mode) shows
+// "Mobius_PWA". Dev Mode shows "Mobius_PWA[Dev]" where [Dev] is a small
+// superscript at 40% height. Click the whole title to toggle.
+(function initModeToggle() {
+  function install() {
+    // Remove any old standalone button from an earlier deploy
+    const oldBtn = document.getElementById('mobius-mode-toggle');
+    if (oldBtn) oldBtn.remove();
+
+    const h1 = document.querySelector('#header h1');
+    if (!h1) {
+      console.warn('[Mobius] #header h1 not found -- Mode toggle will not render');
+      return;
+    }
+
+    h1.style.cursor = 'pointer';
+    h1.title = 'Click to switch between User (simple chat) and Dev (full pipeline) modes';
+
+    let devSuffix = h1.querySelector('.mode-dev-suffix');
+    if (!devSuffix) {
+      devSuffix = document.createElement('span');
+      devSuffix.className = 'mode-dev-suffix';
+      devSuffix.textContent = '[Dev]';
+      devSuffix.style.cssText = 'font-size:40%;vertical-align:top;opacity:0.7;margin-left:3px;font-weight:normal;';
+      h1.appendChild(devSuffix);
+    }
+
+    const render = () => {
+      devSuffix.style.display = (getMobiusMode() === 'dev') ? 'inline' : 'none';
+    };
+
+    h1.onclick = () => {
+      setMobiusMode(getMobiusMode() === 'user' ? 'dev' : 'user');
+      render();
+    };
+    render();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install);
+  else install();
+})();
+
+// Greeting banner: shown on first load in User Mode when the chat panel is empty.
+// Picks a time-of-day appropriate opener from a short roster. Does NOT fire on
+// mode toggle mid-conversation or if the user has any prior chat entries.
+(function initGreeting() {
+  function install() {
+    if (getMobiusMode() !== 'user') return;
+    const panel = document.getElementById('chatPanel');
+    if (!panel || panel.children.length > 0) return;
+
+    const hour = new Date().getHours();
+    const timeGreeting =
+      hour < 5  ? 'Still up?'         :
+      hour < 12 ? 'Good morning.'     :
+      hour < 17 ? 'Good afternoon.'   :
+      hour < 22 ? 'Good evening.'     : 'Evening.';
+    const closers = [
+      'How can I help?',
+      'What would you like to know?',
+      'Ask me anything.',
+      'What can I help you with?',
+      "What's on your mind?"
+    ];
+    const msg = timeGreeting + ' ' + closers[Math.floor(Math.random() * closers.length)];
+
+    const entry = document.createElement('div');
+    entry.className = 'chat-entry html-content';
+    entry.style.cssText = 'opacity:0.95;';
+    entry.innerHTML =
+      '<div class="chat-answer" style="font-size:14px;color:var(--text);">' +
+        msg.replace(/</g, '&lt;') +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">' + timestampStr() + '</div>';
+    panel.appendChild(entry);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install);
+  else install();
+})();
+
+// Render "Sources" block (top 5) + timestamp + thumbs rating under a User Mode answer.
+function renderUserModeMeta(container, selectedSources) {
+  const srcs = (selectedSources || []).slice(0, 5);
+  if (srcs.length > 0) {
+    const refs = document.createElement('div');
+    refs.style.cssText = 'margin-top:14px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim);';
+    const h = document.createElement('div');
+    h.style.cssText = 'font-weight:bold;margin-bottom:4px;color:var(--text-muted);';
+    h.textContent = 'Sources';
+    refs.appendChild(h);
+    srcs.forEach((s, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'margin:2px 0;line-height:1.4;';
+      const title = String(s.title || s.url).slice(0, 90);
+      row.innerHTML = (i + 1) + '. <a href="' + s.url + '" target="_blank" rel="noopener" style="color:var(--accent2);text-decoration:none;">' + title.replace(/</g, '&lt;') + '</a>';
+      refs.appendChild(row);
+    });
+    container.appendChild(refs);
+  }
+
+  // Bottom row: timestamp (left) + thumbs (right)
+  const metaRow = document.createElement('div');
+  metaRow.style.cssText = 'margin-top:10px;display:flex;align-items:center;justify-content:space-between;';
+
+  const ts = document.createElement('div');
+  ts.style.cssText = 'font-size:10px;color:var(--text-dim);';
+  ts.textContent = timestampStr();
+  metaRow.appendChild(ts);
+
+  const rating = document.createElement('div');
+  rating.style.cssText = 'display:flex;gap:4px;';
+  let chosen = null;
+  const mk = (emoji, vote, tip) => {
+    const b = document.createElement('button');
+    b.textContent = emoji;
+    b.title = tip;
+    b.style.cssText = 'background:transparent;border:1px solid transparent;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:14px;line-height:1;transition:all 0.15s;';
+    b.onmouseenter = () => { if (!chosen) b.style.background = 'var(--surface2)'; };
+    b.onmouseleave = () => { if (!chosen) b.style.background = 'transparent'; };
+    b.onclick = () => {
+      if (chosen) return;
+      chosen = vote;
+      b.style.background    = 'var(--surface2)';
+      b.style.borderColor   = 'var(--accent2)';
+      console.log('[Mobius rating]', vote);
+      // TODO: POST to /rate endpoint once implemented (ratings table is a follow-up)
+    };
+    return b;
+  };
+  rating.appendChild(mk('👍', 'up',   'Helpful'));
+  rating.appendChild(mk('👎', 'down', 'Not helpful'));
+  metaRow.appendChild(rating);
+  container.appendChild(metaRow);
+}
+
 // SSE stream reader
 async function streamStep2(body, onEvent) {
   const res = await fetch('/orchestrate/stream', {
@@ -193,6 +364,21 @@ function buildSourceCard(sources, onConfirm) {
   // Checkboxes for discovered sources
   const checkboxes = [];
   if (!searchFailed) {
+    // Bulk actions: Select all / Top 5 / Clear
+    const bulkRow = document.createElement('div');
+    bulkRow.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;';
+    const mkBulkBtn = (label, handler) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = 'background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:3px;padding:2px 10px;cursor:pointer;font-size:11px;font-family:var(--font);';
+      b.onclick = (e) => { e.preventDefault(); handler(); };
+      return b;
+    };
+    bulkRow.appendChild(mkBulkBtn('Select all', () => checkboxes.forEach(x => x.cb.checked = true)));
+    bulkRow.appendChild(mkBulkBtn('Top 5',      () => checkboxes.forEach((x, i) => x.cb.checked = i < 5)));
+    bulkRow.appendChild(mkBulkBtn('Clear',      () => checkboxes.forEach(x => x.cb.checked = false)));
+    card.appendChild(bulkRow);
+
     const list = document.createElement('div');
     list.style.cssText = 'max-height:180px;overflow-y:auto;margin-bottom:8px;';
     realSources.forEach((src, i) => {
@@ -249,19 +435,19 @@ function buildPromptApprovalCard(synthesisedPrompt, onDecision) {
 
   const heading = document.createElement('div');
   heading.style.cssText = 'font-weight:bold;margin-bottom:6px;color:var(--text);';
-  heading.textContent = 'Synthesised Prompt — review before executing';
+  heading.textContent = 'Synthesised Sub-Questions — review before executing';
   card.appendChild(heading);
 
   const hint = document.createElement('div');
   hint.style.cssText = 'font-size:11px;color:var(--text-dim);margin-bottom:8px;';
-  hint.textContent = 'Edit the prompt below if needed, then approve. Or ask the AIs to redo with your feedback.';
+  hint.textContent = 'Mobius converted your query into 4-5 specific sub-questions that the Task AIs will answer using the selected sources. Edit if needed, then approve.';
   card.appendChild(hint);
 
   // Editable prompt
   const textarea = document.createElement('textarea');
   textarea.value = synthesisedPrompt;
   textarea.style.cssText = [
-    'width:100%', 'min-height:80px', 'max-height:200px',
+    'width:100%', 'min-height:140px', 'max-height:320px',
     'font-size:13px', 'padding:8px', 'border:1px solid var(--border)',
     'border-radius:3px', 'background:var(--surface)', 'color:var(--text)',
     'font-family:var(--font)', 'resize:vertical', 'line-height:1.5',
@@ -440,40 +626,53 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   const pid = logBox.id;
   const log = (msg, type) => orchLog(pid, msg, type);
 
-  // Open right panel with placeholder immediately
-  if (window.panel) window.panel.open('Mobius — Task AI Suggestions', '<div style="padding:20px 14px;font-size:12px;color:var(--text-dim);">◌ Generating prompt suggestions…</div>', 'html');
+  // Mode gate: 'user' hides panels + gates, 'dev' shows everything (default)
+  const userMode = getMobiusMode() === 'user';
+
+  // Open right panel with placeholder immediately (Dev Mode only -- User Mode
+  // keeps the interface single-panel for a ChatGPT-like feel)
+  if (!userMode && window.panel) window.panel.open('Mobius — Task AI Suggestions', '<div style="padding:20px 14px;font-size:12px;color:var(--text-dim);">◌ Generating prompt suggestions…</div>', 'html');
 
   // ── STEP 1: Prompt suggestions + source discovery ──────────────────────────
   async function runStep1(feedback) {
-    log('Step 1 — generating prompt suggestions and searching for sources…');
-    const ticker = startTicker(pid, 'Task AIs rewriting prompt');
+    if (!userMode) log('Step 1 — generating prompt suggestions and searching for sources…');
+    const ticker = startTicker(pid, userMode ? '' : 'Task AIs rewriting prompt');
     let data1;
     try {
       const res = await fetch('/orchestrate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step: 1, query, feedback: feedback || '' })
+        body: JSON.stringify({ step: 1, query, feedback: feedback || '', today: todayFormatted() })
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data1 = await res.json();
     } catch (err) {
       stopTicker(ticker);
-      log('Step 1 error: ' + err.message, 'err');
+      log(userMode ? 'Something went wrong.' : ('Step 1 error: ' + err.message), 'err');
       return;
     }
     stopTicker(ticker);
 
     const suggestions = data1.suggestions || [];
     const sources     = data1.sources     || [];
-    log(suggestions.length + ' prompt suggestions received', 'ok');
-    if (sources.length > 0) log(sources.length + ' sources found', 'ok');
-    else log('No sources found — you can add URLs manually', 'warn');
 
-    // Right panel: show all 5 prompt suggestions
-    if (window.panel) {
-      window.panel.open('Task AI Prompt Suggestions', buildSuggestionsPanel(suggestions), 'html');
+    if (!userMode) {
+      log(suggestions.length + ' prompt suggestions received', 'ok');
+      if (sources.length > 0) log(sources.length + ' sources found', 'ok');
+      else log('No sources found — you can add URLs manually', 'warn');
+
+      // Right panel: show all 5 prompt suggestions (Dev Mode only)
+      if (window.panel) {
+        window.panel.open('Task AI Prompt Suggestions', buildSuggestionsPanel(suggestions), 'html');
+      }
     }
 
-    // Left panel: source card -> then prompt approval card
+    // User Mode: auto-pass ALL available sources (up to 20) to Task AIs, auto-approve prompt, proceed silently
+    if (userMode) {
+      const autoSources = sources.slice(0, 20);
+      return runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources);
+    }
+
+    // Dev Mode: show source card → prompt approval card
     return new Promise(resolve => {
       const sourceCard = buildSourceCard(sources, async (selectedSources) => {
         log('Sources confirmed (' + selectedSources.length + ' selected). Review synthesised prompt.', 'info');
@@ -498,43 +697,53 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
 
   // ── STEP 2: Execution + evaluation ────────────────────────────────────────
   async function runStep2(queryId, approvedPrompt, selectedSources) {
-    log('Step 2 — firing 5 Task AIs…');
+    if (!userMode) log('Step 2 — firing 5 Task AIs…');
 
-    // Right panel: reset to "answers" mode with placeholder
-    if (window.panel) {
+    // Right panel: reset to "answers" mode with placeholder (Dev Mode only)
+    if (!userMode && window.panel) {
       window.panel.open('Task AI Answers', '<div style="padding:20px 14px;font-size:12px;color:var(--text-dim);">◌ Task AIs answering…</div>', 'html');
     }
 
-    const ticker = startTicker(pid, 'Task AIs answering');
-    const panelAnswers = []; // accumulates as SSE events arrive
+    // Thinking indicator: Dev Mode shows a labelled ticker, User Mode shows
+    // only a minimal pulsing "⋯" with no status text.
+    const ticker = startTicker(pid, userMode ? '' : 'Task AIs answering');
+    const panelAnswers = [];
 
     try {
       await streamStep2(
-        { query, query_id: queryId, approved_prompt: approvedPrompt, selected_sources: selectedSources },
+        {
+          query, query_id: queryId,
+          approved_prompt: approvedPrompt,
+          selected_sources: selectedSources,
+          today: todayFormatted(),
+          mode:  userMode ? 'user' : 'dev'
+        },
         (event) => {
           switch (event.type) {
             case 'start':
-              log(event.message, 'info');
+              if (!userMode) log(event.message, 'info');
               break;
 
             case 'ai_response':
-              stopTicker(ticker);
-              log(event.label + ' responded [' + event.model + '] (' + event.count + '/' + event.total + ')', 'ok');
+              // User Mode collects silently; Dev Mode logs + streams to right panel
               panelAnswers.push({ label: event.label, model: event.model, text: event.text });
-              if (window.panel) window.panel.open('Task AI Answers', buildAnswersPanel(panelAnswers, true), 'html');
+              if (!userMode) {
+                stopTicker(ticker);
+                log(event.label + ' responded [' + event.model + '] (' + event.count + '/' + event.total + ')', 'ok');
+                if (window.panel) window.panel.open('Task AI Answers', buildAnswersPanel(panelAnswers, true), 'html');
+              }
               break;
 
             case 'race_complete':
-              log(event.message, 'info');
+              if (!userMode) log(event.message, 'info');
               break;
 
             case 'eval_start':
-              log(event.message, 'info');
+              if (!userMode) log(event.message, 'info');
               break;
 
             case 'summary':
-              // Update panel with scores
-              if (window.panel && event.scores) {
+              if (!userMode && window.panel && event.scores) {
                 const scored = panelAnswers.map((a, i) => ({
                   ...a, avgScore: event.scores[i] ? event.scores[i].score.total : null
                 }));
@@ -544,42 +753,60 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
 
             case 'complete': {
               stopTicker(ticker);
-              // Final panel population
-              if (window.panel && event.answers) {
-                const scored = event.answers.map((a, i) => ({
-                  ...a, avgScore: event.evaluation?.scores?.[i]?.score?.total || null
-                }));
-                window.panel.open('Task AI Answers', buildAnswersPanel(scored, false), 'html');
-              }
-              // Show eval card in left panel
-              const evalCard = buildEvalCard(
-                event.evaluation?.summary || 'No summary available.',
-                event.evaluation?.scores  || [],
-                approvedPrompt,
-                (decision) => {
-                  if (decision.action === 'redo') {
-                    log('Rerunning with edited prompt…', 'warn');
-                    runStep2(queryId, decision.prompt, selectedSources);
-                  } else {
-                    log('Accepted. Submit a new query when ready.', 'ok');
-                  }
+
+              if (userMode) {
+                // User Mode: render the clean prose synthesis (user_answer).
+                // Fall back to evaluation.summary only if server failed to produce user_answer.
+                const md = window.markdownToHtml || (t => '<div style="white-space:pre-wrap">' + String(t).replace(/</g, '&lt;') + '</div>');
+                const answerText = event.user_answer || event.evaluation?.summary || 'No answer available.';
+
+                const answerEl = document.createElement('div');
+                answerEl.className = 'chat-answer html-content';
+                answerEl.style.cssText = 'margin-top:10px;font-size:13px;line-height:1.55;';
+                answerEl.innerHTML = md(answerText);
+                container.appendChild(answerEl);
+
+                // Sources (top 5), timestamp, thumbs up/down
+                renderUserModeMeta(container, selectedSources);
+
+                chatPanel.scrollTop = chatPanel.scrollHeight;
+              } else {
+                // Dev Mode: populate right panel + show eval card with Accept/Redo
+                if (window.panel && event.answers) {
+                  const scored = event.answers.map((a, i) => ({
+                    ...a, avgScore: event.evaluation?.scores?.[i]?.score?.total || null
+                  }));
+                  window.panel.open('Task AI Answers', buildAnswersPanel(scored, false), 'html');
                 }
-              );
-              container.appendChild(evalCard);
-              chatPanel.scrollTop = chatPanel.scrollHeight;
+                const evalCard = buildEvalCard(
+                  event.evaluation?.summary || 'No summary available.',
+                  event.evaluation?.scores  || [],
+                  approvedPrompt,
+                  (decision) => {
+                    if (decision.action === 'redo') {
+                      log('Rerunning with edited prompt…', 'warn');
+                      runStep2(queryId, decision.prompt, selectedSources);
+                    } else {
+                      log('Accepted. Submit a new query when ready.', 'ok');
+                    }
+                  }
+                );
+                container.appendChild(evalCard);
+                chatPanel.scrollTop = chatPanel.scrollHeight;
+              }
               break;
             }
 
             case 'error':
               stopTicker(ticker);
-              log('Error: ' + event.message, 'err');
+              log(userMode ? 'Something went wrong.' : ('Error: ' + event.message), 'err');
               break;
           }
         }
       );
     } catch (err) {
       stopTicker(ticker);
-      log('Step 2 error: ' + err.message, 'err');
+      log(userMode ? 'Something went wrong.' : ('Step 2 error: ' + err.message), 'err');
     }
   }
 

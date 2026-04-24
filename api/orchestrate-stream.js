@@ -17,7 +17,8 @@
 
 'use strict';
 
-const { TASK_AIS, evaluateAnswers } = require('./_exec.js');
+const { TASK_AIS, evaluateAnswers, buildTaskPrompt, buildUserAnswer } = require('./_exec.js');
+const { logTaskResponses }                           = require('./orchestrate.js');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -33,16 +34,26 @@ module.exports = async function handler(req, res) {
     if (!res.writableEnded) res.write('data: ' + JSON.stringify(data) + '\n\n');
   }
 
-  const { query, approved_prompt, selected_sources } = req.body || {};
+  const { query, query_id, approved_prompt, selected_sources, today, mode } = req.body || {};
   if (!query || !approved_prompt) {
     emit({ type: 'error', message: 'Missing query or approved_prompt' });
     return res.end();
   }
 
-  const sourceContext = (selected_sources || []).length > 0
-    ? '\n\nReference these sources in your answer:\n' +
-      selected_sources.map(s => '- ' + (s.title || s.url) + ': ' + s.url).join('\n')
-    : '';
+  // Prompt-building logic lives in _exec.js/buildTaskPrompt -- shared with
+  // orchestrate.js so the streaming and non-streaming paths always use the
+  // same grounding / anti-hallucination instructions.
+  const srcs = Array.isArray(selected_sources) ? selected_sources : [];
+
+  // Diagnostic: confirm whether raw_content actually reached Step 2. If the
+  // sample prompt is tiny, either no sources were selected OR the client
+  // stripped raw_content before re-sending. Task AIs will hallucinate in
+  // that case.
+  const withRaw = srcs.filter(s => (s.raw_content || '').length > 0).length;
+  const samplePrompt = buildTaskPrompt(TASK_AIS[0].persona, approved_prompt, query, srcs, today);
+  console.log('[orchestrate-stream] sources: ' + srcs.length + ' total, '
+    + withRaw + ' with raw_content, prompt: ' + samplePrompt.length + ' chars'
+    + (today ? ', today=' + today : ''));
 
   try {
     emit({ type: 'start', message: 'Firing ' + TASK_AIS.length + ' Task AIs with approved prompt...' });
@@ -58,8 +69,8 @@ module.exports = async function handler(req, res) {
 
       TASK_AIS.forEach(ai => {
         const t0 = Date.now();
-        ai.call([{ role: 'user', content:
-          ai.persona + '\n\n' + approved_prompt + sourceContext + '\n\nQuery: ' + query
+        ai.call([{ role: 'user',
+          content: buildTaskPrompt(ai.persona, approved_prompt, query, srcs, today)
         }])
           .then(result => {
             if (!result || (result.text || '').length < 20) return;
@@ -109,11 +120,31 @@ module.exports = async function handler(req, res) {
 
     emit({ type: 'summary', scores: evaluation.scores, summary: evaluation.summary });
 
+    // User Mode: produce a clean prose synthesis (no AI-agreement annotations,
+    // no dev-style "Key Points / Differences / Concerns" structure). This adds
+    // one extra LLM call (~3-5s on Groq) but gives the user a polished answer.
+    let userAnswer = null;
+    if (mode === 'user') {
+      try {
+        userAnswer = await buildUserAnswer(query, approved_prompt, srcs,
+          responses.map(r => ({ aiLabel: r.label, text: r.text })),
+          today);
+      } catch (err) {
+        console.warn('[orchestrate-stream] buildUserAnswer failed:', err.message);
+      }
+    }
+
     emit({
-      type:       'complete',
-      answers:    responses.map(r => ({ label: r.label, model: r.model, text: r.text, ms: r.ms })),
-      evaluation: evaluation
+      type:        'complete',
+      answers:     responses.map(r => ({ label: r.label, model: r.model, text: r.text, ms: r.ms })),
+      evaluation:  evaluation,
+      user_answer: userAnswer   // null in Dev Mode; clean prose in User Mode
     });
+
+    // Persist all 5 Task AI answers + evaluation scores to Supabase for later review.
+    // Fire-and-forget: happens after 'complete' is emitted so the user sees results
+    // immediately regardless of DB latency or failure.
+    await logTaskResponses(query_id, 'execution', responses, evaluation);
 
   } catch (err) {
     console.error('[orchestrate-stream]', err.message);
