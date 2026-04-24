@@ -1,5 +1,6 @@
 -- mobius_task_responses_migration.sql
 -- Created: 24 Apr 2026 (Perth)
+-- Fixed: 24 Apr 2026 -- query_id type corrected from UUID to BIGINT to match mobius_queries.query_id (BIGSERIAL).
 -- Run this ONCE in Supabase SQL Editor (lotr2929 / Mobius project).
 --
 -- Adds a table to persist every Task AI response so they can be reviewed later.
@@ -11,7 +12,7 @@
 
 CREATE TABLE IF NOT EXISTS mobius_task_responses (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    query_id     UUID REFERENCES mobius_queries(query_id) ON DELETE CASCADE,
+    query_id     BIGINT REFERENCES mobius_queries(query_id) ON DELETE CASCADE,
     phase        TEXT NOT NULL CHECK (phase IN ('suggestion', 'execution')),
     ai_id        TEXT,            -- 'analyst' | 'researcher' | 'technical' | 'critical' | 'synthesiser'
     ai_label     TEXT,            -- human-readable, e.g. 'Analytical Specialist'
@@ -38,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_task_responses_phase
 -- All responses for a single query:
 --   SELECT ai_label, model_used, phase, score_total, left(text, 200) AS preview
 --   FROM mobius_task_responses
---   WHERE query_id = '<uuid>'
+--   WHERE query_id = <bigint>
 --   ORDER BY phase, ai_id;
 --
 -- Last 10 queries with all their Task AI outputs (join to see user_query):
