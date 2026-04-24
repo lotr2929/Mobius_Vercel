@@ -1,6 +1,6 @@
 # mobius — Setup & Infrastructure
 
-_Last updated: April 2026_
+*Last updated: April 2026*
 
 ---
 

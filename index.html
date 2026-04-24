@@ -949,36 +949,18 @@ async function handleAsk() {
         await window.COMMANDS[detected.command].handler(detected.args, outputFn, outputEl);
         if (window.getLastModel) updateModelBadge(window.getLastModel());
         _linkEntryToPanel(entry);
-        if (!window.allModeActive) saveChatEntry(tsLine.textContent, text, outputEl.textContent);
+        saveChatEntry(tsLine.textContent, text, outputEl.textContent);
         return;
     }
 
-    await refineAndProceed(text, outputEl, async (finalQuery, _attachedByRefiner) => {
-        // If query was refined (accepted from preview), skip handleConversational
-        // so catalogue/file handlers don't intercept -- go straight to task AIs
-        const wasRefined = finalQuery !== text;
-        if (window.allModeActive && window.runAllModels && wasRefined) {
-            await window.runAllModels(finalQuery, outputFn, outputEl, true);
-            if (window.getLastModel) updateModelBadge(window.getLastModel());
-        } else if (window.handleConversational) {
-            const handled = await window.handleConversational(finalQuery, outputFn, outputEl);
-            if (!handled) {
-                if (window.sendToLastModel) {
-                    await window.sendToLastModel(finalQuery, outputFn, outputEl);
-                }
-            }
-            if (window.getLastModel) updateModelBadge(window.getLastModel());
-        } else if (window.allModeActive && window.runAllModels) {
-            await window.runAllModels(finalQuery, outputFn, outputEl, true);
-        } else if (window.sendToLastModel) {
-            await window.sendToLastModel(finalQuery, outputFn, outputEl);
-            if (window.getLastModel) updateModelBadge(window.getLastModel());
-        } else {
-            outputFn('Error: AI not loaded yet.');
-        }
-        _linkEntryToPanel(entry);
-        if (!window.allModeActive) saveChatEntry(tsLine.textContent, text, outputEl.textContent);
-    });
+    if (window.sendToLastModel) {
+        await window.sendToLastModel(text, outputFn, outputEl);
+        if (window.getLastModel) updateModelBadge(window.getLastModel());
+    } else {
+        outputFn('Error: AI not loaded yet.');
+    }
+    _linkEntryToPanel(entry);
+    saveChatEntry(tsLine.textContent, text, outputEl.textContent);
 }
 
 // ── _linkEntryToPanel ────────────────────────────────────────────────────────
@@ -1051,45 +1033,6 @@ window.addToHistory = function(query, replyText) {
     window._lastSelectedReply = replyText;
 };
 
-
-// ── Query refinement preview ──────────────────────────────────────────────────
-async function refineAndProceed(rawQuery, outputEl, proceedFn) {
-    if (!window.tryRefineQuery) { proceedFn(rawQuery, []); return; }
-    outputEl.textContent = 'Refining query...';
-    const result = await window.tryRefineQuery(rawQuery).catch(() => null);
-    if (!result) { outputEl.textContent = ''; proceedFn(rawQuery, []); return; }
-
-    // Show preview
-    outputEl.classList.add('html-content');
-    const div = document.createElement('div');
-    div.className = 'refine-preview';
-    div.innerHTML =
-        '<div class="refine-label">Query refined by Coder:</div>' +
-        '<div class="refine-query-text">' + result.query.replace(/</g,'&lt;') + '</div>' +
-        '<div class="refine-files">Files to attach: ' +
-            (result.files.length ? result.files.join(', ') : 'none') + '</div>' +
-        '<div class="refine-btns">' +
-            '<button class="refine-btn accept" id="refineAccept">Accept &amp; Submit</button>' +
-            '<button class="refine-btn" id="refineSkip">Use original</button>' +
-        '</div>';
-    outputEl.innerHTML = '';
-    outputEl.appendChild(div);
-
-    document.getElementById('refineAccept').onclick = async () => {
-        div.querySelector('.refine-btns').innerHTML = '<em style="font-size:11px;color:var(--text-dim)">Attaching files...</em>';
-        const attached = result.files.length && window.attachProjectFiles
-            ? await window.attachProjectFiles(result.files)
-            : [];
-        outputEl.classList.remove('html-content');
-        outputEl.textContent = '';
-        proceedFn(result.query, attached);
-    };
-    document.getElementById('refineSkip').onclick = () => {
-        outputEl.classList.remove('html-content');
-        outputEl.textContent = '';
-        proceedFn(rawQuery, []);
-    };
-}
 
 // ── Chat persistence (no login required) ─────────────────────────────────────
 const CHAT_STORE = 'mobius_chat';
@@ -1231,7 +1174,6 @@ document.addEventListener('DOMContentLoaded', () => {
    To enable: add <script src="js/webllm.js"><\/script> after commands.js */
 </script>
 
-<script src="js/startup.js"></script>
 <script src="js/commands.js"></script>
 <script src="js/orchestrator.js"></script>
 <script src="js/panel.js"></script>

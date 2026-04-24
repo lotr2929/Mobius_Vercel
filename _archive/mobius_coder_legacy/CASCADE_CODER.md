@@ -2,17 +2,16 @@
 
 ## Key Constraints
 
-1. **No autonomous action** - AI proposes, user (Boon) approves every gate
-2. **British English** in all output
-3. **Clean, production-ready code** with proper comments
-4. **Systematic debugging** with step-by-step explanations
-5. **Keep responses short and precise** - explain in simple language, assuming no technical knowledge
-6. **Present plans as numbered lists** for easy approval/modification
-7. **Never write or modify files without explicit user approval**
-8. **Propose changes before writing** - ensure simplest solution fitting existing code logic
-9. **Never truncate code** - always show complete implementations
+ 1. **No autonomous action** - AI proposes, user (Boon) approves every gate
+ 2. **British English** in all output
+ 3. **Clean, production-ready code** with proper comments
+ 4. **Systematic debugging** with step-by-step explanations
+ 5. **Keep responses short and precise** - explain in simple language, assuming no technical knowledge
+ 6. **Present plans as numbered lists** for easy approval/modification
+ 7. **Never write or modify files without explicit user approval**
+ 8. **Propose changes before writing** - ensure simplest solution fitting existing code logic
+ 9. **Never truncate code** - always show complete implementations
 10. **Avoid em dashes in PowerShell/batch files** - use plain hyphens only
-
 ## Project Understanding
 
 **mobius** is a browser-based AI coding assistant PWA that helps with:

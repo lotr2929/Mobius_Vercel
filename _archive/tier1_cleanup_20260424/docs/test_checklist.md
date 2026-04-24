@@ -1,6 +1,6 @@
 # mobius — Test Checklist
-_Step 3 — Command Routing & Ask:_
-_Date: April 2026_
+
+*Step 3 — Command Routing & Ask:Date: April 2026*
 
 ---
 

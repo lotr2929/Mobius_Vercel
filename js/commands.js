@@ -192,7 +192,6 @@ async function sendToAI(model, messages, output, outputEl, options = {}) {
   // Build context-prepended query: memory + brief + slim + last-read file + user query.
   // CLAUDE.md excluded -- contains MCP/Desktop instructions not relevant to cloud AI.
   let _finalQuery = messages[messages.length - 1].content;
-  const _ctx   = window._projectContext;
   const _parts = [];
   if (window.getMemoryContext) {
     try {
@@ -205,11 +204,6 @@ async function sendToAI(model, messages, output, outputEl, options = {}) {
       const _code = await window.getCodeContext(_finalQuery);
       if (_code) _parts.push(_code);
     } catch { /* never block on code index */ }
-  }
-  if (_ctx) {
-    if (_ctx.brief)   _parts.push('[Project]\n'         + _ctx.brief);
-    if (_ctx.slim)    _parts.push('[Files]\n'           + _ctx.slim);
-    if (_ctx.context) _parts.push('[Session Context]\n' + _ctx.context);
   }
   if (window.lastReadFile && window.lastReadFile.content) {
     const c = window.lastReadFile.content;

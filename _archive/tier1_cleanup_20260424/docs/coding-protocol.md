@@ -1,6 +1,6 @@
 # mobius — Coding Protocol
-_Written: 5 Apr 2026_
-_Based on development session decisions, 3-5 Apr 2026_
+
+*Written: 5 Apr 2026Based on development session decisions, 3-5 Apr 2026*
 
 ---
 
