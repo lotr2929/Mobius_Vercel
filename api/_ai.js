@@ -428,52 +428,77 @@ async function askMistralCascade(messages) {
   throw lastErr || new Error('All Mistral models failed');
 }
 
-// ── Google Custom Search ──────────────────────────────────────────────────────
-// Requires GOOGLE_API_KEY and GOOGLE_CSE_ID env vars.
-// Returns array of { title, url, snippet } objects.
-
 // ── Google Search via Gemini grounding ───────────────────────────────────────
-// Uses Gemini's built-in Google Search tool -- no CSE or separate API key needed.
-// Returns array of { title, url, snippet } from grounding metadata.
+// Uses Gemini's built-in Google Search tool -- no CSE needed.
+// Free tier: gemini-3-flash-preview (primary), gemini-2.5-flash (fallback). ~500 grounded req/day.
+// Returns: URLs + the grounded answer text + web chunks (for RAG) + search queries
+// + Google-required search-entry-point HTML (TOS display requirement).
+//
+// Prompt shape MATTERS: asking for "a list of sources" lets the model prose-list from
+// memory without invoking Search. Asking for a researched answer forces tool invocation.
 
-async function askGoogleSearch(query, numResults = 10) {
+async function askGoogleSearch(query, numResults = 20) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
 
-  const model = 'gemini-2.0-flash';
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+  const prompt =
+    'Research this question using up-to-date web sources, then answer it concisely (2-3 paragraphs). ' +
+    'Cite the most authoritative sources available.\n\nQuestion: ' + query;
 
-  const body = {
-    contents: [{ role: 'user', parts: [{ text: 'Find the best sources for: ' + query + '\n\nList the top ' + numResults + ' most authoritative sources with their URLs.' }] }],
-    tools: [{ google_search: {} }]
+  // Cascade: Gemini 3 Flash Preview first (latest, free, grounding-capable),
+  // 2.5 Flash fallback (stable, free). gemini-2.0-flash was deprecated 1 Jun 2026.
+  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
+  let lastErr = null, data = null, modelUsed = null;
+  for (const model of models) {
+    try {
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+      const r   = await fetch(url, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          tools:    [{ google_search: {} }]
+        }),
+        signal:  AbortSignal.timeout(20000)
+      });
+      data = await r.json();
+      if (data.error) { lastErr = new Error(model + ': ' + data.error.message); data = null; continue; }
+      modelUsed = model;
+      break; // success
+    } catch (err) { lastErr = err; }
+  }
+  if (!data) throw lastErr || new Error('All grounding models failed');
+
+  const cand = data.candidates?.[0];
+  const gm   = cand?.groundingMetadata || {};
+
+  // Grounded answer text -- the RAG payload, usable as [Background] for downstream Task AIs
+  const answer = (cand?.content?.parts || [])
+    .map(p => p.text || '').filter(Boolean).join('\n').trim();
+
+  // URLs + titles from grounding chunks, deduplicated, capped to numResults
+  const chunks = gm.groundingChunks || [];
+  const seen   = new Set();
+  const urls   = [];
+  for (const c of chunks) {
+    if (!c.web?.uri || seen.has(c.web.uri)) continue;
+    seen.add(c.web.uri);
+    urls.push({ title: c.web.title || c.web.uri, url: c.web.uri });
+    if (urls.length >= numResults) break;
+  }
+
+  console.log('[Mobius] Grounding: ' + modelUsed + ' returned ' + urls.length + ' URLs, '
+    + (answer ? answer.length + ' chars answer' : 'no answer') + ', '
+    + (gm.webSearchQueries || []).length + ' search queries');
+
+  return {
+    modelUsed,
+    urls,
+    answer,
+    webChunks:        chunks,                                    // full chunks for RAG
+    searchQueries:    gm.webSearchQueries || [],                 // what Gemini typed into Google
+    searchEntryPoint: gm.searchEntryPoint?.renderedContent || '' // Google TOS display HTML
   };
-
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000)
-  });
-  const data = await r.json();
-  if (data.error) throw new Error('Gemini Search error: ' + data.error.message);
-
-  // Extract sources from grounding metadata
-  const chunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-  const sources = chunks
-    .filter(c => c.web?.uri)
-    .map(c => ({
-      title:   c.web.title   || c.web.uri,
-      url:     c.web.uri,
-      snippet: ''
-    }));
-
-  // If grounding returned sources, use them; otherwise parse from text
-  if (sources.length > 0) return sources.slice(0, numResults);
-
-  // Fallback: extract URLs from response text
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const urlMatches = text.match(/https?:\/\/[^\s\)\"\']+/g) || [];
-  return [...new Set(urlMatches)].slice(0, numResults).map(u => ({ title: u, url: u, snippet: '' }));
 }
 
 module.exports = {

@@ -15,14 +15,14 @@ const { supabase }                                                 = require('./
 const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers } = require('./_exec.js');
 
 // ── Source discovery ──────────────────────────────────────────────────────────
-// Placeholder: Gemini grounding currently returns empty -- search integration TBD.
-// Returns array of { title, url, snippet } or empty array.
+// Returns { urls, answer, webChunks, searchQueries, searchEntryPoint, modelUsed }.
+// On failure returns the same shape with empty fields so callers never see undefined.
 async function discoverSources(query) {
   try {
-    const results = await askGoogleSearch(query, 10);
-    return results.filter(r => r.url && r.url !== 'no-search-available');
-  } catch {
-    return [];
+    return await askGoogleSearch(query, 20);
+  } catch (err) {
+    console.warn('[orchestrate] grounding failed:', err.message);
+    return { urls: [], answer: '', webChunks: [], searchQueries: [], searchEntryPoint: '', modelUsed: null };
   }
 }
 
@@ -84,7 +84,7 @@ module.exports = async function handler(req, res) {
   if (!step || step === 1) {
     const qId = await logQuery(userId, query);
     try {
-      const [promptResult, sources] = await Promise.all([
+      const [promptResult, grounding] = await Promise.all([
         generatePromptSuggestions(query, feedback || ''),
         discoverSources(query)
       ]);
@@ -92,7 +92,14 @@ module.exports = async function handler(req, res) {
         query_id:           qId,
         suggestions:        promptResult.suggestions,
         synthesised_prompt: promptResult.synthesised,
-        sources
+        sources:            grounding.urls,           // array, back-compat with client
+        grounding: {                                  // new -- richer grounding payload
+          modelUsed:         grounding.modelUsed,
+          answer:            grounding.answer,
+          searchQueries:     grounding.searchQueries,
+          searchEntryPoint:  grounding.searchEntryPoint,
+          webChunks:         grounding.webChunks
+        }
       });
     } catch (err) {
       console.error('[Orchestrate Step 1]', err.message);
