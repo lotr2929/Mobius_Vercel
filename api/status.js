@@ -59,16 +59,13 @@ module.exports = async function handler(req, res) {
     ping('OpenRouter', async () => {
       const key = process.env.OPENROUTER_API_KEY;
       if (!key) return false;
-      const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + key, 'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://mobius-pwa.vercel.app', 'X-Title': 'Mobius'
-        },
-        body: JSON.stringify({ model: 'meta-llama/llama-3.3-70b-instruct:free', messages: [{ role:'user', content:'hi' }], max_tokens: 1 }),
+      // Lightweight GET -- verifies auth + network without triggering per-model rate limits.
+      // The actual cascade in _ai.js has 4 fallback models and is more robust than any single-model ping.
+      const r = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: { Authorization: 'Bearer ' + key },
         signal: AbortSignal.timeout(8000)
       });
-      return r.ok || r.status === 400 || r.status === 422;
+      return r.ok;
     }),
   ]);
 

@@ -223,7 +223,7 @@ const Connectivity = (() => {
                 'Google - Gemini 2.5 Flash':   { provider:'Google',     model:'Gemini 2.5 Flash',        role:'Researcher AI'    },
                 'Codestral (Mistral AI)':       { provider:'Mistral AI', model:'Codestral',               role:'Technical AI'     },
                 'GPT-4o (GitHub AI)':           { provider:'GitHub AI',  model:'GPT-4o (Azure)',          role:'General'          },
-                'OpenRouter':                   { provider:'OpenRouter', model:'Llama 3.3 70B (free)',   role:'Synthesiser AI'   },
+                'OpenRouter':                   { provider:'OpenRouter', model:'Llama 3.3 70B',          role:'Synthesiser AI'   },
             };
             const items = raw.map(m => {
                 const d = display[m.name] || { provider: m.name, model: '', role: '' };
