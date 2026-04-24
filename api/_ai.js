@@ -332,17 +332,18 @@ async function askOpenRouter(messages, model = 'meta-llama/llama-3.3-70b-instruc
 }
 
 async function askOpenRouterCascade(messages) {
+  // OpenRouter free-tier SKUs churn frequently -- hardcoded lists go stale in weeks.
+  // openrouter/free is a smart router that auto-selects from currently-working free models.
+  // Fallback pins a still-available free model in case the router itself errors.
   const models = [
+    { id: 'openrouter/free',                        label: 'OpenRouter: Free Router'  },
     { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter: Llama 3.3 70B' },
-    { id: 'qwen/qwen-2.5-72b-instruct:free',        label: 'OpenRouter: Qwen 2.5 72B'  },
-    { id: 'mistralai/mistral-7b-instruct:free',     label: 'OpenRouter: Mistral 7B'    },
-    { id: 'google/gemini-2.0-flash-exp:free',       label: 'OpenRouter: Gemini 2.0'    },
   ];
   let lastErr;
   for (const m of models) {
     try {
       const result = await askOpenRouter(messages, m.id);
-      // Show actual model selected by OpenRouter (especially useful for openrouter/free)
+      // openrouter/free will return the actually-selected model in modelUsed
       const shortName = result.modelUsed.split('/').pop().replace(':free', '') || m.label;
       const modelUsed = result.modelUsed !== m.id
         ? 'OpenRouter: ' + shortName
@@ -430,12 +431,17 @@ async function askMistralCascade(messages) {
 
 // ── Google Search via Gemini grounding ───────────────────────────────────────
 // Uses Gemini's built-in Google Search tool -- no CSE needed.
-// Free tier: gemini-3-flash-preview (primary), gemini-2.5-flash (fallback). ~500 grounded req/day.
+// Free tier: gemini-3-flash-preview (~500 grounded req/day).
 // Returns: URLs + the grounded answer text + web chunks (for RAG) + search queries
 // + Google-required search-entry-point HTML (TOS display requirement).
 //
 // Prompt shape MATTERS: asking for "a list of sources" lets the model prose-list from
 // memory without invoking Search. Asking for a researched answer forces tool invocation.
+//
+// NO CASCADE: deliberately does not fall back to gemini-2.5-flash because that model
+// shares a rate-limit pool with the Researcher Task AI and Critical Reviewer, which fire
+// in parallel during orchestration. Cascading onto 2.5-flash multiplied quota pressure
+// and caused the actual failure seen in Vercel logs 24 Apr 2026.
 
 async function askGoogleSearch(query, numResults = 20) {
   const key = process.env.GEMINI_API_KEY;
@@ -445,29 +451,34 @@ async function askGoogleSearch(query, numResults = 20) {
     'Research this question using up-to-date web sources, then answer it concisely (2-3 paragraphs). ' +
     'Cite the most authoritative sources available.\n\nQuestion: ' + query;
 
-  // Cascade: Gemini 3 Flash Preview first (latest, free, grounding-capable),
-  // 2.5 Flash fallback (stable, free). gemini-2.0-flash was deprecated 1 Jun 2026.
-  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
-  let lastErr = null, data = null, modelUsed = null;
-  for (const model of models) {
-    try {
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
-      const r   = await fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          tools:    [{ google_search: {} }]
-        }),
-        signal:  AbortSignal.timeout(20000)
-      });
-      data = await r.json();
-      if (data.error) { lastErr = new Error(model + ': ' + data.error.message); data = null; continue; }
-      modelUsed = model;
-      break; // success
-    } catch (err) { lastErr = err; }
+  // Use gemini-3-flash-preview only. Do NOT fall back to gemini-2.5-flash --
+  // that shares a rate-limit pool with the Researcher Task AI and Critical Reviewer,
+  // which fire in parallel. Cascading onto 2.5-flash just multiplies quota pressure.
+  // If 3-flash-preview fails, return an explicit error and let the caller soft-fail.
+  const model = 'gemini-3-flash-preview';
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+
+  let data;
+  try {
+    const r = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        tools:    [{ google_search: {} }]
+      }),
+      signal:  AbortSignal.timeout(20000)
+    });
+    data = await r.json();
+  } catch (err) {
+    console.warn('[Mobius] Grounding fetch failed (' + model + '):', err.message);
+    throw new Error(model + ' fetch: ' + err.message);
   }
-  if (!data) throw lastErr || new Error('All grounding models failed');
+
+  if (data.error) {
+    console.warn('[Mobius] Grounding API error (' + model + '):', data.error.message);
+    throw new Error(model + ': ' + data.error.message);
+  }
 
   const cand = data.candidates?.[0];
   const gm   = cand?.groundingMetadata || {};
@@ -487,12 +498,12 @@ async function askGoogleSearch(query, numResults = 20) {
     if (urls.length >= numResults) break;
   }
 
-  console.log('[Mobius] Grounding: ' + modelUsed + ' returned ' + urls.length + ' URLs, '
+  console.log('[Mobius] Grounding: ' + model + ' returned ' + urls.length + ' URLs, '
     + (answer ? answer.length + ' chars answer' : 'no answer') + ', '
     + (gm.webSearchQueries || []).length + ' search queries');
 
   return {
-    modelUsed,
+    modelUsed:        model,
     urls,
     answer,
     webChunks:        chunks,                                    // full chunks for RAG
