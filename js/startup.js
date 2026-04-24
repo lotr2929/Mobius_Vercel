@@ -89,40 +89,6 @@
 
   // -- Silent restore of project handle ----------------------------------------
   // commands.js saves the project handle in DB 'MobiusCoderFS', key 'rootHandle'.
-  // Called AFTER app-ready (inside fireSessionTask) so commands.js is loaded.
-
-  async function tryRestoreProject() {
-    try {
-      const db = await new Promise(function (resolve, reject) {
-        const req = indexedDB.open('MobiusCoderFS', 1);
-        req.onupgradeneeded = function () {};
-        req.onsuccess = function (e) { resolve(e.target.result); };
-        req.onerror   = function (e) { reject(e.target.error); };
-      });
-      const handle = await new Promise(function (resolve) {
-        try {
-          const tx = db.transaction('handles', 'readonly');
-          const r  = tx.objectStore('handles').get('rootHandle');
-          r.onsuccess = function () { resolve(r.result || null); };
-          r.onerror   = function () { resolve(null); };
-        } catch { resolve(null); }
-      });
-      if (!handle) return false;
-      const perm = await handle.queryPermission({ mode: 'readwrite' });
-      if (perm !== 'granted') { console.log('[startup] Project handle needs re-grant (' + perm + ')'); return false; }
-      if (window.ensureAccess) await window.ensureAccess(function () {}, true);
-      const h = window.getRootHandle && window.getRootHandle();
-      if (h) {
-        console.log('[startup] Project restored silently: ' + h.name);
-        if (window.setupProjectContext) await window.setupProjectContext(h, function () {}).catch(function () {});
-        return true;
-      }
-      return false;
-    } catch (err) { console.warn('[startup] Project restore failed:', err.message); return false; }
-  }
-
-  // -- Silent restore of project handle ----------------------------------------
-  // commands.js saves the project handle in DB 'MobiusCoderFS', key 'rootHandle'.
   // queryPermission is silent -- Edge/Chrome preserve permissions within a session.
   // Called AFTER app-ready (inside fireSessionTask) so commands.js is loaded.
 
@@ -175,7 +141,7 @@
     // Wait for app ready (commands.js + all modules loaded)
     await new Promise(function (resolve) {
       var t = setInterval(function () {
-        if (window.COMMANDS && window.runAllModels && document.getElementById('input')) { clearInterval(t); resolve(); }
+        if (window.COMMANDS && window.runOrchestrator && document.getElementById('input')) { clearInterval(t); resolve(); }
       }, 100);
       setTimeout(function () { clearInterval(t); resolve(); }, 12000);
     });

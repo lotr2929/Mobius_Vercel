@@ -389,6 +389,7 @@ const COMMANDS = {};
 
 window.detectCommand         = detectCommand;
 window.COMMANDS              = COMMANDS;
+window.esc                   = function (s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 window.getLastModel          = getLastModel;
 window.setLastModel          = setLastModel;
 window.nextCloudModel        = nextCloudModel;
@@ -409,23 +410,6 @@ window.setLastCloudModelKey  = function (k) { lastCloudModelKey = k;    };
 // ── sendToLastModel ────────────────────────────────────────────────────────────
 
 const LOCAL_KEYS = new Set(['qwen35', 'qwen', 'deepseek']);
-
-// ── Task-type routing ────────────────────────────────────────────────────────
-// Fast keyword classifier -- no API call. Maps task intent to best model stable.
-// Coding tasks go to Codestral. Debug to Groq (fast, good at tracing).
-// Explain/Review/Plan to Gemini. No match = last used model.
-
-function classifyTaskType(text) {
-  const t = text.toLowerCase();
-  if (/\b(fix|bug|error|broken|wrong|crash|fail|exception|not working|undefined|null ref)\b/.test(t)) return 'groq-cascade';
-  if (/\b(explain|how does|what does|what is|describe|walk me|walk through|understand)\b/.test(t)) return 'gemini-lite';
-  if (/\b(review|audit|check|assess|quality|issues|problems with|look at)\b/.test(t)) return 'gemini-cascade';
-  if (/\b(plan|architect|design|strategy|approach|should i|best way|how to|recommend)\b/.test(t)) return 'gemini-cascade';
-  if (/\b(write|create|implement|build|generate|add a function|add a class|refactor)\b/.test(t)) return 'mistral-cascade';
-  return null;
-}
-
-window.classifyTaskType = classifyTaskType;
 
 window.sendToLastModel = async function (text, output, outputEl) {
   // All queries route through the Mobius orchestration pipeline.

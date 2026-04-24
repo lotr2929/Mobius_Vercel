@@ -45,13 +45,6 @@
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
-  function esc(t) {
-    return String(t || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-
   function showInPanel(title, html, outputEl) {
     if (window.panel) {
       window.panel.open(title, html, 'html');

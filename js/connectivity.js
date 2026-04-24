@@ -127,8 +127,8 @@ const Connectivity = (() => {
         const color = detailColor(status);
         let html = '<div style="display:flex;align-items:baseline;gap:8px;font-size:13px;">'
             + icon
-            + '<span class="check-label" style="flex:1;color:var(--text);">' + escHtml(label) + '</span>'
-            + (detail ? '<span style="color:' + color + ';font-weight:bold;">' + escHtml(detail) + '</span>' : '')
+            + '<span class="check-label" style="flex:1;color:var(--text);">' + esc(label) + '</span>'
+            + (detail ? '<span style="color:' + color + ';font-weight:bold;">' + esc(detail) + '</span>' : '')
             + '</div>';
         if (items && items.length > 0) {
             html += '<div style="padding-left:26px;margin-top:2px;">';
@@ -136,10 +136,10 @@ const Connectivity = (() => {
                 const ic = item.ok ? '\u2705' : '\u274c';
                 html += '<div style="font-size:12px;color:var(--text-muted);padding:1px 0;">'
                     + ic + ' '
-                    + '<span style="color:var(--text-muted);">' + escHtml(item.provider) + '</span>'
+                    + '<span style="color:var(--text-muted);">' + esc(item.provider) + '</span>'
                     + ' \u2014 '
-                    + '<span style="color:var(--text);">' + escHtml(item.model) + '</span>'
-                    + (item.note ? ' <span style="color:var(--text-dim);font-style:italic;">(' + escHtml(item.note) + ')</span>' : '')
+                    + '<span style="color:var(--text);">' + esc(item.model) + '</span>'
+                    + (item.note ? ' <span style="color:var(--text-dim);font-style:italic;">(' + esc(item.note) + ')</span>' : '')
                     + '</div>';
             }
             html += '</div>';
@@ -157,10 +157,6 @@ const Connectivity = (() => {
         if (status === 'fail') return '#8d3a3a';
         if (status === 'warn') return '#a06800';
         return '#8d7c64';
-    }
-
-    function escHtml(s) {
-        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     function collapse() {
@@ -239,33 +235,6 @@ const Connectivity = (() => {
         } catch {
             return { status:'warn', items:[], detail:'unavailable' };
         }
-    }
-
-    async function checkOllama() {
-        const endpoints = ['http://localhost:3000/ollama/api/tags', 'http://localhost:11434/api/tags'];
-        for (const url of endpoints) {
-            try {
-                const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-                if (!res.ok) continue;
-                const data   = await res.json();
-                const models = (data.models || []);
-                if (models.length === 0) return { status:'warn', items:[], detail:'Ollama running \u2014 no models loaded' };
-                const items = models.map(m => {
-                    const base = m.name.split(':')[0];
-                    const tag  = m.name.includes(':') ? m.name.split(':')[1] : '';
-                    let provider = 'Ollama';
-                    if (base.includes('qwen'))     provider = 'Alibaba (Qwen)';
-                    if (base.includes('deepseek')) provider = 'DeepSeek';
-                    if (base.includes('llama'))    provider = 'Meta';
-                    if (base.includes('mistral'))  provider = 'Mistral AI';
-                    if (base.includes('gemma'))    provider = 'Google';
-                    if (base.includes('phi'))      provider = 'Microsoft';
-                    return { ok: true, provider, model: base + (tag ? ':' + tag : '') };
-                });
-                return { status:'ok', items, detail:'' };
-            } catch { continue; }
-        }
-        return { status:'warn', items:[], detail:'Ollama not running' };
     }
 
     window.addEventListener('online',  () => { if (typeof updateStatusDot === 'function') updateStatusDot(); });

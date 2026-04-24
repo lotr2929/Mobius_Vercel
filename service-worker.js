@@ -2,7 +2,7 @@
 // PWA offline shell. Network-first strategy -- always serves fresh files when
 // online, falls back to cache only when offline. No manual cache-busting needed.
 
-const CACHE_NAME = 'mobius-v18';
+const CACHE_NAME = 'mobius-v20';
 
 const SHELL_URLS = [
   '/',
@@ -33,6 +33,9 @@ self.addEventListener('activate', event => {
         names.map(name => name !== CACHE_NAME ? caches.delete(name) : null)
       ))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' })
+        .then(clients => clients.forEach(c => c.navigate(c.url)))
+      )
   );
 });
 

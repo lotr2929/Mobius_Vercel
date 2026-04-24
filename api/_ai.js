@@ -226,19 +226,6 @@ async function askOllama(messages, model) {
   return content;
 }
 
-const CUTOFF_PHRASES = [
-  'knowledge cutoff', 'training cutoff', 'training data',
-  'as of my last update', 'as of my knowledge', 'i don\'t have access to real-time',
-  'i cannot browse', 'i can\'t browse', 'no internet access',
-  'i don\'t have internet', 'i cannot access the internet',
-  'my information may be outdated', 'i don\'t have current',
-  'i cannot provide real-time', 'not able to access current'
-];
-
-function detectsCutoff(text) {
-  return CUTOFF_PHRASES.some(p => text.toLowerCase().includes(p));
-}
-
 async function askWebSearch(messages, depth = 1) {
   const tavilyKey = process.env.TAVILY_API_KEY;
   if (!tavilyKey) throw new Error('TAVILY_API_KEY is not set on the server.');
@@ -507,7 +494,6 @@ module.exports = {
   askWithFallback,
   askWebSearch,
   askGoogleSearch,
-  detectsCutoff,
   MODEL_FULL_NAMES,
   MODEL_CHAIN,
   CODING_MODEL_CHAIN

@@ -54,16 +54,6 @@
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  function esc(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function getUserId() {
-    return (window.getAuth && window.getAuth('mobius_user_id'))
-        || localStorage.getItem('mobius_user_id')
-        || null;
-  }
-
   function stableKeyFromName(name) {
     if (!name) return null;
     const n = name.toLowerCase();
@@ -418,7 +408,7 @@
       EVAL_MODELS.map(async (model) => {
         const result = await fetch('/ask', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: evalPrompt, model, userId: getUserId() }),
+          body: JSON.stringify({ query: evalPrompt, model, userId: window.getAuth('mobius_user_id') }),
           signal: AbortSignal.timeout(25000)
         }).then(r => r.json());
         evalReturned++;
@@ -585,10 +575,10 @@
 
       const phase2Results = await Promise.allSettled([
         fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: phase2Prompt, model: 'deepseek-r1', userId: getUserId() }),
+          body: JSON.stringify({ query: phase2Prompt, model: 'deepseek-r1', userId: window.getAuth('mobius_user_id') }),
           signal: AbortSignal.timeout(25000) }).then(r => r.json()),
         fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: phase2Prompt, model: 'gemini', userId: getUserId() }),
+          body: JSON.stringify({ query: phase2Prompt, model: 'gemini', userId: window.getAuth('mobius_user_id') }),
           signal: AbortSignal.timeout(25000) }).then(r => r.json())
       ]);
 
@@ -982,7 +972,7 @@
     try {
       const res  = await fetch('/ask', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: planPrompt, model: 'gemini', userId: getUserId() })
+        body: JSON.stringify({ query: planPrompt, model: 'gemini', userId: window.getAuth('mobius_user_id') })
       });
       const data = await res.json();
       const raw  = (data.reply || '').replace(/```json[\s\S]*?```/g, m => m.slice(7, -3)).replace(/```/g, '').trim();
@@ -1106,7 +1096,7 @@
     try {
       const res  = await fetch('/ask', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: prompt, model: 'gemini-lite', userId: getUserId() })
+        body: JSON.stringify({ query: prompt, model: 'gemini-lite', userId: window.getAuth('mobius_user_id') })
       });
       const data = await res.json();
       const raw  = (data.reply || '').replace(/```json[\s\S]*?```/g, m => m.slice(7,-3)).replace(/```/g,'').trim();
