@@ -10,30 +10,59 @@
 
 'use strict';
 
-const { askGoogleSearch }                                          = require('./_ai.js');
+const { askTavilySearch, askGoogleSearch }                         = require('./_ai.js');
 const { supabase }                                                 = require('./_supabase.js');
 const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers } = require('./_exec.js');
 
 // ── Source discovery ──────────────────────────────────────────────────────────
+// Primary: Tavily /search (1,000 credits/mo free, renews monthly, no CC required).
+//          Returns URLs + an LLM-summarised answer (free RAG grounding).
+// Fallback: Gemini grounding (requires paid Gemini tier for reliable quota).
 // Returns { urls, answer, webChunks, searchQueries, searchEntryPoint, modelUsed }.
 // On failure returns the same shape with empty fields so callers never see undefined.
 async function discoverSources(query) {
   try {
+    return await askTavilySearch(query, 20);
+  } catch (tvErr) {
+    console.warn('[orchestrate] Tavily search failed:', tvErr.message);
+  }
+  try {
     return await askGoogleSearch(query, 20);
   } catch (err) {
-    console.warn('[orchestrate] grounding failed:', err.message);
+    console.warn('[orchestrate] Gemini grounding fallback also failed:', err.message);
     return { urls: [], answer: '', webChunks: [], searchQueries: [], searchEntryPoint: '', modelUsed: null };
   }
 }
 
 // ── Execution ─────────────────────────────────────────────────────────────────
-// Fire all 5 Task AIs with the approved prompt + selected sources.
+// Fire all 5 Task AIs with the approved prompt + ACTUAL CONTENT from selected sources.
 // Race: proceed when raceMin respond; wait full timeout for the rest.
+//
+// Anti-hallucination design: Task AIs receive the full cleaned article text for each
+// selected source, not just URL + title. This lets them quote and cite real content
+// instead of fabricating based on URL patterns alone. Raw content is truncated per
+// source to keep total prompt under ~12K tokens (safe for every model in the lineup).
 async function runExecution(query, approvedPrompt, selectedSources) {
-  const sourceContext = selectedSources.length > 0
-    ? '\n\nReference these sources in your answer:\n' +
-      selectedSources.map(s => '- ' + (s.title || s.url) + ': ' + s.url).join('\n')
-    : '';
+  // Per-source truncation budget. 3000 chars ≈ 750 tokens. With 5 sources that's
+  // ~3750 tokens of RAG context -- comfortable even for the smallest Task AIs.
+  const MAX_CHARS_PER_SOURCE = 3000;
+
+  let sourceContext = '';
+  if (selectedSources.length > 0) {
+    sourceContext = '\n\n=== SOURCE MATERIAL ===\n' +
+      'Base your answer strictly on the following sources. Quote and cite them by URL. ' +
+      'If the sources do not contain the information needed, say so explicitly rather than guessing.\n\n' +
+      selectedSources.map((s, i) => {
+        const content = (s.raw_content || s.description || '').trim();
+        const truncated = content.length > MAX_CHARS_PER_SOURCE
+          ? content.slice(0, MAX_CHARS_PER_SOURCE) + '... [truncated]'
+          : content;
+        return '--- Source ' + (i + 1) + ': ' + (s.title || s.url) + ' ---\n' +
+               'URL: ' + s.url + '\n' +
+               (truncated ? '\n' + truncated + '\n' : '(no content available)\n');
+      }).join('\n') +
+      '\n=== END SOURCE MATERIAL ===\n';
+  }
 
   const results = await raceAtLeast(
     TASK_AIS.map(ai => ({

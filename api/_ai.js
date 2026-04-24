@@ -637,6 +637,81 @@ async function askMistralCascade(messages) {
   throw lastErr || new Error('All Mistral models failed');
 }
 
+// ── Tavily search ────────────────────────────────────────────────────────────
+// Tavily /search endpoint: AI-optimised web search purpose-built for RAG/agents.
+// Free tier: 1,000 credits/month, renews monthly, NO credit card required.
+//
+// Settings below = 2 credits/request (advanced + raw content). At 1,000 credits/mo
+// that's ~500 Mobius queries/month. Justification for each parameter:
+//   - search_depth: 'advanced'   => deeper retrieval, better URL ranking (+1 credit)
+//   - include_raw_content: true  => full cleaned article text, NOT just ~200 char
+//                                   snippets. This is what prevents Task AIs from
+//                                   hallucinating in Step 6 -- they need real source
+//                                   material to quote from. No extra credit cost.
+//   - include_answer: true       => LLM-synthesised summary of top results.
+//                                   Free bonus, comparable to Gemini grounding's
+//                                   grounded answer.
+//
+// Docs: https://docs.tavily.com/documentation/api-reference/endpoint/search
+// Response: { answer, results: [{ title, url, content, raw_content, score }, ...] }
+
+async function askTavilySearch(query, numResults = 20) {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) throw new Error('TAVILY_API_KEY not configured.');
+
+  const r = await fetch('https://api.tavily.com/search', {
+    method:  'POST',
+    headers: {
+      'Authorization': 'Bearer ' + key,
+      'Content-Type':  'application/json'
+    },
+    body: JSON.stringify({
+      query,
+      max_results:        numResults,
+      search_depth:       'advanced',
+      include_answer:     true,
+      include_raw_content: true
+    }),
+    signal: AbortSignal.timeout(30000)   // advanced + raw content can take longer
+  });
+
+  const data = await r.json();
+  if (!r.ok) {
+    const msg = data?.detail || data?.error || data?.message || ('HTTP ' + r.status);
+    console.warn('[Mobius] Tavily search failed:', msg);
+    throw new Error('Tavily: ' + msg);
+  }
+
+  const results = Array.isArray(data.results) ? data.results : [];
+  const urls = results
+    .filter(item => item.url)
+    .slice(0, numResults)
+    .map(item => ({
+      title:       item.title   || item.url,
+      url:         item.url,
+      description: item.content || '',          // short snippet for list display
+      raw_content: item.raw_content || '',      // full cleaned article for Task AI RAG
+      score:       item.score   || 0
+    }));
+
+  const answer = typeof data.answer === 'string' ? data.answer : '';
+  const totalRawKB = Math.round(urls.reduce((a, u) => a + (u.raw_content?.length || 0), 0) / 1024);
+
+  console.log('[Mobius] Tavily advanced: returned ' + urls.length + ' URLs, '
+    + (answer ? answer.length + ' char answer' : 'no answer') + ', '
+    + totalRawKB + 'KB raw content'
+    + ' for "' + query.slice(0, 60) + '"');
+
+  return {
+    modelUsed:        'Tavily Search (Advanced)',
+    urls,
+    answer,                        // LLM-summarised overview across all results
+    webChunks:        results,     // full Tavily result objects
+    searchQueries:    [query],
+    searchEntryPoint: ''
+  };
+}
+
 // ── Google Search via Gemini grounding ───────────────────────────────────────
 // Uses Gemini's built-in Google Search tool -- no CSE needed.
 // Free tier: gemini-3-flash-preview (~500 grounded req/day).
@@ -731,6 +806,7 @@ module.exports = {
   askOpenRouterCascade,
   askWithFallback,
   askWebSearch,
+  askTavilySearch,
   askGoogleSearch,
   MODEL_FULL_NAMES,
   MODEL_CHAIN,
