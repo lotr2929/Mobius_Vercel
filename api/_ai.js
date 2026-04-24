@@ -277,10 +277,7 @@ async function askCerebras(messages, model = 'llama3.3-70b') {
 }
 
 async function askCerebrasCascade(messages) {
-  const models = [
-    { id: 'llama3.3-70b', label: 'Cerebras Llama 3.3 70B' },
-    { id: 'llama3.1-8b',  label: 'Cerebras Llama 3.1 8B'  },
-  ];
+  const models = await resolveCerebrasCascade();
   let lastErr;
   for (const m of models) {
     try {
@@ -354,16 +351,234 @@ async function askOpenRouterCascade(messages) {
   throw lastErr || new Error('All OpenRouter models failed');
 }
 
+// ── Gemini helpers: retry-delay parsing + 429 backoff ────────────────────────
+// Gemini returns 429 with a structured retryDelay field in error.details (e.g. "58s")
+// plus the same info in error.message. Parse either. Backoff is capped so we don't
+// exceed Vercel's 10s function timeout -- if the required wait is longer, fail fast
+// with a clear error so the user knows to retry in N seconds.
+
+const GEMINI_BACKOFF_MAX_MS = 2000;
+
+function parseGeminiRetryDelay(data) {
+  const details = data?.error?.details || [];
+  for (const d of details) {
+    if ((d['@type'] || '').includes('RetryInfo') && d.retryDelay) {
+      const m = String(d.retryDelay).match(/^(\d+\.?\d*)s?$/);
+      if (m) return parseFloat(m[1]);
+    }
+  }
+  const msg = data?.error?.message || '';
+  const m = msg.match(/retry in (\d+\.?\d*)\s*s/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+async function geminiPost(url, body, fetchTimeoutMs = 20000) {
+  const opts = {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(fetchTimeoutMs)
+  };
+  let r = await fetch(url, opts);
+  let data = await r.json();
+
+  // 429 with a parseable retry delay: backoff once if within our budget
+  if ((r.status === 429 || data?.error?.code === 429)) {
+    const retrySec = parseGeminiRetryDelay(data);
+    if (retrySec && retrySec * 1000 <= GEMINI_BACKOFF_MAX_MS) {
+      const waitMs = Math.ceil(retrySec * 1000) + 300;
+      console.log('[Mobius] Gemini 429 -- backing off ' + waitMs + 'ms then retrying...');
+      await new Promise(res => setTimeout(res, waitMs));
+      r = await fetch(url, opts);
+      data = await r.json();
+    } else if (retrySec) {
+      console.log('[Mobius] Gemini 429 -- retry delay ' + retrySec + 's exceeds backoff budget; failing fast');
+    }
+  }
+  return data;
+}
+
+// ── Model catalogue resolvers ────────────────────────────────────────────────
+// Each provider's /models endpoint is fetched once per serverless cold start
+// (~5 min warm TTL on Vercel). We pick by capability PATTERN, not hardcoded version,
+// so new model releases are picked up automatically without code changes.
+//
+// Hardcoded fallback lists are last-resort only -- used only if /models is unreachable.
+// The fallbacks themselves use pattern-stable IDs ("-latest" aliases where available).
+
+let _groqCache          = null;
+let _mistralCache       = null;
+let _cerebrasCache      = null;
+let _geminiCascadeCache = null;
+let _groundingCache     = null;
+
+async function resolveGroqCascade() {
+  if (_groqCache) return _groqCache;
+  const fallback = [
+    { id: 'llama-3.3-70b-versatile', label: 'Groq: Llama 3.3 70B' },
+    { id: 'llama-3.1-8b-instant',    label: 'Groq: Llama 3.1 8B'  },
+  ];
+  try {
+    const r = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { 'Authorization': 'Bearer ' + process.env.GROQ_API_KEY },
+      signal:  AbortSignal.timeout(5000)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const ids  = (data.data || []).map(m => m.id).filter(Boolean);
+
+    // Sort descending so newest llama-3.3 > llama-3.1 etc.
+    const versatile = ids.filter(id => /llama.*versatile$/i.test(id)).sort().reverse();
+    const reasoning = ids.filter(id => /(qwq|deepseek|kimi)/i.test(id) && !/(guard|whisper|tts)/i.test(id)).sort().reverse();
+    const instant   = ids.filter(id => /llama.*instant$/i.test(id)).sort().reverse();
+
+    const picks = [];
+    if (versatile[0]) picks.push({ id: versatile[0], label: 'Groq: ' + versatile[0] });
+    if (reasoning[0]) picks.push({ id: reasoning[0], label: 'Groq: ' + reasoning[0] });
+    if (instant[0])   picks.push({ id: instant[0],   label: 'Groq: ' + instant[0]   });
+    if (!picks.length) throw new Error('no usable Groq models matched');
+
+    console.log('[Mobius] Groq cascade resolved:', picks.map(p => p.id).join(', '));
+    _groqCache = picks;
+    return picks;
+  } catch (err) {
+    console.warn('[Mobius] Groq /models fetch failed, using fallback:', err.message);
+    _groqCache = fallback;
+    return fallback;
+  }
+}
+
+async function resolveMistralCascade() {
+  if (_mistralCache) return _mistralCache;
+  // Use Mistral's "-latest" aliases (they always point at the newest stable).
+  // This only validates that these aliases are still in the live catalogue.
+  const preferred = [
+    { id: 'codestral-latest',     label: 'Mistral: Codestral' },
+    { id: 'mistral-small-latest', label: 'Mistral: Small'     },
+    { id: 'open-mistral-nemo',    label: 'Mistral: Nemo'      },
+  ];
+  try {
+    const r = await fetch('https://api.mistral.ai/v1/models', {
+      headers: { 'Authorization': 'Bearer ' + process.env.MISTRAL_API_KEY },
+      signal:  AbortSignal.timeout(5000)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const available = new Set((data.data || []).map(m => m.id));
+    const picks = preferred.filter(p => available.has(p.id));
+    if (!picks.length) throw new Error('none of preferred Mistral aliases available');
+    console.log('[Mobius] Mistral cascade resolved:', picks.map(p => p.id).join(', '));
+    _mistralCache = picks;
+    return picks;
+  } catch (err) {
+    console.warn('[Mobius] Mistral /models fetch failed, using fallback:', err.message);
+    _mistralCache = preferred;
+    return preferred;
+  }
+}
+
+async function resolveCerebrasCascade() {
+  if (_cerebrasCache) return _cerebrasCache;
+  const fallback = [
+    { id: 'llama3.3-70b', label: 'Cerebras Llama 3.3 70B' },
+    { id: 'llama3.1-8b',  label: 'Cerebras Llama 3.1 8B'  },
+  ];
+  try {
+    const r = await fetch('https://api.cerebras.ai/v1/models', {
+      headers: { 'Authorization': 'Bearer ' + process.env.CEREBRAS_API_KEY },
+      signal:  AbortSignal.timeout(5000)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const ids  = (data.data || []).map(m => m.id).filter(Boolean);
+
+    const big   = ids.filter(id => /llama.*70b/i.test(id)).sort().reverse();
+    const small = ids.filter(id => /llama.*8b/i.test(id)).sort().reverse();
+
+    const picks = [];
+    if (big[0])   picks.push({ id: big[0],   label: 'Cerebras: ' + big[0]   });
+    if (small[0]) picks.push({ id: small[0], label: 'Cerebras: ' + small[0] });
+    if (!picks.length) throw new Error('no usable Cerebras models matched');
+
+    console.log('[Mobius] Cerebras cascade resolved:', picks.map(p => p.id).join(', '));
+    _cerebrasCache = picks;
+    return picks;
+  } catch (err) {
+    console.warn('[Mobius] Cerebras /models fetch failed, using fallback:', err.message);
+    _cerebrasCache = fallback;
+    return fallback;
+  }
+}
+
+async function resolveGeminiCascadeModels() {
+  if (_geminiCascadeCache) return _geminiCascadeCache;
+  const fallback = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+  try {
+    const r = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=' + process.env.GEMINI_API_KEY,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const models = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => m.name.replace('models/', ''))
+      .filter(n => !/(image|tts|live|embed|robotics|computer-use|research)/i.test(n));
+
+    // Prefer newest flash (not lite/preview), then newest pro, then newest flash-preview
+    const flash        = models.filter(n => n.includes('flash') && !n.includes('lite') && !n.includes('preview')).sort().reverse();
+    const pro          = models.filter(n => n.includes('pro') && !n.includes('preview')).sort().reverse();
+    const flashPreview = models.filter(n => n.includes('flash') && n.includes('preview') && !n.includes('lite')).sort().reverse();
+
+    const picks = [flash[0], pro[0], flashPreview[0]].filter(Boolean).slice(0, 3);
+    if (!picks.length) throw new Error('no usable Gemini cascade models matched');
+
+    console.log('[Mobius] Gemini cascade resolved:', picks.join(', '));
+    _geminiCascadeCache = picks;
+    return picks;
+  } catch (err) {
+    console.warn('[Mobius] Gemini /models fetch failed, using fallback:', err.message);
+    _geminiCascadeCache = fallback;
+    return fallback;
+  }
+}
+
+async function resolveGroundingModel() {
+  if (_groundingCache) return _groundingCache;
+  const fallback = 'gemini-3-flash-preview';
+  try {
+    const r = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models?key=' + process.env.GEMINI_API_KEY,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const models = (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => m.name.replace('models/', ''))
+      .filter(n => n.includes('flash') && !/(lite|tts|image|embed|live)/i.test(n));
+
+    // Prefer Gemini 3.x flash (newest with grounding), then 2.5 flash
+    const gen3  = models.filter(n => /^gemini-3/.test(n)).sort().reverse();
+    const gen25 = models.filter(n => /^gemini-2\.5/.test(n)).sort().reverse();
+    const pick  = gen3[0] || gen25[0] || fallback;
+
+    console.log('[Mobius] Grounding model resolved:', pick);
+    _groundingCache = pick;
+    return pick;
+  } catch (err) {
+    console.warn('[Mobius] Grounding model resolution failed, using fallback:', err.message);
+    _groundingCache = fallback;
+    return fallback;
+  }
+}
+
 // ── Within-stable cascade functions ───────────────────────────────────────────
 
 async function askGroqCascade(messages) {
-  const models = [
-    { id: 'llama-3.3-70b-versatile', label: 'Groq: Llama 3.3 70B' },
-    { id: 'qwen-qwq-32b',            label: 'Groq: Qwen QwQ 32B'  },
-    { id: 'llama-3.1-8b-instant',    label: 'Groq: Llama 3.1 8B'  },
-  ];
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error('GROQ_API_KEY not configured.');
+  const models = await resolveGroqCascade();
   let lastErr;
   for (const m of models) {
     try {
@@ -384,16 +599,13 @@ async function askGroqCascade(messages) {
 async function askGeminiCascade(messages) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured.');
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  const models = await resolveGeminiCascadeModels();
   let lastErr;
   for (const model of models) {
     try {
       const contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-      const r = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents }) }
-      );
-      const data = await r.json();
+      const url  = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+      const data = await geminiPost(url, { contents });
       if (data.error) { lastErr = new Error(data.error.message); continue; }
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) { lastErr = new Error('empty response'); continue; }
@@ -406,11 +618,7 @@ async function askGeminiCascade(messages) {
 async function askMistralCascade(messages) {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error('MISTRAL_API_KEY not configured.');
-  const models = [
-    { id: 'codestral-latest',     label: 'Mistral: Codestral'  },
-    { id: 'mistral-small-latest', label: 'Mistral: Small'       },
-    { id: 'open-mistral-nemo',    label: 'Mistral: Nemo'        },
-  ];
+  const models = await resolveMistralCascade();
   let lastErr;
   for (const m of models) {
     try {
@@ -451,33 +659,27 @@ async function askGoogleSearch(query, numResults = 20) {
     'Research this question using up-to-date web sources, then answer it concisely (2-3 paragraphs). ' +
     'Cite the most authoritative sources available.\n\nQuestion: ' + query;
 
-  // Use gemini-3-flash-preview only. Do NOT fall back to gemini-2.5-flash --
-  // that shares a rate-limit pool with the Researcher Task AI and Critical Reviewer,
-  // which fire in parallel. Cascading onto 2.5-flash just multiplies quota pressure.
-  // If 3-flash-preview fails, return an explicit error and let the caller soft-fail.
-  const model = 'gemini-3-flash-preview';
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+  // Resolver picks the newest grounding-capable Flash model. Backoff wrapper handles
+  // transient 429s up to 2s (anything longer fails fast with a clear retry-in-Xs message).
+  const model = await resolveGroundingModel();
+  const url   = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
 
   let data;
   try {
-    const r = await fetch(url, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        tools:    [{ google_search: {} }]
-      }),
-      signal:  AbortSignal.timeout(20000)
-    });
-    data = await r.json();
+    data = await geminiPost(url, {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      tools:    [{ google_search: {} }]
+    }, 20000);
   } catch (err) {
     console.warn('[Mobius] Grounding fetch failed (' + model + '):', err.message);
     throw new Error(model + ' fetch: ' + err.message);
   }
 
   if (data.error) {
-    console.warn('[Mobius] Grounding API error (' + model + '):', data.error.message);
-    throw new Error(model + ': ' + data.error.message);
+    const retrySec = parseGeminiRetryDelay(data);
+    const suffix = retrySec ? ' (retry in ' + Math.ceil(retrySec) + 's)' : '';
+    console.warn('[Mobius] Grounding API error (' + model + '):', data.error.message + suffix);
+    throw new Error(model + ': ' + data.error.message + suffix);
   }
 
   const cand = data.candidates?.[0];
