@@ -57,17 +57,20 @@ module.exports = async function handler(req, res) {
       const timer = setTimeout(() => { if (!done) { done = true; resolveRace(); } }, 120000);
 
       TASK_AIS.forEach(ai => {
+        const t0 = Date.now();
         ai.call([{ role: 'user', content:
           ai.persona + '\n\n' + approved_prompt + sourceContext + '\n\nQuery: ' + query
         }])
           .then(result => {
             if (!result || (result.text || '').length < 20) return;
-            responses.push({ id: ai.id, label: ai.label, text: result.text, model: result.modelUsed || ai.id });
+            const ms = Date.now() - t0;
+            responses.push({ id: ai.id, label: ai.label, text: result.text, model: result.modelUsed || ai.id, ms });
             emit({
               type:  'ai_response',
               label: ai.label,
               model: result.modelUsed || ai.id,
-              text:  result.text.slice(0, 3000),
+              text:  result.text,
+              ms,
               count: responses.length,
               total: TASK_AIS.length
             });
@@ -108,7 +111,7 @@ module.exports = async function handler(req, res) {
 
     emit({
       type:       'complete',
-      answers:    responses.map(r => ({ label: r.label, model: r.model, text: r.text.slice(0, 3000) })),
+      answers:    responses.map(r => ({ label: r.label, model: r.model, text: r.text, ms: r.ms })),
       evaluation: evaluation
     });
 

@@ -107,12 +107,14 @@ function buildAnswersPanel(answers, inProgress) {
   html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">'
     + 'Task AI answers — ' + answers.length + ' received' + (inProgress ? ' (waiting for more…)' : '') + '</div>';
   answers.forEach((a, i) => {
-    const score = a.avgScore ? ' · ' + a.avgScore.toFixed(0) + '/100' : '';
+    const score  = a.avgScore ? ' · ' + a.avgScore.toFixed(0) + '/100' : '';
+    const timing = a.ms      ? ' · ' + (a.ms / 1000).toFixed(1) + 's' : '';
     html += '<div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);">';
     html += '<div style="font-size:11px;font-weight:bold;color:var(--text-dim);margin-bottom:4px;">'
       + (i + 1) + '. ' + (a.label || 'AI ' + (i+1))
       + '<span style="font-weight:normal;margin-left:6px;">[' + (a.model || '') + ']</span>'
-      + (score ? '<span style="color:var(--green);margin-left:4px;">' + score + '</span>' : '')
+      + (timing ? '<span style="color:var(--text-dim);margin-left:4px;">' + timing + '</span>' : '')
+      + (score  ? '<span style="color:var(--green);margin-left:4px;">' + score + '</span>' : '')
       + '</div>';
     html += '<div class="chat-answer" style="font-size:13px;">' + md(a.text || '') + '</div>';
     html += '</div>';
@@ -426,7 +428,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   }
 
   // Set model badge to show Brief AI during orchestration
-  if (window.updateModelBadge) window.updateModelBadge('gemini-2.5-flash (Brief AI)');
+  if (window.updateModelBadge) window.updateModelBadge('Conductor (Groq)');
 
   // Progress log box
   const logBox = document.createElement('div');
