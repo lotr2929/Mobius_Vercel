@@ -243,3 +243,59 @@ Replaced autonomous Gate 1/2 consensus loop with Boon-directed workflow.
 3. Review AI lineup and system prompts
 
 ---
+
+## Session 4 — Fri 25 Apr 2026
+
+**With:** Claude Desktop (Sonnet 4.6)
+**Status:** Deployed — protocol refinements, labelling, Conductor finalised
+
+### Changes
+
+**Protocol fixes (from live testing)**
+- Task AI response text: removed 3000-char truncation; full responses now transmitted
+- Evaluation scoring: Groq now primary scorer (was Gemini Lite); Mistral fallback added
+- Evaluation summary: Groq → Mistral fallback chain (Gemini fully removed from Conductor role)
+- Prompt synthesis: Groq → Mistral fallback chain
+
+**Conductor naming and routing**
+- The AI that synthesises prompts and evaluation summaries is now formally named the **Conductor**
+- Conductor runs on Groq (Llama 3.3 70B), falls back to Mistral (Codestral)
+- Gemini is now strictly Task AI only (Researcher AI and Critical Reviewer)
+- Header badge shows "Groq: Llama 3.3 70B" while orchestrator is running
+
+**Model label format**
+- All modelUsed labels now follow Stable: Model format throughout _ai.js:
+  - Groq: Llama 3.3 70B / Groq: Qwen QwQ 32B / Groq: Llama 3.1 8B
+  - Gemini: 2.5 Flash / Gemini: 2.0 Flash / Gemini: Flash-Lite
+  - Mistral: Codestral / Mistral: Small / Mistral: Nemo
+  - OpenRouter: Llama 3.3 70B / OpenRouter: Qwen 2.5 72B / etc.
+
+**OpenRouter fix**
+- status.js ping updated to use meta-llama/llama-3.3-70b-instruct:free with correct HTTP-Referer
+- connectivity.js display updated to "Llama 3.3 70B (free)"
+
+**Timing**
+- Task AI answer headers now show time taken per response (e.g. [Groq: Llama 3.3 70B] · 8.4s)
+- Prompt suggestion headers also show time taken
+
+**Evaluation summary format**
+- Sections: Key Points / Differences / Concerns / Overall
+- Each point annotated with [N/5 agree: names], VERIFY flags, CONFLICT flags
+- Rendered as HTML via markdownToHtml (no raw # or * symbols)
+
+### AI role summary (current)
+
+| Role | Model | Stable |
+|---|---|---|
+| Analyst AI | Llama 3.3 70B | Groq |
+| Researcher AI | Gemini 2.5 Flash | Gemini |
+| Technical AI | Codestral | Mistral |
+| Critical Reviewer | Flash-Lite | Gemini |
+| Synthesiser AI | Llama 3.3 70B (free) | OpenRouter |
+| Conductor | Llama 3.3 70B | Groq (Mistral fallback) |
+
+### Next session
+- Search integration: Firecrawl vs Tavily for Step 1 source discovery
+- Review AI lineup and Task AI system prompts (Boon has changes in mind)
+
+---
