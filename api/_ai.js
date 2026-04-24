@@ -110,7 +110,7 @@ async function askGeminiLite(messages) {
   if (!data.candidates?.[0]) throw new Error('No candidates from Gemini Flash-Lite');
   const text = data.candidates[0].content.parts[0].text;
   const usage = data.usageMetadata || {};
-  return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0, modelUsed: model };
+  return { text, tokensIn: usage.promptTokenCount || 0, tokensOut: usage.candidatesTokenCount || 0, modelUsed: 'Gemini: Flash-Lite' };
 }
 
 async function askMistral(messages) {
@@ -346,10 +346,10 @@ async function askOpenRouter(messages, model = 'meta-llama/llama-3.3-70b-instruc
 
 async function askOpenRouterCascade(messages) {
   const models = [
-    { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter Llama 3.3 70B' },
-    { id: 'qwen/qwen-2.5-72b-instruct:free',        label: 'OpenRouter Qwen 2.5 72B'  },
-    { id: 'mistralai/mistral-7b-instruct:free',     label: 'OpenRouter Mistral 7B'    },
-    { id: 'google/gemini-2.0-flash-exp:free',       label: 'OpenRouter Gemini 2.0'    },
+    { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter: Llama 3.3 70B' },
+    { id: 'qwen/qwen-2.5-72b-instruct:free',        label: 'OpenRouter: Qwen 2.5 72B'  },
+    { id: 'mistralai/mistral-7b-instruct:free',     label: 'OpenRouter: Mistral 7B'    },
+    { id: 'google/gemini-2.0-flash-exp:free',       label: 'OpenRouter: Gemini 2.0'    },
   ];
   let lastErr;
   for (const m of models) {
@@ -370,9 +370,9 @@ async function askOpenRouterCascade(messages) {
 
 async function askGroqCascade(messages) {
   const models = [
-    { id: 'llama-3.3-70b-versatile', label: 'Groq Llama 3.3 70B' },
-    { id: 'qwen-qwq-32b',            label: 'Groq Qwen-QwQ 32B'  },
-    { id: 'llama-3.1-8b-instant',    label: 'Groq Llama 3.1 8B'  },
+    { id: 'llama-3.3-70b-versatile', label: 'Groq: Llama 3.3 70B' },
+    { id: 'qwen-qwq-32b',            label: 'Groq: Qwen QwQ 32B'  },
+    { id: 'llama-3.1-8b-instant',    label: 'Groq: Llama 3.1 8B'  },
   ];
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error('GROQ_API_KEY not configured.');
@@ -409,7 +409,7 @@ async function askGeminiCascade(messages) {
       if (data.error) { lastErr = new Error(data.error.message); continue; }
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!text) { lastErr = new Error('empty response'); continue; }
-      return { text, modelUsed: 'Gemini ' + model.replace('gemini-', '').replace(/-/g, ' ') };
+      return { text, modelUsed: 'Gemini: ' + model.replace('gemini-', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) };
     } catch (e) { lastErr = e; console.warn('[Gemini cascade] ' + model + ' failed:', e.message); }
   }
   throw lastErr || new Error('All Gemini models failed');
@@ -419,9 +419,9 @@ async function askMistralCascade(messages) {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error('MISTRAL_API_KEY not configured.');
   const models = [
-    { id: 'codestral-latest',     label: 'Codestral'     },
-    { id: 'mistral-small-latest', label: 'Mistral Small' },
-    { id: 'open-mistral-nemo',    label: 'Mistral Nemo'  },
+    { id: 'codestral-latest',     label: 'Mistral: Codestral'  },
+    { id: 'mistral-small-latest', label: 'Mistral: Small'       },
+    { id: 'open-mistral-nemo',    label: 'Mistral: Nemo'        },
   ];
   let lastErr;
   for (const m of models) {
