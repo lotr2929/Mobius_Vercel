@@ -130,42 +130,118 @@ window.timestampStr   = timestampStr;
 })();
 
 // Greeting banner: shown on first load in User Mode when the chat panel is empty.
-// Picks a time-of-day appropriate opener from a short roster. Does NOT fire on
-// mode toggle mid-conversation or if the user has any prior chat entries.
+// Uses the chat-query class so it visually matches the format of a user's own
+// messages -- bold and prominent. Picks a time-appropriate opener from a roster
+// of friendly, conversational lines (never fires on mode toggle mid-conversation).
 (function initGreeting() {
   function install() {
     if (getMobiusMode() !== 'user') return;
     const panel = document.getElementById('chatPanel');
-    if (!panel || panel.children.length > 0) return;
+    if (!panel) return;
+    // Remove any startupPanel the connectivity script may have left behind
+    const leftover = document.getElementById('startupPanel');
+    if (leftover) leftover.remove();
+    if (panel.children.length > 0) return;
 
     const hour = new Date().getHours();
-    const timeGreeting =
-      hour < 5  ? 'Still up?'         :
-      hour < 12 ? 'Good morning.'     :
-      hour < 17 ? 'Good afternoon.'   :
-      hour < 22 ? 'Good evening.'     : 'Evening.';
-    const closers = [
-      'How can I help?',
-      'What would you like to know?',
-      'Ask me anything.',
-      'What can I help you with?',
-      "What's on your mind?"
-    ];
-    const msg = timeGreeting + ' ' + closers[Math.floor(Math.random() * closers.length)];
+    const bucket =
+      hour < 5  ? 'late'      :
+      hour < 12 ? 'morning'   :
+      hour < 17 ? 'afternoon' :
+      hour < 22 ? 'evening'   : 'late';
+
+    const greetings = {
+      morning: [
+        'Good morning. Ready when you are.',
+        "Morning. What's on your mind?",
+        'Good morning. Where shall we start?',
+        'Morning. What can I help you with?',
+        'Good morning. What would you like to look into?'
+      ],
+      afternoon: [
+        'Good afternoon. How can I help?',
+        'Good afternoon. What would you like to explore?',
+        "Afternoon. What's on your mind?",
+        'Hi there. What can I dig into for you?',
+        'Good afternoon. Ready when you are.'
+      ],
+      evening: [
+        'Good evening. What can I help you find?',
+        "Evening. What's on your mind?",
+        'Hi there. How can I help tonight?',
+        'Good evening. Where shall we start?',
+        'Good evening. Ready when you are.'
+      ],
+      late: [
+        'Still at it? Happy to help.',
+        "Burning the midnight oil? What's up?",
+        "Late night — what's on your mind?",
+        'Hi. What can I dig into for you?',
+        'Still going? What shall we look at?'
+      ]
+    };
+
+    const pool = greetings[bucket];
+    const msg  = pool[Math.floor(Math.random() * pool.length)];
 
     const entry = document.createElement('div');
-    entry.className = 'chat-entry html-content';
-    entry.style.cssText = 'opacity:0.95;';
-    entry.innerHTML =
-      '<div class="chat-answer" style="font-size:14px;color:var(--text);">' +
-        msg.replace(/</g, '&lt;') +
-      '</div>' +
-      '<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">' + timestampStr() + '</div>';
+    entry.className = 'chat-entry';
+
+    const greeting = document.createElement('div');
+    greeting.className = 'chat-query';
+    greeting.textContent = msg;
+    entry.appendChild(greeting);
+
+    const ts = document.createElement('div');
+    ts.style.cssText = 'font-size:10px;color:var(--text-dim);margin-top:2px;';
+    ts.textContent = timestampStr();
+    entry.appendChild(ts);
+
     panel.appendChild(entry);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install);
   else install();
 })();
+
+// Friendly, human thinking indicator for User Mode. Picks 3 random phrases
+// from the pool and rotates through them every 6 seconds while Mobius works.
+// Replaces the impersonal "⋯" ticker from Dev Mode.
+const USER_MODE_THINKING_PHRASES = [
+  'Let me think about this…',
+  'Looking into it…',
+  'Gathering my thoughts…',
+  'Reading through what I\'ve found…',
+  'Putting this together…',
+  'Just a moment…',
+  'Checking the details…',
+  'Working on it…',
+  'Digging in…',
+  'Sifting through the sources…',
+  'Weighing things up…',
+  'Almost there…'
+];
+
+function startUserModeTicker(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return null;
+  // Pick 3 distinct phrases and cycle through them
+  const shuffled = USER_MODE_THINKING_PHRASES.slice().sort(() => Math.random() - 0.5);
+  const queue    = shuffled.slice(0, 3);
+
+  const ticker = document.createElement('div');
+  ticker.style.cssText = 'font-size:13px;padding:8px 0 4px 0;color:var(--text-muted);font-style:italic;';
+  ticker.textContent = queue[0];
+  el.appendChild(ticker);
+
+  let idx = 0;
+  const id = setInterval(() => {
+    idx = (idx + 1) % queue.length;
+    ticker.textContent = queue[idx];
+    el.scrollIntoView({ block: 'nearest' });
+  }, 6000);
+
+  return { id, ticker };
+}
 
 // Render "Sources" block (top 5) + timestamp + thumbs rating under a User Mode answer.
 function renderUserModeMeta(container, selectedSources) {
@@ -636,7 +712,9 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   // ── STEP 1: Prompt suggestions + source discovery ──────────────────────────
   async function runStep1(feedback) {
     if (!userMode) log('Step 1 — generating prompt suggestions and searching for sources…');
-    const ticker = startTicker(pid, userMode ? '' : 'Task AIs rewriting prompt');
+    const ticker = userMode
+      ? startUserModeTicker(pid)
+      : startTicker(pid, 'Task AIs rewriting prompt');
     let data1;
     try {
       const res = await fetch('/orchestrate', {
@@ -704,9 +782,11 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
       window.panel.open('Task AI Answers', '<div style="padding:20px 14px;font-size:12px;color:var(--text-dim);">◌ Task AIs answering…</div>', 'html');
     }
 
-    // Thinking indicator: Dev Mode shows a labelled ticker, User Mode shows
-    // only a minimal pulsing "⋯" with no status text.
-    const ticker = startTicker(pid, userMode ? '' : 'Task AIs answering');
+    // Thinking indicator: Dev Mode shows a labelled "⋯ Task AIs answering (Ns)"
+    // ticker, User Mode cycles through 3 random friendly phrases every 6s.
+    const ticker = userMode
+      ? startUserModeTicker(pid)
+      : startTicker(pid, 'Task AIs answering');
     const panelAnswers = [];
 
     try {

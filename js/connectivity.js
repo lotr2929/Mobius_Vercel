@@ -13,6 +13,11 @@ const Connectivity = (() => {
         const chatPanel = document.getElementById('chatPanel');
         if (!chatPanel) return;
 
+        // User Mode: skip the startup diagnostics panel entirely. The greeting
+        // from orchestrator.js takes its place, giving a cleaner chat-first feel.
+        // Dev Mode still shows the full connectivity panel.
+        if (typeof window.getMobiusMode === 'function' && window.getMobiusMode() === 'user') return;
+
         // Always show minimal ready line when ping is disabled
         if (!PING_ENABLED) {
             const el = document.createElement('div');
