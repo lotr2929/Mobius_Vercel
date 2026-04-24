@@ -82,12 +82,19 @@ function buildSuggestionsPanel(suggestions) {
   let html = '<div style="padding:10px 14px;font-family:var(--font);">';
   html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">Task AI prompt suggestions — ' + suggestions.length + ' specialists</div>';
   suggestions.forEach((s, i) => {
+    const timing = s.ms ? ' · ' + (s.ms / 1000).toFixed(1) + 's' : '';
+    const failed = s.failed || !s.text;
     html += '<div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);">';
     html += '<div style="font-size:11px;font-weight:bold;color:var(--text-dim);margin-bottom:4px;">'
       + (i + 1) + '. ' + s.label
-      + '<span style="font-weight:normal;margin-left:6px;">[' + (s.model || s.id) + ']</span></div>';
-    html += '<div style="font-size:13px;color:var(--text);line-height:1.5;padding:6px 8px;background:var(--surface2);border-radius:3px;font-style:italic;">'
-      + (s.text || '').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+      + '<span style="font-weight:normal;margin-left:6px;">[' + (s.model || s.id) + ']</span>'
+      + (timing ? '<span style="color:var(--text-dim);margin-left:6px;">' + timing + '</span>' : '')
+      + (failed ? '<span style="color:var(--red);margin-left:6px;">no response</span>' : '')
+      + '</div>';
+    if (!failed) {
+      html += '<div style="font-size:13px;color:var(--text);line-height:1.5;padding:6px 8px;background:var(--surface2);border-radius:3px;font-style:italic;">'
+        + s.text.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+    }
     html += '</div>';
   });
   html += '</div>';
@@ -417,6 +424,9 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
     container.appendChild(qLabel);
     chatPanel.appendChild(container);
   }
+
+  // Set model badge to show Brief AI during orchestration
+  if (window.updateModelBadge) window.updateModelBadge('gemini-2.5-flash (Brief AI)');
 
   // Progress log box
   const logBox = document.createElement('div');

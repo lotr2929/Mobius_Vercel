@@ -87,19 +87,26 @@ async function generatePromptSuggestions(query, feedback = '') {
     ? '\n\nUser feedback on previous attempt: ' + feedback
     : '';
 
-  // Each AI rewrites the query as a precise prompt
+  // Each AI rewrites the query as a precise prompt; record time taken
   const rawResults = await Promise.allSettled(
-    TASK_AIS.map(ai => ai.call([{ role: 'user', content:
-      ai.persona + '\n\nRewrite the following query as a clear, precise, well-structured prompt that will get the best answer from an AI. Output ONLY the improved prompt. No preamble, no explanation.\n\nQuery: "' + query + '"' + feedbackNote
-    }]))
+    TASK_AIS.map(async ai => {
+      const t0 = Date.now();
+      const r  = await ai.call([{ role: 'user', content:
+        ai.persona + '\n\nRewrite the following query as a clear, precise, well-structured prompt that will get the best answer from an AI. Output ONLY the improved prompt. No preamble, no explanation.\n\nQuery: "' + query + '"' + feedbackNote
+      }]);
+      return { ...r, ms: Date.now() - t0 };
+    })
   );
 
+  // Keep all 5 slots; failed/empty AIs show as such
   const suggestions = rawResults.map((r, i) => ({
-    id:    TASK_AIS[i].id,
-    label: TASK_AIS[i].label,
-    model: r.status === 'fulfilled' ? (r.value.modelUsed || TASK_AIS[i].id) : 'failed',
-    text:  r.status === 'fulfilled' ? (r.value.text || '').trim() : ''
-  })).filter(s => s.text.length > 10);
+    id:     TASK_AIS[i].id,
+    label:  TASK_AIS[i].label,
+    model:  r.status === 'fulfilled' ? (r.value.modelUsed || TASK_AIS[i].id) : 'no response',
+    text:   r.status === 'fulfilled' ? (r.value.text || '').trim() : '',
+    ms:     r.status === 'fulfilled' ? (r.value.ms || null) : null,
+    failed: r.status !== 'fulfilled' || (r.value.text || '').trim().length < 10
+  }));
 
   // Brief AI synthesises one best prompt
   const synthInput = suggestions.map((s, i) =>
@@ -132,24 +139,30 @@ async function generatePromptSuggestions(query, feedback = '') {
 // }
 
 async function scoreOne(text, query) {
-  try {
-    const r = await askGeminiLite([{ role: 'user', content:
-      'Score this AI answer 0-100.\n\nQuery: "' + query + '"\n\nAnswer:\n' + text.slice(0, 2000) + '\n\n' +
-      'Score on 4 dimensions (each 0-25): accuracy, relevance, completeness, clarity.\n' +
-      'Respond ONLY with valid JSON, no markdown:\n{"accuracy":N,"relevance":N,"completeness":N,"clarity":N,"total":N,"note":"one sentence"}'
-    }]);
-    const parsed = JSON.parse((r.text || '').replace(/```json|```/g, '').trim());
-    return {
-      accuracy:     Math.min(25, Math.max(0, +parsed.accuracy     || 0)),
-      relevance:    Math.min(25, Math.max(0, +parsed.relevance    || 0)),
-      completeness: Math.min(25, Math.max(0, +parsed.completeness || 0)),
-      clarity:      Math.min(25, Math.max(0, +parsed.clarity      || 0)),
-      total:        Math.min(100, Math.max(0, +parsed.total       || 0)),
-      note:         parsed.note || ''
-    };
-  } catch {
-    return { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, note: 'eval failed' };
+  const prompt =
+    'Score this AI answer 0-100.\n\nQuery: "' + query + '"\n\nAnswer:\n' + text.slice(0, 2000) + '\n\n' +
+    'Score on 4 dimensions (each 0-25): accuracy, relevance, completeness, clarity.\n' +
+    'Respond ONLY with valid JSON, no markdown:\n{"accuracy":N,"relevance":N,"completeness":N,"clarity":N,"total":N,"note":"one sentence"}';
+
+  // Try Gemini Lite first, fall back to Groq
+  for (const askFn of [
+    () => askGeminiLite([{ role: 'user', content: prompt }]),
+    () => askGroqCascade([{ role: 'user', content: prompt }])
+  ]) {
+    try {
+      const r      = await askFn();
+      const parsed = JSON.parse((r.text || '').replace(/```json|```/g, '').trim());
+      return {
+        accuracy:     Math.min(25, Math.max(0, +parsed.accuracy     || 0)),
+        relevance:    Math.min(25, Math.max(0, +parsed.relevance    || 0)),
+        completeness: Math.min(25, Math.max(0, +parsed.completeness || 0)),
+        clarity:      Math.min(25, Math.max(0, +parsed.clarity      || 0)),
+        total:        Math.min(100, Math.max(0, +parsed.total       || 0)),
+        note:         parsed.note || ''
+      };
+    } catch { /* try next */ }
   }
+  return { accuracy: 15, relevance: 15, completeness: 15, clarity: 15, total: 60, note: 'eval failed' };
 }
 
 async function evaluateAnswers(query, answers) {
@@ -184,10 +197,13 @@ async function evaluateAnswers(query, answers) {
     'Be concise and substantive. Omit any section that has nothing to report.';
 
   let summary = 'Evaluation summary unavailable.';
-  try {
-    const r = await askGeminiCascade([{ role: 'user', content: summaryPrompt }]);
-    summary = r.text.trim();
-  } catch { /* use fallback */ }
+  for (const askFn of [
+    () => askGeminiCascade([{ role: 'user', content: summaryPrompt }]),
+    () => askGroqCascade([{ role: 'user', content: summaryPrompt }])
+  ]) {
+    try { const r = await askFn(); summary = r.text.trim(); break; }
+    catch { /* try next */ }
+  }
 
   return { scores, summary };
 }
