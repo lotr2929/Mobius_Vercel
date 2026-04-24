@@ -19,6 +19,7 @@
 
 const { TASK_AIS, evaluateAnswers, buildTaskPrompt, buildUserAnswer } = require('./_exec.js');
 const { logTaskResponses }                           = require('./orchestrate.js');
+const { supabase }                                   = require('./_supabase.js');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -145,6 +146,20 @@ module.exports = async function handler(req, res) {
     // Fire-and-forget: happens after 'complete' is emitted so the user sees results
     // immediately regardless of DB latency or failure.
     await logTaskResponses(query_id, 'execution', responses, evaluation);
+
+    // Persist the final User Mode synthesis to mobius_queries.final_answer so
+    // the complete exchange (query + final answer as the user saw it) lives in
+    // one row. Needed for the future user-profile summariser. Non-fatal.
+    if (query_id) {
+      try {
+        await supabase.from('mobius_queries').update({
+          final_answer: userAnswer || null,
+          final_status: 'success'
+        }).eq('query_id', query_id);
+      } catch (err) {
+        console.warn('[orchestrate-stream] final_answer persist failed:', err.message);
+      }
+    }
 
   } catch (err) {
     console.error('[orchestrate-stream]', err.message);

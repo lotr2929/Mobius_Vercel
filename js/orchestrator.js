@@ -111,7 +111,7 @@ window.timestampStr   = timestampStr;
       devSuffix = document.createElement('span');
       devSuffix.className = 'mode-dev-suffix';
       devSuffix.textContent = '[Dev]';
-      devSuffix.style.cssText = 'font-size:40%;vertical-align:top;opacity:0.7;margin-left:3px;font-weight:normal;';
+      devSuffix.style.cssText = 'font-size:40%;vertical-align:text-top;opacity:0.7;margin-left:3px;font-weight:normal;';
       h1.appendChild(devSuffix);
     }
 
@@ -273,13 +273,13 @@ function renderUserModeMeta(container, selectedSources) {
   metaRow.appendChild(ts);
 
   const rating = document.createElement('div');
-  rating.style.cssText = 'display:flex;gap:4px;';
+  rating.style.cssText = 'display:flex;gap:0;';
   let chosen = null;
   const mk = (emoji, vote, tip) => {
     const b = document.createElement('button');
     b.textContent = emoji;
     b.title = tip;
-    b.style.cssText = 'background:transparent;border:1px solid transparent;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:14px;line-height:1;transition:all 0.15s;';
+    b.style.cssText = 'background:transparent;border:1px solid transparent;border-radius:3px;padding:2px 4px;cursor:pointer;font-size:14px;line-height:1;transition:all 0.15s;';
     b.onmouseenter = () => { if (!chosen) b.style.background = 'var(--surface2)'; };
     b.onmouseleave = () => { if (!chosen) b.style.background = 'transparent'; };
     b.onclick = () => {
@@ -717,9 +717,26 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
       : startTicker(pid, 'Task AIs rewriting prompt');
     let data1;
     try {
+      // Pull last 5 Q&A pairs from the local chat store so the Task AIs can
+      // see what the user has been asking about. Separately flag the most
+      // recent response -- the new query often references that answer rather
+      // than just chaining off the previous question.
+      const chatHistory = (() => {
+        try {
+          const entries = JSON.parse(localStorage.getItem('mobius_chat') || '[]');
+          return entries.slice(-5).map(e => ({ q: e.query, a: e.response }));
+        } catch { return []; }
+      })();
+      const lastResponse = chatHistory.length ? chatHistory[chatHistory.length - 1].a : '';
       const res = await fetch('/orchestrate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step: 1, query, feedback: feedback || '', today: todayFormatted() })
+        body: JSON.stringify({
+          step: 1, query,
+          feedback: feedback || '',
+          today: todayFormatted(),
+          history: chatHistory,
+          last_response: lastResponse
+        })
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data1 = await res.json();

@@ -113,11 +113,36 @@ function raceAtLeast(namedPromises, min, timeoutMs = CONFIG.executionTimeout) {
 // Brief AI (Gemini) synthesises one combined prompt from all suggestions.
 // Returns: { suggestions: [{id, label, model, text}], synthesised: string }
 
-async function generatePromptSuggestions(query, feedback = '', userToday = null) {
+// Build a CONVERSATION CONTEXT block that Task AIs see when rewriting the
+// prompt. Includes the last 5 Q&A pairs from localStorage (client-supplied),
+// with the most recent one flagged so the AI weights it heavily -- the new
+// query may be referencing the last answer, not just chaining off the last
+// query. Per-entry char limits keep total context bounded.
+function buildHistoryBlock(history) {
+  if (!Array.isArray(history) || history.length === 0) return '';
+  const pairs = history.map((h, i) => {
+    const isLast = i === history.length - 1;
+    const aLimit = isLast ? 1500 : 500;
+    const tag    = isLast ? ' [MOST RECENT]' : '';
+    const q = String(h.q || '').slice(0, 400);
+    const a = String(h.a || '').slice(0, aLimit);
+    return 'Q' + (i + 1) + tag + ': ' + q + '\nA' + (i + 1) + tag + ': ' + a;
+  }).join('\n\n');
+  return '=== CONVERSATION CONTEXT ===\n' +
+    'The user has had the following exchanges with Mobius recently (oldest first). ' +
+    'IMPORTANT: the user\'s NEW query below may be referencing the MOST RECENT answer rather than ' +
+    'just chaining off their previous question. Consider the full exchange when forming sub-questions ' +
+    '-- do not assume continuity only from the last query.\n\n' +
+    pairs + '\n' +
+    '=== END CONVERSATION CONTEXT ===\n\n';
+}
+
+async function generatePromptSuggestions(query, feedback = '', userToday = null, history = [], lastResponse = '') {
   const today = resolveToday(userToday);
   const feedbackNote = feedback
     ? '\n\nUser feedback on previous attempt: ' + feedback
     : '';
+  const historyBlock = buildHistoryBlock(history);
 
   // Each AI decomposes the vague query into 4-5 specific sub-questions that can
   // be answered precisely from source material. Structured questions force
@@ -130,6 +155,7 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null)
       const r  = await ai.call([{ role: 'user', content:
         ai.persona + '\n\n' +
         'Today\'s date is ' + today + '.\n\n' +
+        historyBlock +
         'Convert the user\'s query below into a structured set of 4 to 5 clear, specific sub-questions ' +
         'that an AI can answer precisely using authoritative source material.\n\n' +
         'Each sub-question must be:\n' +
@@ -165,6 +191,7 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null)
   for (const askFn of [
     () => askGroqCascade([{ role: 'user', content:
       'You are the Conductor. Today\'s date is ' + today + '.\n\n' +
+      historyBlock +
       'Below are sub-question sets proposed by 5 AI specialists for the same user query. ' +
       'Synthesise them into ONE canonical set of 4 to 5 numbered sub-questions.\n\n' +
       'Original query: "' + query + '"\n\n' +
@@ -180,7 +207,9 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null)
       (feedback ? '\n\nUser feedback to incorporate: ' + feedback : '')
     }]),
     () => askMistralCascade([{ role: 'user', content:
-      'You are the Conductor. Today\'s date is ' + today + '. Synthesise these 5 specialist sub-question sets into ONE canonical set of 4 to 5 numbered sub-questions.\n\n' +
+      'You are the Conductor. Today\'s date is ' + today + '. ' +
+      historyBlock +
+      'Synthesise these 5 specialist sub-question sets into ONE canonical set of 4 to 5 numbered sub-questions.\n\n' +
       'Original query: "' + query + '"\n\nSpecialist sets:\n' + synthInput + '\n\n' +
       'Cover the strongest questions, collapse redundancy, keep each specific and self-contained. ' +
       'Use the actual date above, never placeholders like [Current Date/Time]. ' +

@@ -482,9 +482,22 @@
 
         /* ── Mobile ── */
         @media (max-width: 600px) {
+            html, body { font-size: 16px; }
             #header h1 { font-size: 22px; }
             #header img { height: 44px; width: 44px; }
-            #chatPanel { padding: 10px; }
+            #chatPanel { padding: 10px 10px 120px; }
+            #input { font-size: 17px; min-height: 80px; }
+            #headerClock { font-size: 12px; }
+            #modelBadge { font-size: 14px; }
+            .chat-query { font-size: 17px; }
+            .chat-ts { font-size: 12px; }
+            .chat-answer { font-size: 17px; line-height: 1.6; }
+            .chat-answer h1 { font-size: 22px; }
+            .chat-answer h2 { font-size: 19px; }
+            .chat-answer h3 { font-size: 17px; }
+            .chat-answer p, .chat-answer li { font-size: 17px; }
+            .resp-btn svg { width: 18px; height: 18px; }
+            .mq-block { font-size: 15px; }
         }
     </style>
 </head>

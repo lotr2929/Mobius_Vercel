@@ -10,7 +10,7 @@
 
 'use strict';
 
-const { askTavilySearch, askGoogleSearch }                         = require('./_ai.js');
+const { askTavilySearch, askGoogleSearch, askGeminiLite, askGroqCascade }   = require('./_ai.js');
 const { supabase }                                                 = require('./_supabase.js');
 const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers, buildTaskPrompt } = require('./_exec.js');
 
@@ -20,7 +20,66 @@ const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswer
 // Fallback: Gemini grounding (requires paid Gemini tier for reliable quota).
 // Returns { urls, answer, webChunks, searchQueries, searchEntryPoint, modelUsed }.
 // On failure returns the same shape with empty fields so callers never see undefined.
-async function discoverSources(query) {
+// ── Web search gate ───────────────────────────────────────────────────────────
+// Decides whether the query actually requires live web sources, or whether the
+// Task AIs can answer from training data + conversation context alone. A small
+// fast model (Gemini Lite, Groq fallback) returns strict JSON {needs_web, reason}.
+// Skip triggers: conversational replies, opinions, creative writing, pure code
+// questions, follow-ups that only reference the prior answer.
+// Fire triggers: current events, prices/stats, post-cutoff facts, named
+// entities whose status may have changed, "latest/recent/today/now".
+// Defaults to TRUE on any failure -- safer to over-search than under-inform.
+async function shouldSearchWeb(query, history, lastResponse) {
+  const recentContext = Array.isArray(history) && history.length
+    ? history.slice(-2).map(h => 'Q: ' + String(h.q || '').slice(0, 200)).join('\n')
+    : '(no prior context)';
+  const prompt =
+    'You are a router. Decide if this user query REQUIRES live web search or can ' +
+    'be answered from general knowledge + conversation context alone.\n\n' +
+    'Recent queries (for context):\n' + recentContext + '\n\n' +
+    'Last response excerpt:\n' + String(lastResponse || '(none)').slice(0, 600) + '\n\n' +
+    'NEW query: "' + query + '"\n\n' +
+    'Respond with strict JSON, no preamble, no markdown:\n' +
+    '{"needs_web": true|false, "reason": "<one short sentence>"}\n\n' +
+    'needs_web = TRUE for: current events, today\'s prices, latest news, sports ' +
+    'scores, named people/companies/products whose status may have changed, ' +
+    'facts that post-date early 2025, explicit recent dates.\n' +
+    'needs_web = FALSE for: conversational replies, opinions, creative writing, ' +
+    'pure code/algorithm questions, timeless concepts, follow-ups asking to ' +
+    'rephrase/expand/explain the PREVIOUS answer, clarifications.';
+
+  for (const askFn of [
+    () => askGeminiLite([{ role: 'user', content: prompt }]),
+    () => askGroqCascade([{ role: 'user', content: prompt }])
+  ]) {
+    try {
+      const r = await askFn();
+      const text = (r.text || '').trim();
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) {
+        const parsed = JSON.parse(m[0]);
+        if (typeof parsed.needs_web === 'boolean') {
+          console.log('[web-gate] needs_web=' + parsed.needs_web + ' -- ' + String(parsed.reason || '').slice(0, 100));
+          return parsed.needs_web;
+        }
+      }
+    } catch { /* try fallback */ }
+  }
+  console.warn('[web-gate] no decisive response, defaulting to needs_web=true');
+  return true;
+}
+
+async function discoverSources(query, history = [], lastResponse = '') {
+  // Gate: skip web search when the query doesn't warrant it (saves Tavily
+  // credits and avoids grounding irrelevant pages for conversational replies).
+  try {
+    const needsWeb = await shouldSearchWeb(query, history, lastResponse);
+    if (!needsWeb) {
+      return { urls: [], answer: '', webChunks: [], searchQueries: [], searchEntryPoint: '', modelUsed: 'skipped (gate)' };
+    }
+  } catch (gateErr) {
+    console.warn('[orchestrate] web-gate failed, defaulting to search:', gateErr.message);
+  }
   try {
     return await askTavilySearch(query, 20);
   } catch (tvErr) {
@@ -107,7 +166,7 @@ async function logTaskResponses(queryId, phase, responses, evaluation = null) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { step, query, feedback, approved_prompt, selected_sources, query_id, today } = req.body || {};
+  const { step, query, feedback, approved_prompt, selected_sources, query_id, today, history, last_response } = req.body || {};
   const userId = (req.headers.cookie || '').split(';').map(c => c.trim())
     .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
 
@@ -118,8 +177,8 @@ module.exports = async function handler(req, res) {
     const qId = await logQuery(userId, query);
     try {
       const [promptResult, grounding] = await Promise.all([
-        generatePromptSuggestions(query, feedback || '', today),
-        discoverSources(query)
+        generatePromptSuggestions(query, feedback || '', today, history || [], last_response || ''),
+        discoverSources(query, history || [], last_response || '')
       ]);
 
       // Persist the 5 prompt-rewrite suggestions for later review
