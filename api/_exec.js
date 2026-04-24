@@ -8,7 +8,6 @@ const {
   askGroqCascade, askGeminiCascade, askMistralCascade,
   askOpenRouterCascade, askGeminiLite
 } = require('./_ai.js');
-
 // ── Configuration ─────────────────────────────────────────────────────────────
 const CONFIG = {
   taskAICount:       5,
@@ -114,17 +113,23 @@ async function generatePromptSuggestions(query, feedback = '') {
   ).join('\n\n');
 
   let synthesised = suggestions.find(s => !s.failed)?.text || query;
-  try {
-    const r = await askGroqCascade([{ role: 'user', content:
+  for (const askFn of [
+    () => askGroqCascade([{ role: 'user', content:
       'You are the Conductor. Below are prompt suggestions from different AI specialists for the same user query.\n\n' +
       'Original query: "' + query + '"\n\n' +
       'Specialist suggestions:\n' + synthInput + '\n\n' +
       'Produce ONE synthesised prompt that combines the strongest elements from all suggestions. ' +
       'Output ONLY the final prompt. No preamble, no labels, no explanation.' +
       (feedback ? '\n\nUser feedback to incorporate: ' + feedback : '')
-    }]);
-    synthesised = r.text.trim();
-  } catch { /* keep first valid suggestion */ }
+    }]),
+    () => askMistralCascade([{ role: 'user', content:
+      'You are the Conductor. Produce ONE synthesised prompt combining the strongest elements from these specialist suggestions.\n\n' +
+      'Original query: "' + query + '"\n\nSuggestions:\n' + synthInput + '\n\nOutput ONLY the final prompt.'
+    }])
+  ]) {
+    try { const r = await askFn(); synthesised = r.text.trim(); break; }
+    catch { /* try next */ }
+  }
 
   return { suggestions, synthesised };
 }
@@ -144,10 +149,10 @@ async function scoreOne(text, query) {
     'Score on 4 dimensions (each 0-25): accuracy, relevance, completeness, clarity.\n' +
     'Respond ONLY with valid JSON, no markdown:\n{"accuracy":N,"relevance":N,"completeness":N,"clarity":N,"total":N,"note":"one sentence"}';
 
-  // Conductor (Groq) scores, Gemini Lite as fallback
+  // Conductor: Groq → Mistral fallback
   for (const askFn of [
     () => askGroqCascade([{ role: 'user', content: prompt }]),
-    () => askGeminiLite([{ role: 'user', content: prompt }])
+    () => askMistralCascade([{ role: 'user', content: prompt }])
   ]) {
     try {
       const r      = await askFn();
@@ -196,11 +201,11 @@ async function evaluateAnswers(query, answers) {
     '- One sentence consensus statement.\n\n' +
     'Be concise and substantive. Omit any section that has nothing to report.';
 
-  // Conductor (Groq) generates summary, Gemini as fallback
+  // Conductor: Groq → Mistral fallback
   let summary = 'Evaluation summary unavailable.';
   for (const askFn of [
     () => askGroqCascade([{ role: 'user', content: summaryPrompt }]),
-    () => askGeminiCascade([{ role: 'user', content: summaryPrompt }])
+    () => askMistralCascade([{ role: 'user', content: summaryPrompt }])
   ]) {
     try { const r = await askFn(); summary = r.text.trim(); break; }
     catch { /* try next */ }

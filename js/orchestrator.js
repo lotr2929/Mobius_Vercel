@@ -428,7 +428,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   }
 
   // Set model badge to show Brief AI during orchestration
-  if (window.updateModelBadge) window.updateModelBadge('Conductor (Groq)');
+  if (window.updateModelBadge) window.updateModelBadge('Groq: Llama 3.3 70B');
 
   // Progress log box
   const logBox = document.createElement('div');
