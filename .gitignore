@@ -2,6 +2,7 @@
 .env*.local
 .aider*
 node_modules
+.tmp.driveupload/
 documents/
 *.zip
 backups/

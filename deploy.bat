@@ -1,108 +1,93 @@
 @echo off
 cd /d "%~dp0"
-echo ========================================
-echo  Mobius Deployment
-echo ========================================
-echo.
 
-echo [Checking for changes...]
-for /f %%C in ('git status --short ^| find /c /v ""') do set CHANGE_COUNT=%%C
-git status --short
-echo.
+REM ============================================================
+REM Generic deploy.bat - drops into any Vercel-deployed repo
+REM Requires deploy.env: VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID,
+REM                      PROJECT_NAME, DEPLOY_URL, optional SW_PREFIX
+REM Requires _dev\poll_vercel.ps1
+REM ============================================================
 
-if "%CHANGE_COUNT%"=="0" (
-    echo Nothing to deploy. Working tree is clean.
-    echo.
+REM -- Pre-flight: Google Drive sync conflict check
+if exist ".tmp.driveupload\*" (
+    echo Google Drive is mid-sync. Wait ~30s and retry.
     pause
-    exit /b 0
+    exit /b 1
 )
-echo %CHANGE_COUNT% change(s) detected. Deploying...
 
-echo [Cache] Bumping service worker version...
-powershell -NoProfile -Command ^
-  "$f='service-worker.js';" ^
-  "$c=[System.IO.File]::ReadAllText($f);" ^
-  "$m=[regex]::Match($c,'mobius-v(\d+)');" ^
-  "if($m.Success){$n=[int]$m.Groups[1].Value+1;$c=$c-replace'mobius-v\d+',('mobius-v'+$n);[System.IO.File]::WriteAllText($f,$c);Write-Host('  service-worker.js: mobius-v'+$n)}else{Write-Host'  WARNING: version pattern not found in service-worker.js'}"
-echo.
-
-git add -A 2>nul
-
-REM Auto-generate commit message: 3Apr26 11:05am - [N] file1 file2 ...
-powershell -NoProfile -Command ^
-  "$d=Get-Date;" ^
-  "$date=[string]$d.Day+$d.ToString('MMM')+$d.ToString('yy');" ^
-  "$time=$d.ToString('h:mmtt').ToLower();" ^
-  "$staged=@(& git diff --cached --name-only 2>$null);" ^
-  "$n=$staged.Count;" ^
-  "$prefix=\"$date $time - [$n] \";" ^
-  "$limit=80-$prefix.Length;" ^
-  "$names='';" ^
-  "foreach($f in $staged){$add=if($names){', '+$f}else{$f}; if(($names+$add).Length -le $limit){$names+=$add}else{break}};" ^
-  "$msg=$prefix+$names;" ^
-  "[System.IO.File]::WriteAllText('_tmp_msg.txt', $msg, [System.Text.UTF8Encoding]::new($false))"
-set /p MSG=<_tmp_msg.txt
-del _tmp_msg.txt
-echo.
-
-powershell -NoProfile -Command "Write-Host '[2/3] Committing: %MSG%' -ForegroundColor Green"
-git commit -m "%MSG%"
-if %ERRORLEVEL% NEQ 0 (
-    echo Nothing to commit or commit failed. Checking if push is still needed...
-    git status --short
-)
-echo.
-
-echo [3/3] Pushing to GitHub...
-
-REM Load Vercel credentials from deploy.env
+REM -- Load deploy.env
 if not exist deploy.env (
-    echo ERROR: deploy.env not found.
+    echo deploy.env missing.
     pause
-    goto :end
+    exit /b 1
 )
 for /f "usebackq tokens=1,* delims==" %%A in ("deploy.env") do (
     if "%%A"=="VERCEL_TOKEN"      set VERCEL_TOKEN=%%B
     if "%%A"=="VERCEL_PROJECT_ID" set VERCEL_PROJECT_ID=%%B
     if "%%A"=="VERCEL_TEAM_ID"    set VERCEL_TEAM_ID=%%B
+    if "%%A"=="PROJECT_NAME"      set PROJECT_NAME=%%B
+    if "%%A"=="DEPLOY_URL"        set DEPLOY_URL=%%B
+    if "%%A"=="SW_PREFIX"         set SW_PREFIX=%%B
+)
+if not defined PROJECT_NAME set PROJECT_NAME=project
+
+echo === %PROJECT_NAME% Deploy ===
+
+REM -- Bump service-worker version (only if SW_PREFIX set and file exists)
+if defined SW_PREFIX if exist service-worker.js (
+    powershell -NoProfile -Command "$f='service-worker.js';$c=[IO.File]::ReadAllText($f);$m=[regex]::Match($c,'%SW_PREFIX%(\d+)');if($m.Success){$n=[int]$m.Groups[1].Value+1;$c=$c -replace '%SW_PREFIX%\d+',('%SW_PREFIX%'+$n);[IO.File]::WriteAllText($f,$c);Write-Host('SW -> %SW_PREFIX%'+$n)}"
 )
 
-REM Capture baseline uid BEFORE push
-for /f "usebackq" %%U in (`powershell -NoProfile -Command "(Invoke-RestMethod 'https://api.vercel.com/v6/deployments?projectId=%VERCEL_PROJECT_ID%&teamId=%VERCEL_TEAM_ID%&limit=1' -Headers @{Authorization='Bearer %VERCEL_TOKEN%'}).deployments[0].uid"`) do set BASELINE_UID=%%U
-echo Baseline: %BASELINE_UID%
-git push -q origin main
-echo.
+REM -- Stage all changes
+git add -A 2>nul
 
+REM -- Bail to push if nothing to commit
+git diff-index --quiet HEAD
+if %errorlevel% equ 0 (
+    echo No changes. Pushing current HEAD.
+    goto :push
+)
+
+REM -- Auto commit message: 26Apr26 9:55pm - [N] file1, file2, file3, file4...
+powershell -NoProfile -Command "$d=Get-Date;$p=([string]$d.Day+$d.ToString('MMM')+$d.ToString('yy'))+' '+$d.ToString('h:mmtt').ToLower();$s=@(& git diff --cached --name-only);$n=$s.Count;$names=($s | ForEach-Object { Split-Path $_ -Leaf } | Select-Object -First 4) -join ', ';$tail=if($n -gt 4){'...'}else{''};[IO.File]::WriteAllText('_msg.tmp', \"$p - [$n] $names$tail\", [Text.UTF8Encoding]::new($false))"
+set /p MSG=<_msg.tmp
+del _msg.tmp 2>nul
+
+echo Commit: %MSG%
+git commit -q -m "%MSG%"
 if %ERRORLEVEL% NEQ 0 (
-    echo ========================================
-    echo  ERROR: Push failed. Check the output above.
-    echo ========================================
+    echo Commit failed.
     pause
-    goto :end
+    exit /b 1
 )
 
-echo.
-echo Polling Vercel...
-echo.
-
-powershell -NoProfile -File _dev\poll_vercel.ps1 -BaselineUid "%BASELINE_UID%"
-
+:push
+echo Pulling...
+git pull --rebase --quiet origin main
 if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo ========================================
-    echo  Deployment failed or timed out.
-    echo  Check: https://vercel.com/lotr2929-7612s-projects/mobius
-    echo ========================================
-) else (
-    echo.
-    echo ========================================
-    echo  Deployment verified.
-    echo  URL: https://mobius-pwa.vercel.app
-    echo ========================================
+    echo Pull failed. Resolve conflicts and retry.
+    pause
+    exit /b 1
 )
 
-goto :end
+REM -- Capture baseline deployment uid before push
+for /f "usebackq" %%U in (`powershell -NoProfile -Command "(Invoke-RestMethod 'https://api.vercel.com/v6/deployments?projectId=%VERCEL_PROJECT_ID%&teamId=%VERCEL_TEAM_ID%&limit=1' -Headers @{Authorization='Bearer %VERCEL_TOKEN%'}).deployments[0].uid"`) do set BASELINE_UID=%%U
 
-:end
-echo.
+echo Pushing...
+git push -q origin main
+if %ERRORLEVEL% NEQ 0 (
+    echo Push failed.
+    pause
+    exit /b 1
+)
+
+echo Polling Vercel...
+powershell -NoProfile -File _dev\poll_vercel.ps1 -BaselineUid "%BASELINE_UID%"
+if %ERRORLEVEL% NEQ 0 (
+    echo Deploy failed or timed out.
+    pause
+    exit /b 1
+)
+
+if defined DEPLOY_URL (echo Live: %DEPLOY_URL%) else (echo Done.)
 pause
