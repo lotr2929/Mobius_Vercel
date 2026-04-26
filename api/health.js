@@ -3,17 +3,17 @@ module.exports = async function handler(req, res) {
   let supabaseDetail = '';
 
   try {
-    const url = process.env.SUPABASE_URL + '/rest/v1/conversations?select=id&limit=1';
+    const url = process.env.MOBIUS_SUPABASE_URL + '/rest/v1/conversations?select=id&limit=1';
 
     // Log what we're actually fetching
-    console.log('[health] SUPABASE_URL:', JSON.stringify(process.env.SUPABASE_URL));
-    console.log('[health] SUPABASE_KEY length:', process.env.SUPABASE_KEY?.length);
+    console.log('[health] MOBIUS_SUPABASE_URL:', JSON.stringify(process.env.MOBIUS_SUPABASE_URL));
+    console.log('[health] MOBIUS_SUPABASE_PUBLISHABLE_KEY length:', process.env.MOBIUS_SUPABASE_PUBLISHABLE_KEY?.length);
     console.log('[health] Fetching:', url);
 
     const r = await fetch(url, {
       headers: {
-        apikey: process.env.SUPABASE_KEY,
-        Authorization: 'Bearer ' + process.env.SUPABASE_KEY
+        apikey: process.env.MOBIUS_SUPABASE_PUBLISHABLE_KEY,
+        Authorization: 'Bearer ' + process.env.MOBIUS_SUPABASE_PUBLISHABLE_KEY
       },
       signal: AbortSignal.timeout(6000)
     });

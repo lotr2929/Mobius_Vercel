@@ -1,6 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const supabase = createClient(process.env.MOBIUS_SUPABASE_URL, process.env.MOBIUS_SUPABASE_PUBLISHABLE_KEY);
 
 async function saveConversation(userId, query, reply, modelUsed, topic, sessionId, meta) {
   try {
