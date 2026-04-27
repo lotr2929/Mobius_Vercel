@@ -31,7 +31,11 @@ for /f "usebackq tokens=1,* delims==" %%A in ("deploy.env") do (
 )
 if not defined PROJECT_NAME set PROJECT_NAME=project
 
-echo === %PROJECT_NAME% Deploy ===
+echo. 
+echo ==============================================================
+echo                    Mobius PWA Deploying... 
+echo ==============================================================
+echo. 
 
 REM -- Bump service-worker version (only if SW_PREFIX set and file exists)
 if defined SW_PREFIX if exist service-worker.js (
@@ -53,7 +57,7 @@ powershell -NoProfile -Command "$d=Get-Date;$p=([string]$d.Day+$d.ToString('MMM'
 set /p MSG=<_msg.tmp
 del _msg.tmp 2>nul
 
-echo Commit: %MSG%
+powershell -NoProfile -Command "Write-Host 'Commit: %MSG%' -ForegroundColor Green"
 git commit -q -m "%MSG%"
 if %ERRORLEVEL% NEQ 0 (
     echo Commit failed.
@@ -89,5 +93,10 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-if defined DEPLOY_URL (echo Live: %DEPLOY_URL%) else (echo Done.)
+echo.
+if defined DEPLOY_URL (
+    powershell -NoProfile -Command "Write-Host 'Live: ' -NoNewline; Write-Host ('%DEPLOY_URL%')-ForegroundColor Green"
+) else (
+    echo Done.
+)
 pause
