@@ -81,7 +81,7 @@ async function discoverSources(query, history = [], lastResponse = '') {
     console.warn('[orchestrate] web-gate failed, defaulting to search:', gateErr.message);
   }
   try {
-    return await askTavilySearch(query, 20);
+    return await askTavilySearch(query, 25);
   } catch (tvErr) {
     console.warn('[orchestrate] Tavily search failed:', tvErr.message);
   }
@@ -176,10 +176,8 @@ module.exports = async function handler(req, res) {
   if (!step || step === 1) {
     const qId = await logQuery(userId, query);
     try {
-      const [promptResult, grounding] = await Promise.all([
-        generatePromptSuggestions(query, feedback || '', today, history || [], last_response || ''),
-        discoverSources(query, history || [], last_response || '')
-      ]);
+      const promptResult = await generatePromptSuggestions(query, feedback || '', today, history || [], last_response || '');
+      const grounding    = await discoverSources(promptResult.synthesised || query, history || [], last_response || '');
 
       // Persist the 5 prompt-rewrite suggestions for later review
       await logTaskResponses(qId, 'suggestion', promptResult.suggestions || []);

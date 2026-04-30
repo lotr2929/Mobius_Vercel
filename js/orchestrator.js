@@ -47,7 +47,7 @@ function startTicker(pid, phase) {
 
 function stopTicker(h) {
   if (!h) return;
-  clearInterval(h.id);
+  if (h.id) clearInterval(h.id);
   if (h.ticker && h.ticker.parentNode) h.ticker.remove();
 }
 
@@ -221,26 +221,24 @@ const USER_MODE_THINKING_PHRASES = [
   'Almost there…'
 ];
 
-function startUserModeTicker(elId) {
+// Also update stopTicker to handle null id (User Mode ticker has no interval).
+
+function startUserModeTicker(elId, initialMsg = 'Thinking about your question…') {
   const el = document.getElementById(elId);
   if (!el) return null;
-  // Pick 3 distinct phrases and cycle through them
-  const shuffled = USER_MODE_THINKING_PHRASES.slice().sort(() => Math.random() - 0.5);
-  const queue    = shuffled.slice(0, 3);
 
-  const ticker = document.createElement('div');
-  ticker.style.cssText = 'font-size:13px;padding:8px 0 4px 0;color:var(--text-muted);font-style:italic;';
-  ticker.textContent = queue[0];
-  el.appendChild(ticker);
+  const tickerEl = document.createElement('div');
+  tickerEl.style.cssText = 'font-size:13px;padding:8px 0 4px 0;color:var(--text-muted);font-style:italic;';
+  tickerEl.textContent = initialMsg;
+  el.appendChild(tickerEl);
 
-  let idx = 0;
-  const id = setInterval(() => {
-    idx = (idx + 1) % queue.length;
-    ticker.textContent = queue[idx];
+  // update() is called by SSE status events to reflect real pipeline progress
+  const update = (msg) => {
+    tickerEl.textContent = msg;
     el.scrollIntoView({ block: 'nearest' });
-  }, 6000);
+  };
 
-  return { id, ticker };
+  return { id: null, ticker: tickerEl, update };
 }
 
 // Render "Sources" block (top 5) + timestamp + thumbs rating under a User Mode answer.
@@ -710,7 +708,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   if (!userMode && window.panel) window.panel.open('Mobius — Task AI Suggestions', '<div style="padding:20px 14px;font-size:12px;color:var(--text-dim);">◌ Generating prompt suggestions…</div>', 'html');
 
   // ── STEP 1: Prompt suggestions + source discovery ──────────────────────────
-  async function runStep1(feedback) {
+  async function runStep1(feedback, cycle = 0) {
     if (!userMode) log('Step 1 — generating prompt suggestions and searching for sources…');
     const ticker = userMode
       ? startUserModeTicker(pid)
@@ -724,7 +722,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
       const chatHistory = (() => {
         try {
           const entries = JSON.parse(localStorage.getItem('mobius_chat') || '[]');
-          return entries.slice(-5).map(e => ({ q: e.query, a: e.response }));
+          return entries.slice(-20).map(e => ({ q: e.query, a: e.response }));
         } catch { return []; }
       })();
       const lastResponse = chatHistory.length ? chatHistory[chatHistory.length - 1].a : '';
@@ -745,10 +743,18 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
       log(userMode ? 'Something went wrong.' : ('Step 1 error: ' + err.message), 'err');
       return;
     }
-    stopTicker(ticker);
 
     const suggestions = data1.suggestions || [];
     const sources     = data1.sources     || [];
+
+    // User Mode: briefly show what was found before transitioning to Step 2
+    if (userMode && ticker && ticker.update) {
+      ticker.update(sources.length > 0
+        ? 'Found ' + sources.length + ' sources — reading them…'
+        : 'Checking what I know…');
+      await new Promise(r => setTimeout(r, 600));
+    }
+    stopTicker(ticker);
 
     if (!userMode) {
       log(suggestions.length + ' prompt suggestions received', 'ok');
@@ -763,8 +769,8 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
 
     // User Mode: auto-pass ALL available sources (up to 20) to Task AIs, auto-approve prompt, proceed silently
     if (userMode) {
-      const autoSources = sources.slice(0, 20);
-      return runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources);
+      const autoSources = sources.slice(0, 25);
+      return runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources, cycle);
     }
 
     // Dev Mode: show source card → prompt approval card
@@ -791,18 +797,15 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   }
 
   // ── STEP 2: Execution + evaluation ────────────────────────────────────────
-  async function runStep2(queryId, approvedPrompt, selectedSources) {
+  async function runStep2(queryId, approvedPrompt, selectedSources, cycle = 0) {
     if (!userMode) log('Step 2 — firing 5 Task AIs…');
 
-    // Right panel: reset to "answers" mode with placeholder (Dev Mode only)
     if (!userMode && window.panel) {
       window.panel.open('Task AI Answers', '<div style="padding:20px 14px;font-size:12px;color:var(--text-dim);">◌ Task AIs answering…</div>', 'html');
     }
 
-    // Thinking indicator: Dev Mode shows a labelled "⋯ Task AIs answering (Ns)"
-    // ticker, User Mode cycles through 3 random friendly phrases every 6s.
     const ticker = userMode
-      ? startUserModeTicker(pid)
+      ? startUserModeTicker(pid, 'Working on your answer…')
       : startTicker(pid, 'Task AIs answering');
     const panelAnswers = [];
 
@@ -813,10 +816,31 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
           approved_prompt: approvedPrompt,
           selected_sources: selectedSources,
           today: todayFormatted(),
-          mode:  userMode ? 'user' : 'dev'
+          mode:  userMode ? 'user' : 'dev',
+          cycle
         },
         (event) => {
           switch (event.type) {
+            case 'status':
+              if (userMode && ticker && ticker.update) {
+                ticker.update(event.message);
+              } else if (!userMode) {
+                log(event.message, 'info');
+              }
+              break;
+
+            case 'retry':
+              stopTicker(ticker);
+              if (userMode) {
+                const feedback = event.revised_prompt
+                  ? 'Improve on this: ' + event.revised_prompt
+                  : 'Previous attempt insufficient — try broader sub-questions.';
+                runStep1(feedback, event.cycle || 1);
+              } else {
+                log('Quality gate: retry suggested (' + (event.reason || '') + ')', 'warn');
+              }
+              break;
+
             case 'start':
               if (!userMode) log(event.message, 'info');
               break;

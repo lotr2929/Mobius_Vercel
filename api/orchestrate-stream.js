@@ -17,7 +17,7 @@
 
 'use strict';
 
-const { TASK_AIS, evaluateAnswers, buildTaskPrompt, buildUserAnswer } = require('./_exec.js');
+const { TASK_AIS, evaluateAnswers, buildTaskPrompt, buildUserAnswer, conductorQualityGate } = require('./_exec.js');
 const { logTaskResponses }                           = require('./orchestrate.js');
 const { supabase }                                   = require('./_supabase.js');
 
@@ -35,7 +35,7 @@ module.exports = async function handler(req, res) {
     if (!res.writableEnded) res.write('data: ' + JSON.stringify(data) + '\n\n');
   }
 
-  const { query, query_id, approved_prompt, selected_sources, today, mode } = req.body || {};
+  const { query, query_id, approved_prompt, selected_sources, today, mode, cycle = 0 } = req.body || {};
   if (!query || !approved_prompt) {
     emit({ type: 'error', message: 'Missing query or approved_prompt' });
     return res.end();
@@ -57,6 +57,7 @@ module.exports = async function handler(req, res) {
     + (today ? ', today=' + today : ''));
 
   try {
+    emit({ type: 'status', message: 'Working on your answer…' });
     emit({ type: 'start', message: 'Firing ' + TASK_AIS.length + ' Task AIs with approved prompt...' });
 
     const responses = [];
@@ -111,6 +112,7 @@ module.exports = async function handler(req, res) {
       count:   responses.length,
       message: responses.length + ' of ' + TASK_AIS.length + ' Task AIs responded'
     });
+    emit({ type: 'status', message: 'Reviewing what I found…' });
 
     // Evaluate all responses and generate annotated summary
     emit({ type: 'eval_start', message: 'Evaluating responses...' });
@@ -120,6 +122,21 @@ module.exports = async function handler(req, res) {
     );
 
     emit({ type: 'summary', scores: evaluation.scores, summary: evaluation.summary });
+
+    // Quality gate: Conductor decides if the answer meets the bar.
+    // Only active in User Mode and only if we haven't already retried twice.
+    // Dev Mode: always proceeds -- Boon decides manually via the eval card.
+    if (mode === 'user' && cycle < 2) {
+      const gate = await conductorQualityGate(query, evaluation);
+      console.log('[orchestrate-stream] quality gate cycle=' + cycle + ':', gate.pass ? 'PASS' : 'FAIL', '--', gate.reason);
+      if (!gate.pass) {
+        emit({ type: 'status', message: 'Not satisfied yet — digging deeper…' });
+        emit({ type: 'retry', reason: gate.reason, revised_prompt: gate.revised_prompt, cycle: cycle + 1 });
+        return res.end();
+      }
+    }
+
+    emit({ type: 'status', message: 'Putting it together…' });
 
     // User Mode: produce a clean prose synthesis (no AI-agreement annotations,
     // no dev-style "Key Points / Differences / Concerns" structure). This adds

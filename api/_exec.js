@@ -113,27 +113,66 @@ function raceAtLeast(namedPromises, min, timeoutMs = CONFIG.executionTimeout) {
 // Brief AI (Gemini) synthesises one combined prompt from all suggestions.
 // Returns: { suggestions: [{id, label, model, text}], synthesised: string }
 
-// Build a CONVERSATION CONTEXT block that Task AIs see when rewriting the
-// prompt. Includes the last 5 Q&A pairs from localStorage (client-supplied),
-// with the most recent one flagged so the AI weights it heavily -- the new
-// query may be referencing the last answer, not just chaining off the last
-// query. Per-entry char limits keep total context bounded.
-function buildHistoryBlock(history) {
+// Build conversation context for Task AIs.
+// ≤5 entries: formatted verbatim (oldest first, MOST RECENT flagged).
+// >5 entries:  Conductor (Groq→Mistral) summarises all entries into one compact
+//              paragraph so the prompt stays within context-window limits.
+//              The most recent exchange is always appended verbatim for full fidelity.
+async function buildHistoryContext(history) {
   if (!Array.isArray(history) || history.length === 0) return '';
-  const pairs = history.map((h, i) => {
-    const isLast = i === history.length - 1;
-    const aLimit = isLast ? 1500 : 500;
-    const tag    = isLast ? ' [MOST RECENT]' : '';
-    const q = String(h.q || '').slice(0, 400);
-    const a = String(h.a || '').slice(0, aLimit);
-    return 'Q' + (i + 1) + tag + ': ' + q + '\nA' + (i + 1) + tag + ': ' + a;
+
+  if (history.length <= 5) {
+    const pairs = history.map((h, i) => {
+      const isLast = i === history.length - 1;
+      const aLimit = isLast ? 1500 : 500;
+      const tag    = isLast ? ' [MOST RECENT]' : '';
+      const q = String(h.q || '').slice(0, 400);
+      const a = String(h.a || '').slice(0, aLimit);
+      return 'Q' + (i + 1) + tag + ': ' + q + '\nA' + (i + 1) + tag + ': ' + a;
+    }).join('\n\n');
+    return '=== CONVERSATION CONTEXT ===\n' +
+      'The user has had the following exchanges with Mobius recently (oldest first). ' +
+      'IMPORTANT: the user\'s NEW query below may be referencing the MOST RECENT answer rather than ' +
+      'just chaining off their previous question. Consider the full exchange when forming sub-questions ' +
+      '-- do not assume continuity only from the last query.\n\n' +
+      pairs + '\n' +
+      '=== END CONVERSATION CONTEXT ===\n\n';
+  }
+
+  // >5 entries: Conductor summarises
+  const allPairs = history.map((h, i) => {
+    const q = String(h.q || '').slice(0, 300);
+    const a = String(h.a || '').slice(0, 600);
+    return 'Q' + (i + 1) + ': ' + q + '\nA' + (i + 1) + ': ' + a;
   }).join('\n\n');
+
+  const last = history[history.length - 1];
+  const lastQ = String(last.q || '').slice(0, 400);
+  const lastA = String(last.a || '').slice(0, 1500);
+
+  let summary = '';
+  const summaryPrompt =
+    'You are the Conductor. Summarise the following chat history into one concise paragraph ' +
+    '(max 150 words) capturing the key topics, decisions, and evolving focus. ' +
+    'This paragraph will be shown to AI specialists so they understand the conversation background.\n\n' +
+    'Chat history:\n' + allPairs + '\n\n' +
+    'Respond with ONLY the summary paragraph. No preamble, no labels.';
+
+  for (const askFn of [
+    () => askGroqCascade([{ role: 'user', content: summaryPrompt }]),
+    () => askMistralCascade([{ role: 'user', content: summaryPrompt }])
+  ]) {
+    try { const r = await askFn(); summary = (r.text || '').trim(); if (summary) break; }
+    catch { /* try next */ }
+  }
+
+  // Fallback: could not summarise -- show last 5 verbatim
+  if (!summary) return buildHistoryContext(history.slice(-5));
+
   return '=== CONVERSATION CONTEXT ===\n' +
-    'The user has had the following exchanges with Mobius recently (oldest first). ' +
-    'IMPORTANT: the user\'s NEW query below may be referencing the MOST RECENT answer rather than ' +
-    'just chaining off their previous question. Consider the full exchange when forming sub-questions ' +
-    '-- do not assume continuity only from the last query.\n\n' +
-    pairs + '\n' +
+    'Summary of prior conversation:\n' + summary + '\n\n' +
+    'Most recent exchange [MOST RECENT]:\n' +
+    'Q: ' + lastQ + '\nA: ' + lastA + '\n' +
     '=== END CONVERSATION CONTEXT ===\n\n';
 }
 
@@ -142,7 +181,7 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null,
   const feedbackNote = feedback
     ? '\n\nUser feedback on previous attempt: ' + feedback
     : '';
-  const historyBlock = buildHistoryBlock(history);
+  const historyBlock = await buildHistoryContext(history);
 
   // Each AI decomposes the vague query into 4-5 specific sub-questions that can
   // be answered precisely from source material. Structured questions force
@@ -370,7 +409,66 @@ function buildTaskPrompt(persona, approvedPrompt, query, selectedSources, userTo
     'Original user query (for reference): "' + query + '"';
 }
 
-module.exports = { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers, buildTaskPrompt, buildUserAnswer, resolveToday };
+module.exports = { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers, buildTaskPrompt, buildUserAnswer, conductorQualityGate, resolveToday };
+
+// ── Conductor quality gate ────────────────────────────────────────────────────
+// Reviews evaluation scores + summary and decides if the answer is good enough.
+// Fast-path: clearly good (avg>=75, 0 flags) or clearly bad (avg<40) skip LLM.
+// Middle range: Conductor (Groq->Mistral) makes the call and suggests revised
+// sub-questions if failing. Called from orchestrate-stream.js after evaluateAnswers().
+// Returns { pass, reason, revised_prompt? }
+async function conductorQualityGate(query, evaluation) {
+  const scores   = evaluation.scores || [];
+  const summary  = evaluation.summary || '';
+  const avg      = scores.length
+    ? Math.round(scores.reduce((s, e) => s + (e.score?.total || 0), 0) / scores.length)
+    : 0;
+  const flagCount = (summary.match(/⚡\s*CONFLICT|⚠\s*VERIFY/g) || []).length;
+
+  if (avg >= 75 && flagCount === 0)
+    return { pass: true, reason: 'Avg ' + avg + '/100, no flags' };
+  if (avg < 40)
+    return { pass: false, reason: 'Avg score too low (' + avg + '/100)', revised_prompt: null };
+
+  const scoresText = scores.map(s => (s.label || '') + ': ' + (s.score?.total || 0) + '/100').join(', ');
+  const prompt =
+    'You are the Conductor evaluating answer quality.\n\n' +
+    'Query: "' + query + '"\n' +
+    'Scores: ' + scoresText + '\nAverage: ' + avg + '/100\n' +
+    'CONFLICT/VERIFY flags in summary: ' + flagCount + '\n\n' +
+    'Summary excerpt:\n' + summary.slice(0, 600) + '\n\n' +
+    'Decide if this answer quality is sufficient to present to the user.\n' +
+    'Pass if: average >= 65, no major factual CONFLICTS, answers address the query.\n' +
+    'Fail if: average < 55, significant CONFLICT flags, or answers clearly miss the query.\n\n' +
+    'If failing, provide revised sub-questions that would produce better answers.\n\n' +
+    'Respond ONLY with valid JSON, no markdown:\n' +
+    '{"pass":true,"reason":"one sentence","revised_prompt":null}\n' +
+    'or\n' +
+    '{"pass":false,"reason":"one sentence","revised_prompt":"revised sub-questions here"}';
+
+  for (const askFn of [
+    () => askGroqCascade([{ role: 'user', content: prompt }]),
+    () => askMistralCascade([{ role: 'user', content: prompt }])
+  ]) {
+    try {
+      const r      = await askFn();
+      const parsed = JSON.parse((r.text || '').replace(/```json|```/g, '').trim());
+      if (typeof parsed.pass === 'boolean') {
+        return {
+          pass:           parsed.pass,
+          reason:         String(parsed.reason || '').slice(0, 200),
+          revised_prompt: parsed.revised_prompt || null
+        };
+      }
+    } catch { /* try next */ }
+  }
+  // Fallback: threshold only
+  return {
+    pass:           avg >= 65 && flagCount <= 3,
+    reason:         'Conductor eval failed; threshold avg=' + avg + ' flags=' + flagCount,
+    revised_prompt: null
+  };
+}
 
 // ── User Mode synthesis ──────────────────────────────────────────────────────
 // Produces ONE cohesive prose answer from the 5 Task AI responses. Unlike the
@@ -400,7 +498,7 @@ async function buildUserAnswer(query, approvedPrompt, selectedSources, answers, 
     "INSTRUCTIONS:\n" +
     "1. Write ONE continuous, natural answer. Use headings only if the topic genuinely needs them -- prefer flowing prose.\n" +
     "2. NEVER mention that multiple AIs or specialists were consulted. NEVER use annotations like [3/3 agree], [AI 1 said], or specialist names.\n" +
-    "3. Where a specific fact comes from a source, cite the URL inline in parentheses, e.g. (https://example.com). Be concise with citations.\n" +
+    "3. Where a specific fact comes from a source, cite it using a square-bracket number only, e.g. [2], matching the numbered source list below. Do NOT write full URLs inline.\n" +
     "4. If findings conflict, state the uncertainty in plain language without naming who said what.\n" +
     "5. If the sources were thin on a particular point, say so briefly. Do not pad with generic commentary or training-data speculation.\n" +
     "6. Write as a knowledgeable human would -- natural tone, clear structure, no meta-commentary.\n" +

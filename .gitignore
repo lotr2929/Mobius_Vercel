@@ -14,5 +14,5 @@ mobius.json
 deploy.env
 _context/brief_plan.json
 _context/*.sql
-
+zip.bat
 .vercel
