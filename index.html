@@ -958,22 +958,23 @@ async function handleAsk() {
     const { entry, outputEl, outputFn } = runCommandInPanel(text);
     const detected = window.detectCommand ? window.detectCommand(text) : null;
 
+    let response = null;
     if (detected && window.COMMANDS && window.COMMANDS[detected.command]) {
-        await window.COMMANDS[detected.command].handler(detected.args, outputFn, outputEl);
+        response = await window.COMMANDS[detected.command].handler(detected.args, outputFn, outputEl);
         if (window.getLastModel) updateModelBadge(window.getLastModel());
         _linkEntryToPanel(entry);
-        saveChatEntry(tsLine.textContent, text, outputEl.textContent);
+        saveChatEntry(tsLine.textContent, text, response || outputEl.textContent);
         return;
     }
 
     if (window.sendToLastModel) {
-        await window.sendToLastModel(text, outputFn, outputEl);
+        response = await window.sendToLastModel(text, outputFn, outputEl);
         if (window.getLastModel) updateModelBadge(window.getLastModel());
     } else {
         outputFn('Error: AI not loaded yet.');
     }
     _linkEntryToPanel(entry);
-    saveChatEntry(tsLine.textContent, text, outputEl.textContent);
+    saveChatEntry(tsLine.textContent, text, response || outputEl.textContent);
 }
 
 // ── _linkEntryToPanel ────────────────────────────────────────────────────────
@@ -992,7 +993,14 @@ function _linkEntryToPanel(entry) {
 
 // ── newChat ───────────────────────────────────────────────────────────────────
 
-
+window.newChat = function() {
+    localStorage.removeItem('mobius_chat');
+    sessionStorage.removeItem('coder_last_model');
+    const panel = document.getElementById('chatPanel');
+    if (panel) panel.innerHTML = '';
+    if (window.panel) window.panel.close();
+    console.log('[Mobius] Chat cleared.');
+};
 // ── Apply code block to project file ─────────────────────────────────────────
 window.applyCodeToFile = async function(filePath, btn) {
     const root = window.getRootHandle ? window.getRootHandle() : null;
@@ -1191,8 +1199,9 @@ document.addEventListener('DOMContentLoaded', () => {
 <script src="js/orchestrator.js"></script>
 <script src="js/panel.js"></script>
 <script src="js/connectivity.js"></script>
-<!-- deferred (not loaded -- archived in _archive/coder_modules): -->
-<!-- memory.js, brief.js, chat.js available in js/ if needed later -->
+<script src="js/memory.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/brief.js"></script>
 
 <script>
     // Expose Supabase URL for connectivity check (anon key only — safe to expose)

@@ -31,7 +31,7 @@ const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswer
 // Defaults to TRUE on any failure -- safer to over-search than under-inform.
 async function shouldSearchWeb(query, history, lastResponse) {
   const recentContext = Array.isArray(history) && history.length
-    ? history.slice(-2).map(h => 'Q: ' + String(h.q || '').slice(0, 200)).join('\n')
+    ? history.slice(-2).map(h => 'User: ' + String(h.q || '').slice(0, 200) + '\nMobius: ' + String(h.a || '').slice(0, 400)).join('\n\n')
     : '(no prior context)';
   const prompt =
     'You are a router. Decide if this user query REQUIRES live web search or can ' +
@@ -98,13 +98,13 @@ async function discoverSources(query, history = [], lastResponse = '') {
 // Race: proceed when raceMin respond; wait full timeout for the rest.
 // Prompt-building logic is shared with orchestrate-stream.js via buildTaskPrompt
 // in _exec.js -- keep them in sync by editing that single function.
-async function runExecution(query, approvedPrompt, selectedSources, today) {
+async function runExecution(query, approvedPrompt, selectedSources, today, relevantHistory = '') {
   const results = await raceAtLeast(
     TASK_AIS.map(ai => ({
       id:      ai.id,
       label:   ai.label,
       promise: ai.call([{ role: 'user',
-        content: buildTaskPrompt(ai.persona, approvedPrompt, query, selectedSources, today)
+        content: buildTaskPrompt(ai.persona, approvedPrompt, query, selectedSources, today, relevantHistory)
       }])
     })),
     CONFIG.raceMin
@@ -166,7 +166,7 @@ async function logTaskResponses(queryId, phase, responses, evaluation = null) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { step, query, feedback, approved_prompt, selected_sources, query_id, today, history, last_response } = req.body || {};
+  const { step, query, feedback, approved_prompt, selected_sources, query_id, today, history, last_response, relevant_history } = req.body || {};
   const userId = (req.headers.cookie || '').split(';').map(c => c.trim())
     .find(c => c.startsWith('mobius_user_id='))?.split('=')[1] || req.body?.userId || null;
 
@@ -186,6 +186,7 @@ module.exports = async function handler(req, res) {
         query_id:           qId,
         suggestions:        promptResult.suggestions,
         synthesised_prompt: promptResult.synthesised,
+        relevant_history:   promptResult.relevant_history,
         sources:            grounding.urls,           // array, back-compat with client
         grounding: {                                  // new -- richer grounding payload
           modelUsed:         grounding.modelUsed,
@@ -205,7 +206,7 @@ module.exports = async function handler(req, res) {
   if (step === 2) {
     if (!approved_prompt) return res.status(400).json({ error: 'approved_prompt required' });
     try {
-      const answers    = await runExecution(query, approved_prompt, selected_sources || [], today);
+      const answers    = await runExecution(query, approved_prompt, selected_sources || [], today, relevant_history);
       const evaluation = await evaluateAnswers(query, answers);
 
       // Persist the 5 Task AI answers with their evaluation scores

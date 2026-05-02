@@ -276,8 +276,10 @@ async function sendToAI(model, messages, output, outputEl, options = {}) {
     lastCloudQuery    = { query: messages[messages.length - 1].content, messages };
     lastCloudModelKey = model;
     setLastModel(model);
+    return reply;
   } catch (err) {
     output('Error: ' + err.message);
+    return null;
   }
 }
 
@@ -411,11 +413,10 @@ window.sendToLastModel = async function (text, output, outputEl) {
   if (window.runOrchestrator) {
     const query = text.replace(/^Orch:\s*/i, '').trim();
     const chatPanel = document.getElementById('chatPanel');
-    await window.runOrchestrator(query, chatPanel, outputEl);
-    return;
+    return await window.runOrchestrator(query, chatPanel, outputEl);
   }
 
   // Fallback if orchestrator not loaded
   const messages = [{ role: 'user', content: text }];
-  await sendToAI(getLastModel() || 'gemini-lite', messages, output, outputEl);
+  return await sendToAI(getLastModel() || 'gemini-lite', messages, output, outputEl);
 };

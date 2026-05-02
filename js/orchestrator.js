@@ -97,15 +97,29 @@ window.timestampStr   = timestampStr;
     const oldBtn = document.getElementById('mobius-mode-toggle');
     if (oldBtn) oldBtn.remove();
 
-    const h1 = document.querySelector('#header h1');
-    if (!h1) {
-      console.warn('[Mobius] #header h1 not found -- Mode toggle will not render');
+    // Wrap logo + h1 in a clickable container if not already done
+    let logoTitle = document.getElementById('logoTitle');
+    if (!logoTitle) {
+      const header = document.getElementById('header');
+      const img    = header?.querySelector('img');
+      const h1     = header?.querySelector('h1');
+      if (header && img && h1) {
+        logoTitle = document.createElement('div');
+        logoTitle.id = 'logoTitle';
+        logoTitle.style.cssText = 'display:flex;align-items:center;gap:4px;cursor:pointer;';
+        logoTitle.title = 'Click to switch between User (simple) and Dev (full pipeline) modes';
+        img.parentNode.insertBefore(logoTitle, img);
+        logoTitle.appendChild(img);
+        logoTitle.appendChild(h1);
+      }
+    }
+
+    if (!logoTitle) {
+      console.warn('[Mobius] Logo/Title container not found -- Mode toggle will not render');
       return;
     }
 
-    h1.style.cursor = 'pointer';
-    h1.title = 'Click to switch between User (simple chat) and Dev (full pipeline) modes';
-
+    const h1 = logoTitle.querySelector('h1');
     let devSuffix = h1.querySelector('.mode-dev-suffix');
     if (!devSuffix) {
       devSuffix = document.createElement('span');
@@ -119,7 +133,7 @@ window.timestampStr   = timestampStr;
       devSuffix.style.display = (getMobiusMode() === 'dev') ? 'inline' : 'none';
     };
 
-    h1.onclick = () => {
+    logoTitle.onclick = () => {
       setMobiusMode(getMobiusMode() === 'user' ? 'dev' : 'user');
       render();
     };
@@ -741,11 +755,12 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
     } catch (err) {
       stopTicker(ticker);
       log(userMode ? 'Something went wrong.' : ('Step 1 error: ' + err.message), 'err');
-      return;
+      return null;
     }
 
-    const suggestions = data1.suggestions || [];
-    const sources     = data1.sources     || [];
+    const suggestions     = data1.suggestions || [];
+    const sources         = data1.sources     || [];
+    const relevantHistory = data1.relevant_history || '';
 
     // User Mode: briefly show what was found before transitioning to Step 2
     if (userMode && ticker && ticker.update) {
@@ -770,7 +785,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
     // User Mode: auto-pass ALL available sources (up to 20) to Task AIs, auto-approve prompt, proceed silently
     if (userMode) {
       const autoSources = sources.slice(0, 25);
-      return runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources, cycle);
+      return await runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources, cycle, relevantHistory);
     }
 
     // Dev Mode: show source card → prompt approval card
@@ -782,10 +797,10 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
         const promptCard = buildPromptApprovalCard(data1.synthesised_prompt || query, async (decision) => {
           if (decision.action === 'redo') {
             log('Redoing prompt suggestions with your feedback…', 'warn');
-            resolve(runStep1(decision.feedback));
+            resolve(await runStep1(decision.feedback));
           } else {
             log('Prompt approved. Executing with ' + selectedSources.length + ' source(s).', 'ok');
-            resolve(runStep2(data1.query_id, decision.prompt, selectedSources));
+            resolve(await runStep2(data1.query_id, decision.prompt, selectedSources, 0, relevantHistory));
           }
         });
         container.appendChild(promptCard);
@@ -797,7 +812,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   }
 
   // ── STEP 2: Execution + evaluation ────────────────────────────────────────
-  async function runStep2(queryId, approvedPrompt, selectedSources, cycle = 0) {
+  async function runStep2(queryId, approvedPrompt, selectedSources, cycle = 0, relevantHistory = '') {
     if (!userMode) log('Step 2 — firing 5 Task AIs…');
 
     if (!userMode && window.panel) {
@@ -809,17 +824,18 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
       : startTicker(pid, 'Task AIs answering');
     const panelAnswers = [];
 
-    try {
-      await streamStep2(
+    return new Promise((resolve, reject) => {
+      streamStep2(
         {
           query, query_id: queryId,
           approved_prompt: approvedPrompt,
           selected_sources: selectedSources,
           today: todayFormatted(),
           mode:  userMode ? 'user' : 'dev',
-          cycle
+          cycle,
+          relevant_history: relevantHistory
         },
-        (event) => {
+        async (event) => {
           switch (event.type) {
             case 'status':
               if (userMode && ticker && ticker.update) {
@@ -835,7 +851,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
                 const feedback = event.revised_prompt
                   ? 'Improve on this: ' + event.revised_prompt
                   : 'Previous attempt insufficient — try broader sub-questions.';
-                runStep1(feedback, event.cycle || 1);
+                resolve(await runStep1(feedback, event.cycle || 1));
               } else {
                 log('Quality gate: retry suggested (' + (event.reason || '') + ')', 'warn');
               }
@@ -874,12 +890,12 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
 
             case 'complete': {
               stopTicker(ticker);
+              const answerText = event.user_answer || event.evaluation?.summary || 'No answer available.';
 
               if (userMode) {
                 // User Mode: render the clean prose synthesis (user_answer).
                 // Fall back to evaluation.summary only if server failed to produce user_answer.
                 const md = window.markdownToHtml || (t => '<div style="white-space:pre-wrap">' + String(t).replace(/</g, '&lt;') + '</div>');
-                const answerText = event.user_answer || event.evaluation?.summary || 'No answer available.';
 
                 const answerEl = document.createElement('div');
                 answerEl.className = 'chat-answer html-content';
@@ -891,6 +907,8 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
                 renderUserModeMeta(container, selectedSources);
 
                 chatPanel.scrollTop = chatPanel.scrollHeight;
+                if (window.autoExtractMemory) window.autoExtractMemory(query, answerText);
+                resolve(answerText);
               } else {
                 // Dev Mode: populate right panel + show eval card with Accept/Redo
                 if (window.panel && event.answers) {
@@ -903,12 +921,14 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
                   event.evaluation?.summary || 'No summary available.',
                   event.evaluation?.scores  || [],
                   approvedPrompt,
-                  (decision) => {
+                  async (decision) => {
                     if (decision.action === 'redo') {
                       log('Rerunning with edited prompt…', 'warn');
-                      runStep2(queryId, decision.prompt, selectedSources);
+                      resolve(await runStep2(queryId, decision.prompt, selectedSources, 0, relevantHistory));
                     } else {
                       log('Accepted. Submit a new query when ready.', 'ok');
+                      if (window.autoExtractMemory) window.autoExtractMemory(query, answerText);
+                      resolve(answerText);
                     }
                   }
                 );
@@ -921,20 +941,23 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
             case 'error':
               stopTicker(ticker);
               log(userMode ? 'Something went wrong.' : ('Error: ' + event.message), 'err');
+              resolve(null);
               break;
           }
         }
-      );
-    } catch (err) {
-      stopTicker(ticker);
-      log(userMode ? 'Something went wrong.' : ('Step 2 error: ' + err.message), 'err');
-    }
+      ).catch(err => {
+        stopTicker(ticker);
+        log(userMode ? 'Something went wrong.' : ('Stream error: ' + err.message), 'err');
+        resolve(null);
+      });
+    });
   }
 
   // ── Kick off ───────────────────────────────────────────────────────────────
   try {
-    await runStep1('');
+    return await runStep1('');
   } catch (err) {
     log('Orchestration error: ' + err.message, 'err');
+    return null;
   }
 };

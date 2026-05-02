@@ -128,7 +128,7 @@ async function buildHistoryContext(history) {
       const tag    = isLast ? ' [MOST RECENT]' : '';
       const q = String(h.q || '').slice(0, 400);
       const a = String(h.a || '').slice(0, aLimit);
-      return 'Q' + (i + 1) + tag + ': ' + q + '\nA' + (i + 1) + tag + ': ' + a;
+      return 'User' + (i + 1) + tag + ': ' + q + '\nMobius' + (i + 1) + tag + ': ' + a;
     }).join('\n\n');
     return '=== CONVERSATION CONTEXT ===\n' +
       'The user has had the following exchanges with Mobius recently (oldest first). ' +
@@ -143,7 +143,7 @@ async function buildHistoryContext(history) {
   const allPairs = history.map((h, i) => {
     const q = String(h.q || '').slice(0, 300);
     const a = String(h.a || '').slice(0, 600);
-    return 'Q' + (i + 1) + ': ' + q + '\nA' + (i + 1) + ': ' + a;
+    return 'User' + (i + 1) + ': ' + q + '\nMobius' + (i + 1) + ': ' + a;
   }).join('\n\n');
 
   const last = history[history.length - 1];
@@ -172,7 +172,7 @@ async function buildHistoryContext(history) {
   return '=== CONVERSATION CONTEXT ===\n' +
     'Summary of prior conversation:\n' + summary + '\n\n' +
     'Most recent exchange [MOST RECENT]:\n' +
-    'Q: ' + lastQ + '\nA: ' + lastA + '\n' +
+    'User: ' + lastQ + '\nMobius: ' + lastA + '\n' +
     '=== END CONVERSATION CONTEXT ===\n\n';
 }
 
@@ -197,14 +197,17 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null,
         historyBlock +
         'Convert the user\'s query below into a structured set of 4 to 5 clear, specific sub-questions ' +
         'that an AI can answer precisely using authoritative source material.\n\n' +
-        'Each sub-question must be:\n' +
+        'CRITICAL - RESOLVE ALL AMBIGUITY:\n' +
+        '  - Replace every pronoun (it, they, he, she, that) with the actual entity being discussed in the history.\n' +
+        '  - Replace every contextual reference (the previous one, the second point, that model, "your list", "the list you gave") with the specific names from the history.\n' +
+        '  - Remember: You are assisting Mobius. If the user refers to "your list", they mean the list Mobius provided in the previous response.\n' +
+        '  - The resulting questions must be completely self-contained and understandable to an AI that has NOT seen the conversation history.\n\n' +
+        'Each sub-question must also be:\n' +
         '  - Specific enough to elicit a concrete, factual answer (not vague commentary)\n' +
         '  - Answerable from current web sources\n' +
-        '  - Self-contained (can be understood and answered on its own)\n' +
-        '  - Non-redundant with the others (no two questions ask the same thing)\n' +
-        '  - If the question involves "today", "current", "now", or "this week", use the actual date above -- do NOT write placeholders like [Current Date/Time], [today], or [as of today].\n\n' +
-        'Output ONLY the numbered sub-questions, one per line. Nothing else -- no preamble, ' +
-        'no explanation, no headers, no summary.\n\n' +
+        '  - Non-redundant with the others\n' +
+        '  - Use the actual date above -- do NOT write placeholders like [Current Date/Time].\n\n' +
+        'Output ONLY the numbered sub-questions, one per line. Nothing else.\n\n' +
         'Query: "' + query + '"' + feedbackNote
       }]);
       return { ...r, ms: Date.now() - t0 };
@@ -227,42 +230,40 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null,
   ).join('\n\n');
 
   let synthesised = suggestions.find(s => !s.failed)?.text || query;
+  let relevantHistory = '';
+
+  const conductorPrompt =
+    'You are the Conductor. Today\'s date is ' + today + '.\n\n' +
+    historyBlock +
+    'Below are sub-question sets proposed by 5 AI specialists for the same user query.\n\n' +
+    'Original query: "' + query + '"\n\n' +
+    'Specialist proposals:\n' + synthInput + '\n\n' +
+    'Your task:\n' +
+    '1. Synthesise the proposals into ONE canonical set of 4 to 5 numbered sub-questions. Ensure they are specific, self-contained, and resolve all history references (it, that, previous, your list, etc) into concrete entity names.\n' +
+    '2. Extract a "Relevant Context" block (max 150 words) capturing only the facts and decisions from the chat history that are directly pertinent to answering the new query. Explicitly include any names or lists the user is referring to.\n\n' +
+    'Respond ONLY with valid JSON in this format:\n' +
+    '{"synthesised": "1. Question...\\n2. Question...", "relevant_history": "The user previously established..."}';
+
   for (const askFn of [
-    () => askGroqCascade([{ role: 'user', content:
-      'You are the Conductor. Today\'s date is ' + today + '.\n\n' +
-      historyBlock +
-      'Below are sub-question sets proposed by 5 AI specialists for the same user query. ' +
-      'Synthesise them into ONE canonical set of 4 to 5 numbered sub-questions.\n\n' +
-      'Original query: "' + query + '"\n\n' +
-      'Specialist sub-question sets:\n' + synthInput + '\n\n' +
-      'The synthesised set must:\n' +
-      '  - Cover the strongest and most important questions across all specialists\n' +
-      '  - Collapse overlapping or redundant questions into single, clearer ones\n' +
-      '  - Keep each question specific, answerable from source material, and self-contained\n' +
-      '  - Contain 4 or 5 questions total -- not more, not fewer\n' +
-      '  - Use the actual date "' + today + '" wherever the question references "today", "current", or "now". Do NOT emit placeholders like [Current Date/Time], [today], or [Date].\n\n' +
-      'Output ONLY the numbered sub-questions, one per line. Nothing else -- no preamble, ' +
-      'no labels, no explanation, no summary.' +
-      (feedback ? '\n\nUser feedback to incorporate: ' + feedback : '')
-    }]),
-    () => askMistralCascade([{ role: 'user', content:
-      'You are the Conductor. Today\'s date is ' + today + '. ' +
-      historyBlock +
-      'Synthesise these 5 specialist sub-question sets into ONE canonical set of 4 to 5 numbered sub-questions.\n\n' +
-      'Original query: "' + query + '"\n\nSpecialist sets:\n' + synthInput + '\n\n' +
-      'Cover the strongest questions, collapse redundancy, keep each specific and self-contained. ' +
-      'Use the actual date above, never placeholders like [Current Date/Time]. ' +
-      'Output ONLY the numbered sub-questions, nothing else.'
-    }])
+    () => askGroqCascade([{ role: 'user', content: conductorPrompt }]),
+    () => askMistralCascade([{ role: 'user', content: conductorPrompt }])
   ]) {
-    try { const r = await askFn(); synthesised = r.text.trim(); break; }
-    catch { /* try next */ }
+    try {
+      const r = await askFn();
+      const clean = (r.text || '').replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(clean);
+      if (parsed.synthesised) {
+        synthesised     = parsed.synthesised.trim();
+        relevantHistory = parsed.relevant_history || '';
+        break;
+      }
+    } catch { /* try next */ }
   }
 
   // Regex safety net: replace any remaining [Current Date/Time]-style placeholders
   synthesised = scrubDatePlaceholders(synthesised, today);
 
-  return { suggestions, synthesised };
+  return { suggestions, synthesised, relevant_history: relevantHistory };
 }
 
 // ── Step B: Evaluate answers ──────────────────────────────────────────────────
@@ -367,7 +368,7 @@ async function evaluateAnswers(query, answers) {
 
 const MAX_CHARS_PER_SOURCE = 3000;
 
-function buildTaskPrompt(persona, approvedPrompt, query, selectedSources, userToday) {
+function buildTaskPrompt(persona, approvedPrompt, query, selectedSources, userToday, relevantHistory = '') {
   const today = resolveToday(userToday);
   const srcs = Array.isArray(selectedSources) ? selectedSources : [];
 
@@ -378,6 +379,7 @@ function buildTaskPrompt(persona, approvedPrompt, query, selectedSources, userTo
   if (srcs.length === 0) {
     return persona + '\n\n' +
       'Today\'s date is ' + today + '.\n\n' +
+      (relevantHistory ? '=== CONTEXT FROM PRIOR CHAT ===\n' + relevantHistory + '\n\n' : '') +
       cleanPrompt + '\n\nQuestion: ' + query;
   }
 
@@ -393,6 +395,7 @@ function buildTaskPrompt(persona, approvedPrompt, query, selectedSources, userTo
 
   return persona + '\n\n' +
     'Today\'s date is ' + today + '.\n\n' +
+    (relevantHistory ? '=== CONTEXT FROM PRIOR CHAT ===\n' + relevantHistory + '\n\n' : '') +
     '=== SOURCE MATERIAL ===\n' +
     sourceBlock +
     '\n=== END SOURCE MATERIAL ===\n\n' +
@@ -476,7 +479,7 @@ async function conductorQualityGate(query, evaluation) {
 // "Key Points / Differences / Concerns / Overall" structure), this output is
 // a clean, natural answer with inline URL citations -- no mention of AIs, no
 // voting annotations. Called only when the client sends mode='user'.
-async function buildUserAnswer(query, approvedPrompt, selectedSources, answers, userToday) {
+async function buildUserAnswer(query, approvedPrompt, selectedSources, answers, userToday, relevantHistory = '') {
   const today = resolveToday(userToday);
   const srcs  = (selectedSources || []).slice(0, 20);
 
@@ -490,6 +493,7 @@ async function buildUserAnswer(query, approvedPrompt, selectedSources, answers, 
 
   const prompt =
     "Today's date is " + today + ".\n\n" +
+    (relevantHistory ? "=== CONTEXT FROM PRIOR CHAT ===\n" + relevantHistory + "\n\n" : "") +
     "You are Mobius, a careful research assistant. Below are findings from 5 specialists who each addressed the user's question using the provided sources. Your job is to synthesise ONE clear, cohesive answer for the user.\n\n" +
     "User's question: \"" + query + "\"\n\n" +
     "Sub-questions investigated:\n" + approvedPrompt + "\n\n" +
