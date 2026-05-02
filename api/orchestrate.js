@@ -10,8 +10,8 @@
 
 'use strict';
 
-const { askTavilySearch, askGoogleSearch, askGeminiLite, askGroqCascade }   = require('./_ai.js');
-const { supabase }                                                 = require('./_supabase.js');
+const { askTavilySearch, askGoogleSearch, askGeminiLite, askGroqCascade } = require('./_ai.js');
+const { supabase } = require('./_supabase.js');
 const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers, buildTaskPrompt } = require('./_exec.js');
 
 // ── Source discovery ──────────────────────────────────────────────────────────
@@ -101,9 +101,10 @@ async function discoverSources(query, history = [], lastResponse = '') {
 async function runExecution(query, approvedPrompt, selectedSources, today, relevantHistory = '') {
   const results = await raceAtLeast(
     TASK_AIS.map(ai => ({
-      id:      ai.id,
-      label:   ai.label,
-      promise: ai.call([{ role: 'user',
+      id: ai.id,
+      label: ai.label,
+      promise: ai.call([{
+        role: 'user',
         content: buildTaskPrompt(ai.persona, approvedPrompt, query, selectedSources, today, relevantHistory)
       }])
     })),
@@ -113,9 +114,9 @@ async function runExecution(query, approvedPrompt, selectedSources, today, relev
   return results
     .filter(r => r.value && (r.value.text || '').length > 20)
     .map(r => ({
-      aiId:      r.id,
-      aiLabel:   r.label,
-      text:      r.value.text,
+      aiId: r.id,
+      aiLabel: r.label,
+      text: r.value.text,
       modelUsed: r.value.modelUsed || r.id
     }));
 }
@@ -143,16 +144,16 @@ async function logTaskResponses(queryId, phase, responses, evaluation = null) {
   if (!queryId || !Array.isArray(responses) || responses.length === 0) return;
   try {
     const rows = responses.map((r, i) => ({
-      query_id:    queryId,
+      query_id: queryId,
       phase,
-      ai_id:       r.id      || r.aiId     || null,
-      ai_label:    r.label   || r.aiLabel  || null,
-      model_used:  r.model   || r.modelUsed || null,
-      text:        r.text    || '',
-      failed:      Boolean(r.failed) || !(r.text && r.text.length > 0),
-      ms:          r.ms      || null,
+      ai_id: r.id || r.aiId || null,
+      ai_label: r.label || r.aiLabel || null,
+      model_used: r.model || r.modelUsed || null,
+      text: r.text || '',
+      failed: Boolean(r.failed) || !(r.text && r.text.length > 0),
+      ms: r.ms || null,
       score_total: evaluation?.scores?.[i]?.score?.total ?? null,
-      score_note:  evaluation?.scores?.[i]?.score?.note  ?? null
+      score_note: evaluation?.scores?.[i]?.score?.note ?? null
     }));
     const { error } = await supabase.from('mobius_task_responses').insert(rows);
     if (error) throw error;
@@ -174,10 +175,13 @@ module.exports = async function handler(req, res) {
 
   // ── Step 1: Prompt suggestions + source discovery ────────────────────────────
   if (!step || step === 1) {
-    const qId = await logQuery(userId, query);
+      const qId = await logQuery(userId, query);
     try {
-      const promptResult = await generatePromptSuggestions(query, feedback || '', today, history || [], last_response || '');
-      const grounding    = await discoverSources(promptResult.synthesised || query, history || [], last_response || '');
+      const augmentation = await augmentQueryWithContext(query, history || [], last_response || '');
+      const enrichedQuery = augmentation.enrichedQuery;
+
+      const promptResult = await generatePromptSuggestions(enrichedQuery, feedback || '', today);
+      const grounding = await discoverSources(promptResult.synthesised || enrichedQuery, history || [], last_response || '');
 
       // Persist the 5 prompt-rewrite suggestions for later review
       await logTaskResponses(qId, 'suggestion', promptResult.suggestions || []);
@@ -186,14 +190,17 @@ module.exports = async function handler(req, res) {
         query_id:           qId,
         suggestions:        promptResult.suggestions,
         synthesised_prompt: promptResult.synthesised,
+        rationale:          promptResult.rationale,
+        enriched_query:     enrichedQuery,
         relevant_history:   promptResult.relevant_history,
+        search_required:    promptResult.search_required,
         sources:            grounding.urls,           // array, back-compat with client
         grounding: {                                  // new -- richer grounding payload
-          modelUsed:         grounding.modelUsed,
-          answer:            grounding.answer,
-          searchQueries:     grounding.searchQueries,
-          searchEntryPoint:  grounding.searchEntryPoint,
-          webChunks:         grounding.webChunks
+          modelUsed: grounding.modelUsed,
+          answer: grounding.answer,
+          searchQueries: grounding.searchQueries,
+          searchEntryPoint: grounding.searchEntryPoint,
+          webChunks: grounding.webChunks
         }
       });
     } catch (err) {
@@ -206,7 +213,7 @@ module.exports = async function handler(req, res) {
   if (step === 2) {
     if (!approved_prompt) return res.status(400).json({ error: 'approved_prompt required' });
     try {
-      const answers    = await runExecution(query, approved_prompt, selected_sources || [], today, relevant_history);
+      const answers = await runExecution(query, approved_prompt, selected_sources || [], today, relevant_history);
       const evaluation = await evaluateAnswers(query, answers);
 
       // Persist the 5 Task AI answers with their evaluation scores
@@ -215,8 +222,8 @@ module.exports = async function handler(req, res) {
       try {
         await supabase.from('mobius_queries').update({
           gate1_best_prompt: approved_prompt,
-          gate2_passed:      true,
-          final_status:      'success'
+          gate2_passed: true,
+          final_status: 'success'
         }).eq('query_id', query_id);
       } catch { /* non-fatal */ }
       return res.json({ answers, evaluation });

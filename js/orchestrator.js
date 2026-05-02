@@ -783,16 +783,26 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
       }
     }
 
-    // User Mode: auto-pass ALL available sources (up to 20) to Task AIs, auto-approve prompt, proceed silently
+    // User Mode: auto-pass available sources to Task AIs (if search required), then proceed silently
     if (userMode) {
-      const autoSources = sources.slice(0, 25);
-      return await runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources, cycle, relevantHistory);
+      const autoSources = data1.search_required ? sources.slice(0, 25) : [];
+      if (!data1.search_required) log('Answer found in history — bypassing web search.', 'ok');
+      return await runStep2(data1.query_id, data1.synthesised_prompt || query, autoSources, cycle, relevantHistory, lastQuery, lastResponse);
     }
 
     // Dev Mode: show source card → prompt approval card
     return new Promise(resolve => {
       const sourceCard = buildSourceCard(sources, async (selectedSources) => {
         log('Sources confirmed (' + selectedSources.length + ' selected). Review synthesised prompt.', 'info');
+
+        // Build a content block with Rationale and Enriched Query
+        const header = `
+          <div class="rationale-box" style="background:rgba(0,0,0,0.03);padding:12px;border-radius:8px;margin-bottom:12px;font-size:13px;border-left:4px solid var(--accent);">
+            <div style="font-weight:bold;margin-bottom:4px;">Rationale:</div>
+            <div style="font-style:italic;color:var(--text-dim);">${data1.rationale || 'No rationale provided.'}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">Enriched Brief: ${data1.enriched_query || query}</div>
+        `;
 
         // Show synthesised prompt approval card
         const promptCard = buildPromptApprovalCard(data1.synthesised_prompt || query, async (decision) => {
