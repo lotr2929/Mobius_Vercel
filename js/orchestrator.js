@@ -739,6 +739,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
           return entries.slice(-20).map(e => ({ q: e.query, a: e.response }));
         } catch { return []; }
       })();
+      const lastQuery    = chatHistory.length ? chatHistory[chatHistory.length - 1].q : '';
       const lastResponse = chatHistory.length ? chatHistory[chatHistory.length - 1].a : '';
       const res = await fetch('/orchestrate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -800,7 +801,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
             resolve(await runStep1(decision.feedback));
           } else {
             log('Prompt approved. Executing with ' + selectedSources.length + ' source(s).', 'ok');
-            resolve(await runStep2(data1.query_id, decision.prompt, selectedSources, 0, relevantHistory));
+            resolve(await runStep2(data1.query_id, decision.prompt, selectedSources, 0, relevantHistory, lastQuery, lastResponse));
           }
         });
         container.appendChild(promptCard);
@@ -812,7 +813,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
   }
 
   // ── STEP 2: Execution + evaluation ────────────────────────────────────────
-  async function runStep2(queryId, approvedPrompt, selectedSources, cycle = 0, relevantHistory = '') {
+  async function runStep2(queryId, approvedPrompt, selectedSources, cycle = 0, relevantHistory = '', lastQuery = '', lastResponse = '') {
     if (!userMode) log('Step 2 — firing 5 Task AIs…');
 
     if (!userMode && window.panel) {
@@ -833,7 +834,9 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
           today: todayFormatted(),
           mode:  userMode ? 'user' : 'dev',
           cycle,
-          relevant_history: relevantHistory
+          relevant_history: relevantHistory,
+          last_query:       lastQuery,
+          last_response:    lastResponse
         },
         async (event) => {
           switch (event.type) {
@@ -924,7 +927,7 @@ window.runOrchestrator = async function(query, chatPanel, reuseOutputEl) {
                   async (decision) => {
                     if (decision.action === 'redo') {
                       log('Rerunning with edited prompt…', 'warn');
-                      resolve(await runStep2(queryId, decision.prompt, selectedSources, 0, relevantHistory));
+                      resolve(await runStep2(queryId, decision.prompt, selectedSources, 0, relevantHistory, lastQuery, lastResponse));
                     } else {
                       log('Accepted. Submit a new query when ready.', 'ok');
                       if (window.autoExtractMemory) window.autoExtractMemory(query, answerText);

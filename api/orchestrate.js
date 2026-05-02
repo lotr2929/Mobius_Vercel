@@ -31,7 +31,7 @@ const { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswer
 // Defaults to TRUE on any failure -- safer to over-search than under-inform.
 async function shouldSearchWeb(query, history, lastResponse) {
   const recentContext = Array.isArray(history) && history.length
-    ? history.slice(-2).map(h => 'User: ' + String(h.q || '').slice(0, 200) + '\nMobius: ' + String(h.a || '').slice(0, 400)).join('\n\n')
+    ? history.slice(-2).map(h => '[1] Previous Query: ' + String(h.q || '').slice(0, 200) + '\n[2] Previous Response: ' + String(h.a || '').slice(0, 800)).join('\n\n')
     : '(no prior context)';
   const prompt =
     'You are a router. Decide if this user query REQUIRES live web search or can ' +

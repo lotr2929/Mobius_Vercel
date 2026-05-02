@@ -35,7 +35,7 @@ module.exports = async function handler(req, res) {
     if (!res.writableEnded) res.write('data: ' + JSON.stringify(data) + '\n\n');
   }
 
-  const { query, query_id, approved_prompt, selected_sources, today, mode, cycle = 0, relevant_history } = req.body || {};
+  const { query, query_id, approved_prompt, selected_sources, today, mode, cycle = 0, relevant_history, last_query, last_response } = req.body || {};
   if (!query || !approved_prompt) {
     emit({ type: 'error', message: 'Missing query or approved_prompt' });
     return res.end();
@@ -51,7 +51,7 @@ module.exports = async function handler(req, res) {
   // stripped raw_content before re-sending. Task AIs will hallucinate in
   // that case.
   const withRaw = srcs.filter(s => (s.raw_content || '').length > 0).length;
-  const samplePrompt = buildTaskPrompt(TASK_AIS[0].persona, approved_prompt, query, srcs, today, relevant_history || '');
+  const samplePrompt = buildTaskPrompt(TASK_AIS[0].persona, approved_prompt, query, srcs, today, relevant_history || '', last_query || '', last_response || '');
   console.log('[orchestrate-stream] sources: ' + srcs.length + ' total, '
     + withRaw + ' with raw_content, prompt: ' + samplePrompt.length + ' chars'
     + (today ? ', today=' + today : ''));
@@ -72,7 +72,7 @@ module.exports = async function handler(req, res) {
       TASK_AIS.forEach(ai => {
         const t0 = Date.now();
         ai.call([{ role: 'user',
-          content: buildTaskPrompt(ai.persona, approved_prompt, query, srcs, today, relevant_history || '')
+          content: buildTaskPrompt(ai.persona, approved_prompt, query, srcs, today, relevant_history || '', last_query || '', last_response || '')
         }])
           .then(result => {
             if (!result || (result.text || '').length < 20) return;
@@ -146,7 +146,7 @@ module.exports = async function handler(req, res) {
       try {
         userAnswer = await buildUserAnswer(query, approved_prompt, srcs,
           responses.map(r => ({ aiLabel: r.label, text: r.text })),
-          today, relevant_history || '');
+          today, relevant_history || '', last_query || '', last_response || '');
       } catch (err) {
         console.warn('[orchestrate-stream] buildUserAnswer failed:', err.message);
       }

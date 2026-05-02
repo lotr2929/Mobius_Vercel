@@ -124,26 +124,23 @@ async function buildHistoryContext(history) {
   if (history.length <= 5) {
     const pairs = history.map((h, i) => {
       const isLast = i === history.length - 1;
-      const aLimit = isLast ? 1500 : 500;
-      const tag    = isLast ? ' [MOST RECENT]' : '';
+      const tag    = isLast ? ' [IMMEDIATE CONTEXT]' : '';
       const q = String(h.q || '').slice(0, 400);
-      const a = String(h.a || '').slice(0, aLimit);
-      return 'User' + (i + 1) + tag + ': ' + q + '\nMobius' + (i + 1) + tag + ': ' + a;
+      const a = String(h.a || '').slice(0, isLast ? 2000 : 500);
+      return '[1] Previous Query' + (i + 1) + tag + ': ' + q + '\n[2] Previous Response' + (i + 1) + tag + ': ' + a;
     }).join('\n\n');
-    return '=== CONVERSATION CONTEXT ===\n' +
-      'The user has had the following exchanges with Mobius recently (oldest first). ' +
-      'IMPORTANT: the user\'s NEW query below may be referencing the MOST RECENT answer rather than ' +
-      'just chaining off their previous question. Consider the full exchange when forming sub-questions ' +
-      '-- do not assume continuity only from the last query.\n\n' +
+    return '=== CONVERSATION BRIDGE ===\n' +
+      'To maintain continuity, refer to the previous exchanges below. ' +
+      'The new query [3] is often a direct follow-up to the most recent response [2].\n\n' +
       pairs + '\n' +
-      '=== END CONVERSATION CONTEXT ===\n\n';
+      '=== END CONVERSATION BRIDGE ===\n\n';
   }
 
   // >5 entries: Conductor summarises
   const allPairs = history.map((h, i) => {
     const q = String(h.q || '').slice(0, 300);
     const a = String(h.a || '').slice(0, 600);
-    return 'User' + (i + 1) + ': ' + q + '\nMobius' + (i + 1) + ': ' + a;
+    return 'User: ' + q + '\nAssistant (Mobius): ' + a;
   }).join('\n\n');
 
   const last = history[history.length - 1];
@@ -172,7 +169,7 @@ async function buildHistoryContext(history) {
   return '=== CONVERSATION CONTEXT ===\n' +
     'Summary of prior conversation:\n' + summary + '\n\n' +
     'Most recent exchange [MOST RECENT]:\n' +
-    'User: ' + lastQ + '\nMobius: ' + lastA + '\n' +
+    'User: ' + lastQ + '\nAssistant (Mobius): ' + lastA + '\n' +
     '=== END CONVERSATION CONTEXT ===\n\n';
 }
 
@@ -195,13 +192,20 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null,
         ai.persona + '\n\n' +
         'Today\'s date is ' + today + '.\n\n' +
         historyBlock +
-        'Convert the user\'s query below into a structured set of 4 to 5 clear, specific sub-questions ' +
-        'that an AI can answer precisely using authoritative source material.\n\n' +
-        'CRITICAL - RESOLVE ALL AMBIGUITY:\n' +
-        '  - Replace every pronoun (it, they, he, she, that) with the actual entity being discussed in the history.\n' +
-        '  - Replace every contextual reference (the previous one, the second point, that model, "your list", "the list you gave") with the specific names from the history.\n' +
-        '  - Remember: You are assisting Mobius. If the user refers to "your list", they mean the list Mobius provided in the previous response.\n' +
-        '  - The resulting questions must be completely self-contained and understandable to an AI that has NOT seen the conversation history.\n\n' +
+        'TASK:\n' +
+        'Synthesise the new query [3] into a self-referential Semantic Bridge using the History Context [1] and the Previous Response [2].\n\n' +
+        'Formulate your proposal as:\n' +
+        '[1] CONTEXT: (Distilled intent)\n' +
+        '[2] ANCHOR: (Verbatim key points from last response)\n' +
+        '[3] PROMPT: (4-5 sub-questions resolving all references)\n\n' +
+        'The sub-questions must be self-contained but explicitly reference [2].\n\n' +
+        'STEP-BY-STEP RESOLUTION:\n' +
+        '1. Look at the CONVERSATION BRIDGE. Identify the previous query [1] and the previous response [2].\n' +
+        '2. The new query [3] is a follow-up. Resolve all references in [3] (e.g. "your list", "those", "him") using the data in [2].\n' +
+        '3. Formulate 4 to 5 sub-questions that specifically reference the entities found in [2].\n\n' +
+        'CRITICAL - SELF-REFERENTIAL PROMPT:\n' +
+        '  - The resulting sub-questions should be self-contained but framed as: "Based on the list in [2], compare X and Y..."\n' +
+        '  - Ensure "your list" is replaced with "the list of [Entity Name] provided in [2]".\n\n' +
         'Each sub-question must also be:\n' +
         '  - Specific enough to elicit a concrete, factual answer (not vague commentary)\n' +
         '  - Answerable from current web sources\n' +
@@ -237,12 +241,13 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null,
     historyBlock +
     'Below are sub-question sets proposed by 5 AI specialists for the same user query.\n\n' +
     'Original query: "' + query + '"\n\n' +
-    'Specialist proposals:\n' + synthInput + '\n\n' +
+    'Specialist [1]/[2]/[3] proposals:\n' + synthInput + '\n\n' +
     'Your task:\n' +
-    '1. Synthesise the proposals into ONE canonical set of 4 to 5 numbered sub-questions. Ensure they are specific, self-contained, and resolve all history references (it, that, previous, your list, etc) into concrete entity names.\n' +
-    '2. Extract a "Relevant Context" block (max 150 words) capturing only the facts and decisions from the chat history that are directly pertinent to answering the new query. Explicitly include any names or lists the user is referring to.\n\n' +
+    '1. Evaluate the Specialist proposals for clarity and context resolution.\n' +
+    '2. Rewrite and synthesise them into ONE canonical [1], [2], and [3] Semantic Bridge.\n' +
+    '3. Ensure [3] is a perfectly clear set of sub-questions that Tavily can use for web search.\n\n' +
     'Respond ONLY with valid JSON in this format:\n' +
-    '{"synthesised": "1. Question...\\n2. Question...", "relevant_history": "The user previously established..."}';
+    '{"synthesised": "1. Question...\\n2. Question...", "relevant_history": "[1] CONTEXT...\\n[2] ANCHOR..."}';
 
   for (const askFn of [
     () => askGroqCascade([{ role: 'user', content: conductorPrompt }]),
@@ -253,6 +258,22 @@ async function generatePromptSuggestions(query, feedback = '', userToday = null,
       const clean = (r.text || '').replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(clean);
       if (parsed.synthesised) {
+        // SECOND PASS: Refinement & Clarity Check
+        const refinementPrompt =
+          'You are the Prompt Reviewer. Review the Semantic Bridge below.\n\n' +
+          '[1] CONTEXTUAL GROUNDING:\n' + (parsed.relevant_history || 'n/a') + '\n\n' +
+          '[2] PREVIOUS RESPONSE:\n'    + (lastResponse || 'n/a') + '\n\n' +
+          '[3] NEW PROMPT (DRAFT):\n'    + parsed.synthesised + '\n\n' +
+          'TASK:\n' +
+          'Is the DRAFT prompt [3] completely clear and self-contained? Does it explicitly resolve references to "your list" or "those items" using the data in [2]?\n' +
+          'If yes, return the DRAFT exactly as is. If no, provide a REFINED version of the sub-questions that is perfectly clear.\n\n' +
+          'Output ONLY the refined sub-questions, nothing else.';
+
+        const refined = await askGroqCascade([{ role: 'user', content: refinementPrompt }]);
+        if (refined && refined.text && refined.text.length > 20) {
+          parsed.synthesised = refined.text.trim();
+        }
+        
         synthesised     = parsed.synthesised.trim();
         relevantHistory = parsed.relevant_history || '';
         break;
@@ -368,48 +389,37 @@ async function evaluateAnswers(query, answers) {
 
 const MAX_CHARS_PER_SOURCE = 3000;
 
-function buildTaskPrompt(persona, approvedPrompt, query, selectedSources, userToday, relevantHistory = '') {
-  const today = resolveToday(userToday);
-  const srcs = Array.isArray(selectedSources) ? selectedSources : [];
+// ── buildTaskPrompt ───────────────────────────────────────────────────────────
+// Formats the full prompt for the Task AIs in Step 2.
+// Implements the [1] Context, [2] Response, [3] Prompt "Semantic Bridge".
 
-  // Scrub any placeholder dates that slipped through the Conductor, and also from
-  // the approved prompt (in case the user hand-edited it with a placeholder).
+function buildTaskPrompt(persona, approvedPrompt, query, srcs, userToday = null, relevantHistory = '', lastQuery = '', lastResponse = '') {
+  const today = resolveToday(userToday);
   const cleanPrompt = scrubDatePlaceholders(approvedPrompt, today);
 
-  if (srcs.length === 0) {
-    return persona + '\n\n' +
-      'Today\'s date is ' + today + '.\n\n' +
-      (relevantHistory ? '=== CONTEXT FROM PRIOR CHAT ===\n' + relevantHistory + '\n\n' : '') +
-      cleanPrompt + '\n\nQuestion: ' + query;
-  }
-
-  const sourceBlock = srcs.map((s, i) => {
-    const content = (s.raw_content || s.description || '').trim();
-    const truncated = content.length > MAX_CHARS_PER_SOURCE
-      ? content.slice(0, MAX_CHARS_PER_SOURCE) + '... [truncated]'
-      : content;
-    return '--- Source ' + (i + 1) + ': ' + (s.title || s.url) + ' ---\n' +
-           'URL: ' + s.url + '\n' +
-           (truncated ? '\n' + truncated + '\n' : '(no content available)\n');
-  }).join('\n');
+  const bridge = [
+    relevantHistory ? '[1] CONTEXTUAL GROUNDING:\n' + relevantHistory : '',
+    lastResponse    ? '[2] PREVIOUS RESPONSE:\n'    + lastResponse    : '',
+    cleanPrompt     ? '[3] NEW PROMPT:\n'           + cleanPrompt     : ''
+  ].filter(Boolean).join('\n\n');
 
   return persona + '\n\n' +
     'Today\'s date is ' + today + '.\n\n' +
-    (relevantHistory ? '=== CONTEXT FROM PRIOR CHAT ===\n' + relevantHistory + '\n\n' : '') +
+    '=== SEMANTIC BRIDGE ===\n' +
+    bridge + '\n' +
+    '=== END SEMANTIC BRIDGE ===\n\n' +
     '=== SOURCE MATERIAL ===\n' +
-    sourceBlock +
-    '\n=== END SOURCE MATERIAL ===\n\n' +
-    'CRITICAL INSTRUCTIONS — follow these strictly:\n' +
-    '1. Use ONLY the SOURCE MATERIAL above. Do NOT draw on your training data, prior knowledge, or memory.\n' +
-    '2. Every specific fact, number, date, name, or quantity MUST come directly from the sources. Cite the source URL in parentheses immediately after the fact.\n' +
-    '3. If a required fact is NOT present in the sources, write: "The provided sources do not specify [X]." Do NOT substitute values from training data. Do NOT guess. Do NOT output placeholder text such as [X,XXX.XX] or [bullish/bearish] -- if the data is absent, state that plainly.\n' +
-    '4. If the sources conflict, surface the conflict explicitly and attribute each value to its source URL.\n' +
-    '5. Answer EACH numbered sub-question below in order, using a matching numbered heading. Keep each answer self-contained and grounded in the sources.\n' +
-    '6. If the sources are insufficient to answer a specific sub-question, say so for that sub-question and move on -- do not pad with generic commentary.\n' +
-    '7. Any reference to "today", "current", "now", or "this week" in the sub-questions refers to ' + today + '. Do not substitute other dates.\n\n' +
-    'Using only the data provided above, address the following sub-questions:\n\n' +
-    cleanPrompt + '\n\n' +
-    'Original user query (for reference): "' + query + '"';
+    srcs.map((s, i) =>
+      '[' + (i + 1) + '] Title: ' + (s.title || s.name || 'Untitled') + '\n' +
+      'URL: ' + (s.url || 'n/a') + '\n' +
+      'Content: ' + (s.raw_content || s.snippet || s.description || '(no content)')
+    ).join('\n\n') + '\n\n' +
+    'MISSION:\n' +
+    '1. Use the SEMANTIC BRIDGE and the SOURCE MATERIAL above to address the sub-questions in [3].\n' +
+    '2. [1] provides distilled context, [2] is the verbatim anchor, and [3] is your current mission.\n' +
+    '3. Every specific fact, number, date, name, or quantity MUST come directly from the sources or the bridge. Cite the source URL or [2] in parentheses.\n' +
+    '4. If a required fact is NOT present, state that plainly. Do NOT guess.\n\n' +
+    'Address the sub-questions in [3] now:';
 }
 
 module.exports = { CONFIG, TASK_AIS, raceAtLeast, generatePromptSuggestions, evaluateAnswers, buildTaskPrompt, buildUserAnswer, conductorQualityGate, resolveToday };
@@ -479,35 +489,32 @@ async function conductorQualityGate(query, evaluation) {
 // "Key Points / Differences / Concerns / Overall" structure), this output is
 // a clean, natural answer with inline URL citations -- no mention of AIs, no
 // voting annotations. Called only when the client sends mode='user'.
-async function buildUserAnswer(query, approvedPrompt, selectedSources, answers, userToday, relevantHistory = '') {
+// ── buildUserAnswer ──────────────────────────────────────────────────────────
+// Final synthesis step for User Mode.
+
+async function buildUserAnswer(query, approvedPrompt, srcs, answers, userToday = null, relevantHistory = '', lastQuery = '', lastResponse = '') {
   const today = resolveToday(userToday);
-  const srcs  = (selectedSources || []).slice(0, 20);
-
-  const sourcesList = srcs.map((s, i) =>
-    '[' + (i + 1) + '] ' + (s.title || s.url) + ' -- ' + s.url
-  ).join('\n');
-
-  const answersSection = (answers || []).map((a, i) =>
-    'Specialist ' + (i + 1) + ':\n' + (a.text || '(no answer)')
-  ).join('\n\n---\n\n');
+  const bridge = [
+    relevantHistory ? '[1] CONTEXTUAL GROUNDING:\n' + relevantHistory : '',
+    lastResponse    ? '[2] PREVIOUS RESPONSE:\n'    + lastResponse    : '',
+    approvedPrompt  ? '[3] NEW PROMPT:\n'           + approvedPrompt  : ''
+  ].filter(Boolean).join('\n\n');
 
   const prompt =
-    "Today's date is " + today + ".\n\n" +
-    (relevantHistory ? "=== CONTEXT FROM PRIOR CHAT ===\n" + relevantHistory + "\n\n" : "") +
-    "You are Mobius, a careful research assistant. Below are findings from 5 specialists who each addressed the user's question using the provided sources. Your job is to synthesise ONE clear, cohesive answer for the user.\n\n" +
-    "User's question: \"" + query + "\"\n\n" +
-    "Sub-questions investigated:\n" + approvedPrompt + "\n\n" +
-    "Specialist findings:\n" + answersSection + "\n\n" +
-    "Sources consulted:\n" + sourcesList + "\n\n" +
-    "INSTRUCTIONS:\n" +
-    "1. Write ONE continuous, natural answer. Use headings only if the topic genuinely needs them -- prefer flowing prose.\n" +
-    "2. NEVER mention that multiple AIs or specialists were consulted. NEVER use annotations like [3/3 agree], [AI 1 said], or specialist names.\n" +
-    "3. Where a specific fact comes from a source, cite it using a square-bracket number only, e.g. [2], matching the numbered source list below. Do NOT write full URLs inline.\n" +
-    "4. If findings conflict, state the uncertainty in plain language without naming who said what.\n" +
-    "5. If the sources were thin on a particular point, say so briefly. Do not pad with generic commentary or training-data speculation.\n" +
-    "6. Write as a knowledgeable human would -- natural tone, clear structure, no meta-commentary.\n" +
-    "7. Do NOT include a 'Sources' or 'References' list at the end -- the interface will render that separately.\n\n" +
-    "Your answer:";
+    'You are Mobius, a concise, high-integrity AI orchestration engine.\n\n' +
+    '=== SEMANTIC BRIDGE ===\n' +
+    bridge + '\n' +
+    '=== END SEMANTIC BRIDGE ===\n\n' +
+    '=== SOURCE MATERIAL ===\n' +
+    srcs.map((s, i) => '[' + (i + 1) + '] ' + (s.title || s.name || 'Untitled') + ' (' + (s.url || 'n/a') + ')').join('\n') + '\n\n' +
+    '=== TASK AI RESPONSES ===\n' +
+    (answers || []).map(a => a.aiLabel + ':\n' + (a.text || '(no answer)')).join('\n\n---\n\n') + '\n\n' +
+    'MISSION:\n' +
+    'Synthesise the Task AI responses into a single, clean prose answer for the user query [3].\n' +
+    '- Use [1] for context and [2] as your previous anchor.\n' +
+    '- Maintain the persona of Mobius: authoritative, factual, and minimal.\n' +
+    '- Cite sources using [N] or [2] as appropriate.\n' +
+    '- Output ONLY the final answer in markdown. No chatter.';
 
   for (const askFn of [
     () => askGroqCascade([{ role: 'user', content: prompt }]),
