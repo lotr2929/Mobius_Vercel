@@ -425,8 +425,8 @@ async function handleDocFiles(files) {
     document.getElementById('doc-attach-preview').className='has-items';
     try {
       const r = await fetch('/api/docs/upload', { method:'POST', body:fd }).then(x=>x.json());
-      chip.innerHTML='<span>'+esc(f.name)+'</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
-      if(docsOpen) loadDocList();
+      chip.innerHTML='<span>✓ '+esc(f.name)+'</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
+      loadDocList(); // always refresh the visible list in the modal, not just when docsOpen was true before the request
     } catch { chip.innerHTML='<span style="color:var(--red)">'+esc(f.name)+' failed</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>'; }
   }
 }
@@ -512,6 +512,14 @@ async function handleSend() {
             if (obj.event.startsWith('searching')) {
               searched = true;
               document.getElementById('status-dot').className = 'searching';
+            }
+            if (obj.event.startsWith('error:not-configured:')) {
+              full += '\n\n⚠ That model isn\'t configured on this deployment (missing API key).';
+              ansEl.innerHTML = md(full);
+            }
+            if (obj.event.startsWith('error:unknown-model:')) {
+              full += '\n\n⚠ Unknown model — try Ask: Gemini, Ask: Groq, or Ask: Mistral.';
+              ansEl.innerHTML = md(full);
             }
           }
           if (obj.token) { full += obj.token; ansEl.innerHTML = md(full); scrollFeed(); }

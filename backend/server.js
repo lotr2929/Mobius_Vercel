@@ -131,14 +131,31 @@ async function* streamOpenAICompat(r) {
 }
 
 const CASCADE = [
-  { name: 'gemini-2.5-flash',       fn: streamGemini,  available: () => !!GEMINI_KEY },
-  { name: 'llama-3.3-70b (groq)',   fn: streamGroq,    available: () => !!GROQ_KEY   },
-  { name: 'mistral-small',          fn: streamMistral, available: () => !!MISTRAL_KEY },
+  { key: 'gemini',  name: 'gemini-2.5-flash',       fn: streamGemini,  available: () => !!GEMINI_KEY },
+  { key: 'groq',    name: 'llama-3.3-70b (groq)',   fn: streamGroq,    available: () => !!GROQ_KEY   },
+  { key: 'mistral', name: 'mistral-small',          fn: streamMistral, available: () => !!MISTRAL_KEY },
 ];
 
-async function* runCascade(messages, signal) {
-  for (const provider of CASCADE) {
-    if (!provider.available()) continue;
+// "Ask: Mistral" / "Ask Groq:" / "ask gemini" at the start of a message forces
+// that one model, skipping the rest of the cascade, so the person can get a
+// second opinion on demand instead of whatever the cascade would pick.
+function parseAskPrefix(query) {
+  const m = query.match(/^ask:?\s*(gemini|groq|mistral)\s*:?\s*/i);
+  if (!m) return { forceProvider: null, cleanQuery: query };
+  return { forceProvider: m[1].toLowerCase(), cleanQuery: query.slice(m[0].length).trim() };
+}
+
+async function* runCascade(messages, signal, forceProvider) {
+  const providers = forceProvider ? CASCADE.filter(p => p.key === forceProvider) : CASCADE;
+  if (forceProvider && !providers.length) {
+    yield { event: 'error:unknown-model:' + forceProvider };
+    return;
+  }
+  for (const provider of providers) {
+    if (!provider.available()) {
+      if (forceProvider) yield { event: 'error:not-configured:' + provider.name };
+      continue;
+    }
     try {
       yield { event: 'model:' + provider.name };
       yield* provider.fn(messages, signal);
@@ -146,6 +163,7 @@ async function* runCascade(messages, signal) {
     } catch (e) {
       console.warn(`[cascade] ${provider.name} failed: ${e.message} — trying next`);
       yield { event: 'fallback:' + provider.name + ':' + e.message.slice(0,80) };
+      if (forceProvider) return; // explicit request for one model shouldn't silently fall through
     }
   }
   throw new Error('All cascade providers failed');
@@ -349,8 +367,10 @@ app.get('/api/history', async (req, res) => {
 // Main chat endpoint — streams SSE
 app.post('/api/chat', async (req, res) => {
   const { messages: clientMessages, query } = req.body;
-  const userQuery = query || clientMessages?.slice(-1)[0]?.content || '';
-  if (!userQuery) return res.status(400).json({ error: 'No query' });
+  const rawQuery = query || clientMessages?.slice(-1)[0]?.content || '';
+  if (!rawQuery) return res.status(400).json({ error: 'No query' });
+  const { forceProvider, cleanQuery } = parseAskPrefix(rawQuery);
+  const userQuery = cleanQuery || rawQuery; // if someone just types "Ask: Mistral" alone, don't blank the query
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -406,7 +426,7 @@ app.post('/api/chat', async (req, res) => {
     const controller = new AbortController();
     req.on('close', () => controller.abort());
 
-    for await (const chunk of runCascade(messages, controller.signal)) {
+    for await (const chunk of runCascade(messages, controller.signal, forceProvider)) {
       if (typeof chunk === 'string') {
         full += chunk;
         send({ token: chunk });
