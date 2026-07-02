@@ -4,8 +4,7 @@
     { "src": "backend/server.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "backend/server.js" },
-    { "src": "/(.*)", "dest": "frontend/$1" }
+    { "src": "/(.*)", "dest": "backend/server.js" }
   ],
   "crons": [
     { "path": "/api/cron/sync", "schedule": "0 6 * * *" }
