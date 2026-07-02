@@ -266,19 +266,23 @@ async function embedGemini(text) {
 
 // Gemini-only — no cross-provider fallback (Gemini/Mistral vectors are not
 // comparable even at matching dimensions, which was the root cause of the
-// retrieval breakage). Retry with backoff instead of switching providers.
-async function embedQuery(text, retries = 3) {
-  for (let attempt = 0; attempt < retries; attempt++) {
+// retrieval breakage). Used on the LIVE request path (chat, upload, search),
+// so this must fail fast: a 429 means the daily quota is exhausted and won't
+// clear in seconds, so retrying just blocks the user's request until Vercel's
+// function timeout kills it. Only retry once, briefly, for genuine transient
+// errors (not quota).
+async function embedQuery(text) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const result = await embedGemini(text);
       if (result) return result;
     } catch (e) {
-      const isRateLimit = /429/.test(e.message);
-      console.warn(`[embed] gemini-embedding-001 failed (attempt ${attempt + 1}/${retries}): ${e.message}`);
-      if (attempt < retries - 1) {
-        const wait = isRateLimit ? 15000 * (attempt + 1) : 2000 * (attempt + 1);
-        await new Promise(r => setTimeout(r, wait));
+      if (/429/.test(e.message)) {
+        console.warn('[embed] gemini quota exhausted — skipping embedding for this request');
+        return null; // fail fast, don't retry a daily quota error
       }
+      console.warn(`[embed] gemini-embedding-001 failed (attempt ${attempt + 1}/2): ${e.message}`);
+      if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
     }
   }
   return null;
@@ -316,7 +320,7 @@ async function saveDoc(filename, text) {
   const rows = [];
   for (const chunk of chunks) {
     const embedding = await embedQuery(chunk);
-    rows.push({ filename, chunk, embedding, created_at: new Date().toISOString() });
+    rows.push({ filename, chunk, embedding, embedding_provider: embedding ? 'gemini' : null, created_at: new Date().toISOString() });
   }
   await supabase.from('mobius_docs').insert(rows);
 }

@@ -209,8 +209,9 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     <span>Documents</span>
     <button onclick="toggleDocs()">&#x2715;</button>
   </div>
-  <div class="dp-drop" id="dp-drop" onclick="docInput.click()" ondragover="e=>e.preventDefault()" ondrop="handleDocDrop(event)">
-    <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json" multiple onchange="handleDocFiles(this.files)">
+  <div class="dp-drop" id="dp-drop" onclick="if(event.target===this)docInput.click()" ondrop="handleDocDrop(event)">
+    <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json" multiple
+           onclick="event.stopPropagation()" onchange="handleDocFiles(this.files)">
     Drop files here or click to upload<br>
     <span style="font-size:10px;opacity:.7">PDF, TXT, MD, JS, PY, CSV, JSON</span>
   </div>
