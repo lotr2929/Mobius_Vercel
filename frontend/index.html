@@ -518,7 +518,7 @@ async function handleSend() {
               ansEl.innerHTML = md(full);
             }
             if (obj.event.startsWith('error:unknown-model:')) {
-              full += '\n\n⚠ Unknown model — try Ask: Gemini, Ask: Groq, or Ask: Mistral.';
+              full += '\n\n⚠ Unknown model — try Ask: Gemini, Ask: Mistral, Ask: Cerebras, or Ask: Groq.';
               ansEl.innerHTML = md(full);
             }
           }

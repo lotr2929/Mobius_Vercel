@@ -22,6 +22,7 @@ const START_TIME = Date.now();
 const GEMINI_KEY   = process.env.GEMINI_API_KEY  || '';
 const GROQ_KEY     = process.env.GROQ_API_KEY    || '';
 const MISTRAL_KEY  = process.env.MISTRAL_API_KEY || '';
+const CEREBRAS_KEY = process.env.CEREBRAS_API_KEY || '';
 const TAVILY_KEY   = process.env.TAVILY_API_KEY  || '';
 const SB_URL       = process.env.SUPABASE_URL    || '';
 const SB_KEY       = process.env.SUPABASE_KEY    || '';
@@ -116,6 +117,19 @@ async function* streamMistral(messages, signal) {
   yield* streamOpenAICompat(r);
 }
 
+async function* streamCerebras(messages, signal) {
+  const r = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + CEREBRAS_KEY, 'Content-Type': 'application/json' },
+    // gpt-oss-120b: llama-3.3-70b was deprecated on Cerebras's free tier; this is
+    // the current larger production model there. Free tier has an 8K context cap.
+    body: JSON.stringify({ model: 'gpt-oss-120b', messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages], stream: true, max_tokens: 4096 }),
+    signal
+  });
+  if (!r.ok) { const e = await r.text(); throw new Error('Cerebras HTTP ' + r.status + ': ' + e.slice(0,200)); }
+  yield* streamOpenAICompat(r);
+}
+
 async function* streamOpenAICompat(r) {
   const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
   while (true) {
@@ -130,17 +144,21 @@ async function* streamOpenAICompat(r) {
   }
 }
 
+// Main team: Gemini, Mistral, Cerebras — all genuinely free (no card required).
+// Groq kept as fallback only, since its free-tier daily cap (1,000 req/day on
+// 70B-class models) is tighter than the other three.
 const CASCADE = [
-  { key: 'gemini',  name: 'gemini-2.5-flash',       fn: streamGemini,  available: () => !!GEMINI_KEY },
-  { key: 'groq',    name: 'llama-3.3-70b (groq)',   fn: streamGroq,    available: () => !!GROQ_KEY   },
-  { key: 'mistral', name: 'mistral-small',          fn: streamMistral, available: () => !!MISTRAL_KEY },
+  { key: 'gemini',   name: 'gemini-2.5-flash',     fn: streamGemini,   available: () => !!GEMINI_KEY },
+  { key: 'mistral',  name: 'mistral-small',        fn: streamMistral,  available: () => !!MISTRAL_KEY },
+  { key: 'cerebras', name: 'gpt-oss-120b (cerebras)', fn: streamCerebras, available: () => !!CEREBRAS_KEY },
+  { key: 'groq',     name: 'llama-3.3-70b (groq)', fn: streamGroq,     available: () => !!GROQ_KEY },
 ];
 
 // "Ask: Mistral" / "Ask Groq:" / "ask gemini" at the start of a message forces
 // that one model, skipping the rest of the cascade, so the person can get a
 // second opinion on demand instead of whatever the cascade would pick.
 function parseAskPrefix(query) {
-  const m = query.match(/^ask:?\s*(gemini|groq|mistral)\s*:?\s*/i);
+  const m = query.match(/^ask:?\s*(gemini|groq|mistral|cerebras)\s*:?\s*/i);
   if (!m) return { forceProvider: null, cleanQuery: query };
   return { forceProvider: m[1].toLowerCase(), cleanQuery: query.slice(m[0].length).trim() };
 }
