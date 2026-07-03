@@ -1,6 +1,63 @@
 // Mobius — backend server
 // Single conversational AI with memory, web search, and document recall
 // Port 3005
+//
+// ── ARCHITECTURE MAP (read this before touching retrieval logic) ───────────
+//
+// Supabase tables (shared "dlbs" project, mobius_-prefixed):
+//   mobius_messages   — every chat turn, raw. role/content/embedding/fts.
+//   mobius_docs       — chunked text (500-600 chars, ~100 overlap) + embedding.
+//                        Written two ways: saveDoc() below (direct upload,
+//                        500-char chunks) and drive-indexer.mjs's syncDrive()
+//                        (Drive sync, 600-char chunks). Same table, two
+//                        producers, deliberately different chunk sizes —
+//                        not a bug, just two paths that were never unified.
+//   mobius_docs_full  — one row per file, whole raw text. This is what gets
+//                        returned when a document is referenced by name
+//                        (mode 2 below), so retrieval doesn't have to
+//                        reassemble it from overlapping chunks.
+//   mobius_topics     — RAKE-extracted keyphrases, one row per phrase, each
+//                        pointing back to a source_table+source_id. No AI
+//                        involved — pure text processing, always available
+//                        regardless of Gemini quota.
+//
+// THREE-TIER RETRIEVAL (searchDocs / searchMessages, same pattern in both):
+//   Tier 1 — semantic: embed the query, cosine-match against stored vectors
+//            via match_mobius_docs/match_mobius_messages (pgvector RPCs).
+//            Best quality, but Gemini's free-tier daily quota kills this
+//            for the rest of the day once exhausted.
+//   Tier 2 — keyword: Postgres full-text search (the `fts` generated
+//            column + GIN index). Free, exact-ish word matching, no quota.
+//   Tier 3 — topic: match query words against mobius_topics phrases via
+//            searchTopics(). Coarsest, but catches vague queries ("these
+//            documents") that have no distinctive words for tier 2 to grab.
+//   Each tier only runs if the one before it returned nothing.
+//
+// THREE DOCUMENT-CONTEXT MODES per /api/chat request (see step 3 below):
+//   Mode 1 — files attached to THIS message (req.body.docs) — full raw
+//            text injected, no search needed, always wins if present.
+//   Mode 2 — query names a specific archived file (findNamedDoc) — that
+//            file's full text pulled from mobius_docs_full.
+//   Mode 3 — neither of the above — three-tier chunk search (searchDocs)
+//            against mobius_docs, returns only matching snippets.
+//   If none of the three produce anything AND the message sounds like it
+//   expects a file, the model is told explicitly to say so rather than
+//   guess (see the fallback message right after mode 3).
+//
+// CHAT HISTORY — two separate mechanisms, not one:
+//   - getHistory(60): the last 30 exchanges, sent in full, every request,
+//     unconditionally. This is NOT search — it's just a fixed window.
+//   - searchMessages(): a targeted three-tier search (above) for anything
+//     OLDER than that window, run fresh every request against the
+//     resolved query. Appended separately as "[Relevant past discussion]".
+//
+// EMBEDDING — always Gemini only (embedQuery/embedGemini). No cross-provider
+// fallback: a Gemini vector and a Mistral vector at the same dimension are
+// still not comparable, which was the root cause of a real outage earlier
+// in this project. On a 429 (daily quota, not per-minute), embedQuery fails
+// fast — retrying would just block the request until Vercel's timeout kills
+// it, since quota doesn't clear in seconds.
+// ─────────────────────────────────────────────────────────────────────────
 
 import 'dotenv/config';
 import express    from 'express';
@@ -241,6 +298,9 @@ function needsSearch(query) {
 // Messages stored as: { role, content, created_at }
 // Each user+assistant pair = one exchange
 
+// The "always included" half of chat memory — a fixed recency window, sent
+// in full, every request, no filtering. See searchMessages() below for the
+// other half (targeted search for anything older than this window).
 async function getHistory(limit = 60) {
   if (supabase) {
     const { data, error } = await supabase
@@ -290,8 +350,12 @@ async function searchTopics(query, sourceTable, limit = 5) {
   return ids;
 }
 
+// The "targeted search" half of chat memory — anything older than
+// getHistory()'s window, found fresh each request. Three-tier fallback,
+// same shape as searchDocs() below.
 async function searchMessages(query) {
   if (!supabase) return [];
+  // Tier 1: semantic
   const queryEmbedding = await embedQuery(query);
   if (queryEmbedding) {
     const { data, error } = await supabase.rpc('match_mobius_messages', {
@@ -301,8 +365,7 @@ async function searchMessages(query) {
     });
     if (!error && data?.length) return data;
   }
-  // Embedding unavailable or found nothing — fall back to keyword search
-  // (mobius_messages.fts), then to the topic index.
+  // Tier 2: keyword (mobius_messages.fts)
   const { data: ftsData } = await supabase
     .from('mobius_messages')
     .select('id, role, content, created_at')
@@ -310,6 +373,7 @@ async function searchMessages(query) {
     .limit(8);
   if (ftsData?.length) return ftsData;
 
+  // Tier 3: topic phrase match
   const topicIds = await searchTopics(query, 'mobius_messages', 8);
   if (topicIds.length) {
     const { data: topicData } = await supabase
@@ -321,9 +385,9 @@ async function searchMessages(query) {
   return [];
 }
 
-// ── Document store (semantic search via embeddings) ──────────────────────────
-// ── Embedding cascade — Gemini first, Mistral fallback on failure/429 ───────
-// Both pinned to 1024-dim so vectors are interchangeable in the same column.
+// ── Document store — three-tier search, same pattern as searchMessages() ────
+// ── Embedding — Gemini only, 1024-dim. No cross-provider fallback; see the
+// note on embedQuery() below for why. ───────────────────────────────────────
 async function embedGemini(text) {
   if (!GEMINI_KEY) return null;
   const r = await fetch(
@@ -369,9 +433,10 @@ async function embedQuery(text) {
 
 async function searchDocs(query) {
   if (!supabase) return '';
+  // Tier 1: semantic
   const queryEmbedding = await embedQuery(query);
   if (!queryEmbedding) {
-    // fallback to keyword search if embedding fails
+    // Tier 2: keyword (mobius_docs.fts)
     const { data } = await supabase
       .from('mobius_docs')
       .select('filename, chunk')
@@ -379,7 +444,7 @@ async function searchDocs(query) {
       .limit(5);
     if (data?.length) return data.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
 
-    // FTS also found nothing — try the topic index before giving up
+    // Tier 3: topic phrase match
     const topicIds = await searchTopics(query, 'mobius_docs', 5);
     if (topicIds.length) {
       const { data: topicData } = await supabase
@@ -399,10 +464,15 @@ async function searchDocs(query) {
   return data.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
 }
 
+// Direct-upload ingestion path (500-char chunks, 100 overlap) — the OTHER
+// producer of mobius_docs rows besides drive-indexer.mjs's syncDrive()
+// (which uses 600-char chunks for Drive files). Called from
+// /api/docs/upload, below. Embeds synchronously per chunk on the way in;
+// chunks still get inserted even if embedding fails (embedding: null).
 async function saveDoc(filename, text) {
   if (!supabase) return;
   // Full raw text, stored once per filename — this is what gets returned
-  // when the paper is referenced by name later (mode 3), not the chunks.
+  // when the paper is referenced by name later (mode 2), not the chunks.
   await supabase.from('mobius_docs_full').upsert({ filename, content: text, updated_at: new Date().toISOString() });
 
   const chunks = [];

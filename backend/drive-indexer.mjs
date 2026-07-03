@@ -2,6 +2,11 @@
 // Walks the Mobius Google Drive folder, extracts text from supported files,
 // chunks and upserts into Supabase mobius_docs table.
 // Supports: PDF, DOCX, TXT, MD, Google Docs (exported as text)
+//
+// See server.js's top-of-file architecture map for the full picture — this
+// is one of two producers of mobius_docs rows (600-char chunks here vs
+// 500-char in server.js's saveDoc(), the direct-upload path). Also the only
+// producer of mobius_docs_full via syncDrive()/backfillFullDocs().
 
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';

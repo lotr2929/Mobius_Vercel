@@ -2,6 +2,9 @@
 // Chunks every Drive file into mobius_docs with embedding=null — no Gemini
 // calls at all. Existing chunks for a file are replaced only if the file's
 // modifiedTime changed. Run the embedding backfill separately afterwards.
+//
+// Standalone maintenance script — run manually via `node -e`, not imported
+// by server.js or any live request path. Same for rake-index.mjs.
 import { createClient } from '@supabase/supabase-js';
 import { getDriveClient, listFiles, extractText, chunkText } from './drive-indexer.mjs';
 
