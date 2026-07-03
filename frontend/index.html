@@ -22,7 +22,6 @@
   --text:#1b1510;
   --text-muted:#443a2d;
   --text-dim:#8d7c64;
-  --accent:#8d7c64;
   --green:#2e5231;
   --green-light:#4a7c4e;
   --red:#8d3a3a;
@@ -127,9 +126,6 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 #docs-panel.open{display:block;}
 .dp-header{padding:8px 12px;background:var(--surface2);border-bottom:1px solid var(--border);font-weight:bold;font-size:12px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;}
 .dp-header button{background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:14px;}
-.dp-drop{border:2px dashed var(--border2);border-radius:var(--radius);margin:10px;padding:16px;text-align:center;font-size:12px;color:var(--text-dim);cursor:pointer;transition:border-color .2s,background .2s;}
-.dp-drop:hover,.dp-drop.dragover{border-color:var(--green);background:rgba(46,82,49,.05);}
-.dp-drop input{display:none;}
 .dp-list{padding:4px 10px 10px;}
 .dp-item{display:flex;align-items:center;justify-content:space-between;padding:5px 4px;border-bottom:1px solid var(--border);font-size:12px;}
 .dp-item:last-child{border-bottom:none;}
@@ -209,14 +205,18 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     <span>Documents</span>
     <button onclick="toggleDocs()">&#x2715;</button>
   </div>
-  <div class="dp-drop" id="dp-drop" onclick="if(event.target===this)docInput.click()" ondrop="handleDocDrop(event)">
-    <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json" multiple
-           onclick="event.stopPropagation()" onchange="handleDocFiles(this.files)">
-    Drop files here or click to upload<br>
-    <span style="font-size:10px;opacity:.7">PDF, TXT, MD, JS, PY, CSV, JSON</span>
+  <div style="display:flex;gap:8px;padding:10px;">
+    <button onclick="openLocalPicker()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--surface2);color:var(--text-muted);cursor:pointer;font-family:var(--font);font-size:12px;">
+      📁 Choose files from this device
+    </button>
+    <button onclick="openGoogleDrive()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--surface2);color:var(--text-muted);cursor:pointer;font-family:var(--font);font-size:12px;">
+      🗂 Open Google Drive
+    </button>
   </div>
+  <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json" multiple
+         style="display:none" onchange="handleDocFiles(this.files)">
   <div style="padding:5px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;">
-    <button id="drive-sync-btn" onclick="triggerDriveSync()" style="font-size:10px;background:none;color:var(--text-dim);border:none;text-decoration:underline;cursor:pointer;padding:2px;">Sync Google Drive folder</button>
+    <button id="drive-sync-btn" onclick="triggerDriveSync()" style="font-size:10px;background:none;color:var(--text-dim);border:none;text-decoration:underline;cursor:pointer;padding:2px;">Sync Google Drive folder into Mobius</button>
   </div>
   <div class="dp-list" id="dp-list"></div>
 </div>
@@ -233,7 +233,6 @@ let attachedImgs = [];
 let attachedDocs = []; // [{filename, text}] — raw text for the NEXT message only
 let history = [];   // [{role,content,created_at,ai}]
 let histIdx = -1;   // -1 = live view
-let currentModel = '';
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function tick() {
@@ -396,6 +395,19 @@ function removeImg(i) { attachedImgs.splice(i,1); renderImgPreviews(); }
 let docsOpen = false;
 function toggleDocs() { docsOpen=!docsOpen; document.getElementById('docs-panel').className=docsOpen?'open':''; if(docsOpen) loadDocList(); }
 
+// One window at a time: close our panel immediately, then hand off to
+// whichever external picker the user chose. Neither of these can be
+// force-closed by us once open (native OS dialog / another browser tab),
+// but they're never both open from our side.
+function openLocalPicker() {
+  if (docsOpen) toggleDocs();
+  document.getElementById('docInput').click();
+}
+function openGoogleDrive() {
+  if (docsOpen) toggleDocs();
+  window.open('https://drive.google.com/drive/folders/1VVnAQfq___O30Jz7wW_ovRNQdk8jQdLj', '_blank');
+}
+
 async function loadDocList() {
   const el = document.getElementById('dp-list');
   try {
@@ -412,14 +424,6 @@ async function loadDocList() {
     }).join('');
   } catch { el.innerHTML='<div class="dp-empty">Error loading docs.</div>'; }
 }
-
-function handleDocDrop(e) {
-  e.preventDefault();
-  document.getElementById('dp-drop').classList.remove('dragover');
-  handleDocFiles(e.dataTransfer.files);
-}
-document.getElementById('dp-drop').addEventListener('dragover', e => { e.preventDefault(); e.currentTarget.classList.add('dragover'); });
-document.getElementById('dp-drop').addEventListener('dragleave', e => e.currentTarget.classList.remove('dragover'));
 
 async function handleDocFiles(files) {
   if (docsOpen) toggleDocs(); // close the library modal so the chip list below isn't hidden behind it

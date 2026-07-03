@@ -55,7 +55,7 @@ async function embedGemini(text, geminiKey) {
 
 // Gemini-only embedding, with retry-on-backoff (no cross-provider fallback —
 // Gemini and Mistral vectors are not comparable even at matching dimensions).
-async function embedText(text, geminiKey, _mistralKey, retries = 3) {
+async function embedText(text, geminiKey, retries = 3) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const result = await embedGemini(text, geminiKey);
@@ -160,7 +160,7 @@ export async function uploadToDrive(keyPath, buffer, filename, mimeType) {
   return res.data;
 }
 
-export async function syncDrive(keyPath, supabaseUrl, supabaseKey, geminiKey, mistralKey) {
+export async function syncDrive(keyPath, supabaseUrl, supabaseKey, geminiKey) {
   const drive   = getDriveClient(keyPath);
   const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -195,7 +195,7 @@ export async function syncDrive(keyPath, supabaseUrl, supabaseKey, geminiKey, mi
     const chunks = chunkText(text);
     const rows = [];
     for (const chunk of chunks) {
-      const embedding = await embedText(chunk, geminiKey, mistralKey);
+      const embedding = await embedText(chunk, geminiKey);
       if (!embedding) embedFailed++;
       rows.push({
         filename: file.path,

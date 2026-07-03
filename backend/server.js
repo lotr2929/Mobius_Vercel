@@ -10,7 +10,6 @@ import fs         from 'fs';
 import { fileURLToPath } from 'url';
 import { createClient }  from '@supabase/supabase-js';
 import multer  from 'multer';
-import crypto  from 'crypto';
 import { syncDrive, uploadToDrive, backfillFullDocs } from './drive-indexer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -373,7 +372,7 @@ async function searchDocs(query) {
   const queryEmbedding = await embedQuery(query);
   if (!queryEmbedding) {
     // fallback to keyword search if embedding fails
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('mobius_docs')
       .select('filename, chunk')
       .textSearch('chunk', query.split(' ').join(' & '), { type: 'plain' })
@@ -667,7 +666,7 @@ app.post('/api/drive/sync', async (req, res) => {
   syncRunning = true;
   res.json({ ok: true, message: 'Sync started' });
   try {
-    const result = await syncDrive(GDRIVE_KEY, SB_URL, SB_KEY, GEMINI_KEY, MISTRAL_KEY);
+    const result = await syncDrive(GDRIVE_KEY, SB_URL, SB_KEY, GEMINI_KEY);
     console.log('[drive] Sync result:', result);
   } catch (e) {
     console.error('[drive] Sync error:', e.message);
@@ -710,7 +709,7 @@ app.get('/api/cron/sync', async (req, res) => {
   try {
     if (!!GDRIVE_KEY && !syncRunning) {
       syncRunning = true;
-      result.drive = await syncDrive(GDRIVE_KEY, SB_URL, SB_KEY, GEMINI_KEY, MISTRAL_KEY);
+      result.drive = await syncDrive(GDRIVE_KEY, SB_URL, SB_KEY, GEMINI_KEY);
       syncRunning = false;
     } else {
       result.drive = { skipped: true, reason: syncRunning ? 'already running' : 'no key' };
@@ -757,7 +756,7 @@ async function autoSync() {
   if (!supabase || !!!GDRIVE_KEY || syncRunning) return;
   syncRunning = true;
   try {
-    const result = await syncDrive(GDRIVE_KEY, SB_URL, SB_KEY, GEMINI_KEY, MISTRAL_KEY);
+    const result = await syncDrive(GDRIVE_KEY, SB_URL, SB_KEY, GEMINI_KEY);
     console.log('[drive] Auto-sync:', result);
   } catch (e) {
     console.error('[drive] Auto-sync error:', e.message);
