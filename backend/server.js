@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { createClient }  from '@supabase/supabase-js';
 import multer  from 'multer';
 import crypto  from 'crypto';
-import { syncDrive, uploadToDrive } from './drive-indexer.mjs';
+import { syncDrive, uploadToDrive, backfillFullDocs } from './drive-indexer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app  = express();
@@ -265,17 +265,61 @@ async function saveMessage(role, content) {
   }
 }
 
+// Book-index-style fallback: matches query words against RAKE-extracted
+// topic phrases (mobius_topics), no embedding or exact-phrase FTS required.
+// Coarser than both, but works even when a query has no distinctive
+// tsvector-matchable phrasing (e.g. "these documents", "5 more files").
+async function searchTopics(query, sourceTable, limit = 5) {
+  if (!supabase) return [];
+  const words = (query.toLowerCase().match(/[a-z0-9]{3,}/g) || []).slice(0, 6);
+  if (!words.length) return [];
+  const orExpr = words.map(w => `term.ilike.%${w}%`).join(',');
+  const { data, error } = await supabase
+    .from('mobius_topics')
+    .select('source_id, score')
+    .eq('source_table', sourceTable)
+    .or(orExpr)
+    .order('score', { ascending: false })
+    .limit(limit * 4);
+  if (error || !data?.length) return [];
+  const seen = new Set(); const ids = [];
+  for (const row of data) {
+    if (seen.has(row.source_id)) continue;
+    seen.add(row.source_id); ids.push(row.source_id);
+    if (ids.length >= limit) break;
+  }
+  return ids;
+}
+
 async function searchMessages(query) {
   if (!supabase) return [];
   const queryEmbedding = await embedQuery(query);
-  if (!queryEmbedding) return [];
-  const { data, error } = await supabase.rpc('match_mobius_messages', {
-    query_embedding: queryEmbedding,
-    match_count: 8,
-    match_threshold: 0.5,
-  });
-  if (error || !data?.length) return [];
-  return data;
+  if (queryEmbedding) {
+    const { data, error } = await supabase.rpc('match_mobius_messages', {
+      query_embedding: queryEmbedding,
+      match_count: 8,
+      match_threshold: 0.5,
+    });
+    if (!error && data?.length) return data;
+  }
+  // Embedding unavailable or found nothing — fall back to keyword search
+  // (mobius_messages.fts), then to the topic index.
+  const { data: ftsData } = await supabase
+    .from('mobius_messages')
+    .select('id, role, content, created_at')
+    .textSearch('content', query.split(' ').join(' & '), { type: 'plain' })
+    .limit(8);
+  if (ftsData?.length) return ftsData;
+
+  const topicIds = await searchTopics(query, 'mobius_messages', 8);
+  if (topicIds.length) {
+    const { data: topicData } = await supabase
+      .from('mobius_messages')
+      .select('id, role, content, created_at')
+      .in('id', topicIds);
+    if (topicData?.length) return topicData;
+  }
+  return [];
 }
 
 // ── Document store (semantic search via embeddings) ──────────────────────────
@@ -334,8 +378,18 @@ async function searchDocs(query) {
       .select('filename, chunk')
       .textSearch('chunk', query.split(' ').join(' & '), { type: 'plain' })
       .limit(5);
-    if (error || !data?.length) return '';
-    return data.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
+    if (data?.length) return data.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
+
+    // FTS also found nothing — try the topic index before giving up
+    const topicIds = await searchTopics(query, 'mobius_docs', 5);
+    if (topicIds.length) {
+      const { data: topicData } = await supabase
+        .from('mobius_docs')
+        .select('filename, chunk')
+        .in('id', topicIds);
+      if (topicData?.length) return topicData.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
+    }
+    return '';
   }
   const { data, error } = await supabase.rpc('match_mobius_docs', {
     query_embedding: queryEmbedding,
@@ -348,6 +402,10 @@ async function searchDocs(query) {
 
 async function saveDoc(filename, text) {
   if (!supabase) return;
+  // Full raw text, stored once per filename — this is what gets returned
+  // when the paper is referenced by name later (mode 3), not the chunks.
+  await supabase.from('mobius_docs_full').upsert({ filename, content: text, updated_at: new Date().toISOString() });
+
   const chunks = [];
   const size = 500; const overlap = 100;
   for (let i = 0; i < text.length; i += size - overlap) {
@@ -359,6 +417,42 @@ async function saveDoc(filename, text) {
     rows.push({ filename, chunk, embedding, embedding_provider: embedding ? 'gemini' : null, created_at: new Date().toISOString() });
   }
   await supabase.from('mobius_docs').insert(rows);
+}
+
+// Does the query name a specific archived document? Simple heuristic: strip
+// extension/punctuation from each known filename and check if a meaningful
+// chunk of it appears in the query text. Used to decide mode 3 (retrieve the
+// whole document) vs mode 2 (topic-based chunk search).
+async function findNamedDoc(query) {
+  if (!supabase) return null;
+  const { data } = await supabase.from('mobius_docs_full').select('filename');
+  if (!data?.length) return null;
+  const q = query.toLowerCase();
+  for (const { filename } of data) {
+    const stem = filename.replace(/\.(pdf|txt|md|docx?|csv|json|js|py)$/i, '')
+      .replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (stem.length > 6 && q.includes(stem)) return filename;
+    // also try a looser match: most of the significant words present, in order
+    const words = stem.split(' ').filter(w => w.length > 3);
+    if (words.length >= 2 && words.every(w => q.includes(w))) return filename;
+  }
+  return null;
+}
+
+async function getFullDoc(filename) {
+  if (!supabase) return null;
+  const { data } = await supabase.from('mobius_docs_full').select('content').eq('filename', filename).maybeSingle();
+  return data?.content || null;
+}
+
+// Cerebras's free tier caps context at 8K tokens total (system + history +
+// injected doc + response), so any raw document injected into the prompt
+// needs a hard ceiling regardless of which provider ends up serving this
+// request — otherwise a big paper silently breaks whichever model is picked.
+const MAX_DOC_INJECT_CHARS = 20000;
+function capText(text) {
+  if (text.length <= MAX_DOC_INJECT_CHARS) return text;
+  return text.slice(0, MAX_DOC_INJECT_CHARS) + '\n\n[...truncated — document is longer than fits in this context window...]';
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -410,10 +504,31 @@ app.post('/api/chat', async (req, res) => {
       if (result) searchContext = result;
     }
 
-    // 3. Document search
+    // 3. Document context — three modes, in priority order:
+    //    (1) just-attached files this turn -> raw full text, no search needed
+    //    (2) query names a specific archived paper -> retrieve that whole doc
+    //    (3) query references a topic, no paper named -> chunk-based semantic search
     let docContext = '';
-    const docResult = await searchDocs(resolvedQuery);
-    if (docResult) docContext = '\n\n[Relevant documents]\n' + docResult;
+    const attachedDocs = Array.isArray(req.body.docs) ? req.body.docs.filter(d => d?.text) : [];
+    if (attachedDocs.length) {
+      docContext = '\n\n[Attached document(s) — full text — CONFIRM RECEIPT: start your reply by explicitly listing these exact filenames as received before addressing the user\'s message]\n' +
+        attachedDocs.map(d => `--- ${d.filename} ---\n${capText(d.text)}`).join('\n\n');
+    } else {
+      const namedFile = await findNamedDoc(resolvedQuery);
+      if (namedFile) {
+        const fullText = await getFullDoc(namedFile);
+        if (fullText) docContext = `\n\n[Archived document: ${namedFile} — full text]\n` + capText(fullText);
+      } else {
+        const docResult = await searchDocs(resolvedQuery);
+        if (docResult) docContext = '\n\n[Relevant documents]\n' + docResult;
+      }
+      // Nothing attached this turn AND search/named-lookup found nothing —
+      // if the message reads like it expects files, say so plainly instead
+      // of letting the model guess or hallucinate receipt.
+      if (!docContext && /\b(file|document|paper|upload|attach)/i.test(userQuery)) {
+        docContext = '\n\n[No documents were attached to this message, and no matching document was found by search either. Tell the user plainly that nothing was received with THIS message and ask them to re-attach.]';
+      }
+    }
 
     // 3b. Older relevant chat history beyond the recency window
     const recentIds = new Set(history.map(m => m.created_at));
@@ -497,26 +612,48 @@ app.post('/api/docs/upload', upload.single('file'), async (req, res) => {
       }
     }
 
-    res.json({ ok: true, filename, chars: text.length, drive: driveResult });
+    res.json({ ok: true, filename, chars: text.length, text, drive: driveResult });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// List documents
+// List documents — reads from mobius_docs_full (one row per file, so this
+// can't silently truncate the way querying mobius_docs's chunks did) and
+// attaches an embedding-completeness count per file so the UI can show
+// which files are actually searchable yet vs still pending.
 app.get('/api/docs', async (req, res) => {
   if (!supabase) return res.json({ docs: [] });
-  const { data } = await supabase
+  const { data: files } = await supabase
+    .from('mobius_docs_full')
+    .select('filename, updated_at')
+    .order('updated_at', { ascending: false });
+  if (!files?.length) return res.json({ docs: [] });
+
+  const { data: chunkStats } = await supabase
     .from('mobius_docs')
-    .select('filename, created_at')
-    .order('created_at', { ascending: false });
-  const seen = new Set();
-  const docs = (data || []).filter(d => { if (seen.has(d.filename)) return false; seen.add(d.filename); return true; });
+    .select('filename, embedding_provider')
+    .in('filename', files.map(f => f.filename));
+  const statsByFile = {};
+  for (const row of chunkStats || []) {
+    const s = statsByFile[row.filename] || (statsByFile[row.filename] = { total: 0, embedded: 0 });
+    s.total++;
+    if (row.embedding_provider) s.embedded++;
+  }
+
+  const docs = files.map(f => ({
+    filename: f.filename,
+    created_at: f.updated_at,
+    chunks: statsByFile[f.filename]?.total || 0,
+    embedded: statsByFile[f.filename]?.embedded || 0,
+  }));
   res.json({ docs });
 });
 
 // Delete document
 app.delete('/api/docs/:filename', async (req, res) => {
   if (!supabase) return res.json({ ok: false });
-  await supabase.from('mobius_docs').delete().eq('filename', decodeURIComponent(req.params.filename));
+  const filename = decodeURIComponent(req.params.filename);
+  await supabase.from('mobius_docs').delete().eq('filename', filename);
+  await supabase.from('mobius_docs_full').delete().eq('filename', filename);
   res.json({ ok: true });
 });
 
@@ -536,6 +673,20 @@ app.post('/api/drive/sync', async (req, res) => {
     console.error('[drive] Sync error:', e.message);
   } finally { syncRunning = false; }
 });
+
+// One-time backfill for the mobius_docs_full table (pre-existing Drive
+// files that were chunked before that table existed). Text extraction only,
+// no embedding calls — safe to run regardless of Gemini quota state.
+async function handleBackfillFull(req, res) {
+  if (!supabase) return res.json({ ok: false, message: 'No Supabase connection' });
+  if (!GDRIVE_KEY) return res.json({ ok: false, message: 'Service account key not found' });
+  try {
+    const result = await backfillFullDocs(GDRIVE_KEY, SB_URL, SB_KEY);
+    res.json({ ok: true, ...result });
+  } catch (e) { res.status(500).json({ ok: false, message: e.message }); }
+}
+app.post('/api/drive/backfill-full', handleBackfillFull);
+app.get('/api/drive/backfill-full', handleBackfillFull); // GET too, so it can be triggered by just visiting the URL
 
 app.get('/api/drive/status', (req, res) => {
   res.json({ running: syncRunning, keyExists: !!GDRIVE_KEY });

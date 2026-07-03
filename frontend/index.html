@@ -215,9 +215,8 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     Drop files here or click to upload<br>
     <span style="font-size:10px;opacity:.7">PDF, TXT, MD, JS, PY, CSV, JSON</span>
   </div>
-  <div style="padding:6px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-    <span style="font-size:11px;color:var(--text-dim)">Google Drive (Mobius folder)</span>
-    <button id="drive-sync-btn" onclick="triggerDriveSync()" style="font-size:11px;background:var(--green);color:#fff;border:none;border-radius:2px;padding:3px 10px;cursor:pointer;">Sync now</button>
+  <div style="padding:5px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;">
+    <button id="drive-sync-btn" onclick="triggerDriveSync()" style="font-size:10px;background:none;color:var(--text-dim);border:none;text-decoration:underline;cursor:pointer;padding:2px;">Sync Google Drive folder</button>
   </div>
   <div class="dp-list" id="dp-list"></div>
 </div>
@@ -231,6 +230,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 // ── State ──────────────────────────────────────────────────────────────────
 let busy = false;
 let attachedImgs = [];
+let attachedDocs = []; // [{filename, text}] — raw text for the NEXT message only
 let history = [];   // [{role,content,created_at,ai}]
 let histIdx = -1;   // -1 = live view
 let currentModel = '';
@@ -344,7 +344,7 @@ async function loadHistory() {
         i++;
       }
     }
-    if (history.length) showHistItem(history.length-1);
+    if (history.length) { /* fresh page on load — don't auto-show the last exchange; use the ← nav to browse back into it */ }
   } catch(e) { console.warn('loadHistory:', e); }
 }
 
@@ -401,10 +401,15 @@ async function loadDocList() {
   try {
     const data = await fetch('/api/docs').then(r=>r.json());
     if (!data.docs?.length) { el.innerHTML='<div class="dp-empty">No documents yet.</div>'; return; }
-    el.innerHTML = data.docs.map(d =>
-      '<div class="dp-item"><span class="dp-item-name" title="'+esc(d.filename)+'">'+esc(d.filename)+'</span>' +
-      '<button class="dp-item-del" onclick="deleteDoc(\''+encodeURIComponent(d.filename)+'\',this)" title="Delete">&#x2715;</button></div>'
-    ).join('');
+    el.innerHTML = data.docs.map(d => {
+      let status;
+      if (!d.chunks) status = '<span style="color:var(--text-dim)">not indexed</span>';
+      else if (d.embedded === d.chunks) status = '<span style="color:var(--green-light)">&#x2713; searchable</span>';
+      else status = '<span style="color:var(--text-dim)">'+d.embedded+'/'+d.chunks+' embedded</span>';
+      return '<div class="dp-item"><span class="dp-item-name" title="'+esc(d.filename)+'">'+esc(d.filename)+'</span>' +
+        '<span style="font-size:10px;margin:0 6px;flex-shrink:0">'+status+'</span>' +
+        '<button class="dp-item-del" onclick="deleteDoc(\''+encodeURIComponent(d.filename)+'\',this)" title="Delete">&#x2715;</button></div>';
+    }).join('');
   } catch { el.innerHTML='<div class="dp-empty">Error loading docs.</div>'; }
 }
 
@@ -417,18 +422,42 @@ document.getElementById('dp-drop').addEventListener('dragover', e => { e.prevent
 document.getElementById('dp-drop').addEventListener('dragleave', e => e.currentTarget.classList.remove('dragover'));
 
 async function handleDocFiles(files) {
-  for (const f of files) {
+  if (docsOpen) toggleDocs(); // close the library modal so the chip list below isn't hidden behind it
+  const preview = document.getElementById('doc-attach-preview');
+  preview.className = 'has-items';
+
+  // Render every file's chip immediately, all as "waiting" — the full list
+  // is visible up front, before any upload has started.
+  const items = Array.from(files).map(f => {
+    const chip = document.createElement('div'); chip.className = 'doc-chip';
+    chip.innerHTML = '<span>'+esc(f.name)+'</span><span style="color:var(--text-dim)"> waiting…</span>';
+    preview.appendChild(chip);
+    return { file: f, chip };
+  });
+
+  // Upload one at a time (server-side embedding work makes true parallel
+  // uploads risky), but every chip's status is visible the whole time.
+  for (const { file: f, chip } of items) {
+    chip.innerHTML = '<span>'+esc(f.name)+'</span><span style="color:var(--text-dim)"> uploading…</span>';
     const fd = new FormData(); fd.append('file', f);
-    const chip = document.createElement('div'); chip.className='doc-chip';
-    chip.innerHTML='<span>'+esc(f.name)+'</span><span style="color:var(--text-dim)"> uploading…</span>';
-    document.getElementById('doc-attach-preview').appendChild(chip);
-    document.getElementById('doc-attach-preview').className='has-items';
     try {
       const r = await fetch('/api/docs/upload', { method:'POST', body:fd }).then(x=>x.json());
-      chip.innerHTML='<span>✓ '+esc(f.name)+'</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
-      loadDocList(); // always refresh the visible list in the modal, not just when docsOpen was true before the request
-    } catch { chip.innerHTML='<span style="color:var(--red)">'+esc(f.name)+' failed</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>'; }
+      if (r.ok && r.text) {
+        attachedDocs.push({ filename: r.filename, text: r.text });
+        chip.innerHTML = '<span>✓ '+esc(r.filename)+' (will be sent with your next message)</span><button class="doc-chip-remove" onclick="removeAttachedDoc(\''+esc(r.filename)+'\',this)">×</button>';
+      } else {
+        chip.innerHTML = '<span style="color:var(--red)">✗ '+esc(f.name)+' — '+esc(r.error||'upload failed, not attached')+'</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
+      }
+    } catch (e) {
+      chip.innerHTML = '<span style="color:var(--red)">✗ '+esc(f.name)+' — network error, not attached</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
+    }
   }
+  loadDocList();
+}
+
+function removeAttachedDoc(filename, btn) {
+  attachedDocs = attachedDocs.filter(d => d.filename !== filename);
+  btn.parentElement.remove();
 }
 
 async function deleteDoc(encodedName, btn) {
@@ -466,6 +495,10 @@ async function handleSend() {
   input.value = ''; input.style.height = 'auto';
   histIdx = -1;
   const imgs = attachedImgs.slice(); attachedImgs = []; renderImgPreviews();
+  const docs = attachedDocs.slice(); attachedDocs = [];
+  console.log('[send] docs attached to this message:', docs.map(d=>d.filename)); // verifiable proof of what's actually being sent
+  document.getElementById('doc-attach-preview').innerHTML = '';
+  document.getElementById('doc-attach-preview').className = '';
 
   const feed = document.getElementById('feed');
   feed.innerHTML = '';
@@ -489,6 +522,7 @@ async function handleSend() {
   try {
     const body = { query: q };
     if (imgs.length) body.images = imgs.map(i=>({base64:i.base64,mimeType:i.mimeType}));
+    if (docs.length) body.docs = docs.map(d=>({filename:d.filename,text:d.text}));
 
     const res = await fetch('/api/chat', {
       method: 'POST',

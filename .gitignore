@@ -4,3 +4,7 @@ data/*.db
 _dev/
 *.log
 google-service-account.json
+
+.vercel
+.env*
+deploy.env

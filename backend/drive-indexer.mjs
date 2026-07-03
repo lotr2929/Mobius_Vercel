@@ -24,7 +24,7 @@ const SUPPORTED_MIME  = new Set([
 // ── Auth ──────────────────────────────────────────────────────────────────────
 // Accepts either a file path (local dev) or an already-parsed credentials
 // object (Vercel, from the GOOGLE_SERVICE_ACCOUNT_JSON env var).
-function getDriveClient(keyOrCredentials) {
+export function getDriveClient(keyOrCredentials) {
   const key = typeof keyOrCredentials === 'string' ? require(keyOrCredentials) : keyOrCredentials;
   const auth = new google.auth.GoogleAuth({
     credentials: key,
@@ -73,7 +73,7 @@ async function embedText(text, geminiKey, _mistralKey, retries = 3) {
 }
 
 // ── Text extraction ────────────────────────────────────────────────────────────
-async function extractText(drive, file) {
+export async function extractText(drive, file) {
   try {
     if (file.mimeType === 'application/vnd.google-apps.document') {
       const res = await drive.files.export({ fileId: file.id, mimeType: 'text/plain' }, { responseType: 'text' });
@@ -106,7 +106,7 @@ async function extractText(drive, file) {
 }
 
 // ── Chunking ──────────────────────────────────────────────────────────────────
-function chunkText(text) {
+export function chunkText(text) {
   const chunks = [];
   let i = 0;
   while (i < text.length) {
@@ -118,7 +118,7 @@ function chunkText(text) {
 }
 
 // ── Walk folder recursively ────────────────────────────────────────────────────
-async function listFiles(drive, folderId, path = '') {
+export async function listFiles(drive, folderId, path = '') {
   const files = [];
   let pageToken = null;
   do {
@@ -188,6 +188,10 @@ export async function syncDrive(keyPath, supabaseUrl, supabaseKey, geminiKey, mi
     const text = await extractText(drive, file);
     if (!text.trim()) { skipped++; continue; }
 
+    // Full raw text — this is what gets retrieved when the paper is
+    // referenced by name later, separate from the chunks used for topic search.
+    await supabase.from('mobius_docs_full').upsert({ filename: file.path, content: text, updated_at: new Date().toISOString() });
+
     const chunks = chunkText(text);
     const rows = [];
     for (const chunk of chunks) {
@@ -213,4 +217,25 @@ export async function syncDrive(keyPath, supabaseUrl, supabaseKey, geminiKey, mi
 
   console.log(`[drive] Sync complete — ${indexed} indexed, ${skipped} skipped${embedFailed ? `, ${embedFailed} embeds failed` : ''}`);
   return { indexed, skipped, total: files.length, embedFailed };
+}
+
+// One-time backfill: populate mobius_docs_full for files that were already
+// chunked before that table existed. Pure text extraction — no embedding
+// calls, so it's not affected by the Gemini quota.
+export async function backfillFullDocs(keyPath, supabaseUrl, supabaseKey) {
+  const drive = getDriveClient(keyPath);
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const files = await listFiles(drive, DRIVE_FOLDER_ID);
+  let done = 0, skipped = 0;
+  for (const file of files) {
+    const { data: existing } = await supabase.from('mobius_docs_full').select('filename').eq('filename', file.path).maybeSingle();
+    if (existing) { skipped++; continue; }
+    const text = await extractText(drive, file);
+    if (!text.trim()) { skipped++; continue; }
+    await supabase.from('mobius_docs_full').upsert({ filename: file.path, content: text, updated_at: new Date().toISOString() });
+    done++;
+    console.log(`[backfill-full] ${file.path}`);
+  }
+  console.log(`[backfill-full] done — ${done} added, ${skipped} skipped`);
+  return { done, skipped, total: files.length };
 }
