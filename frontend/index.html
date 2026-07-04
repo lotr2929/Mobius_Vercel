@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Mobius">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/logo.png">
+<link rel="apple-touch-icon" href="/icon-512.png">
 <title>Mobius</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -213,7 +213,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
       🗂 Open Google Drive
     </button>
   </div>
-  <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json" multiple
+  <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json,.docx" multiple
          style="display:none" onchange="handleDocFiles(this.files)">
   <div style="padding:5px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;">
     <button id="drive-sync-btn" onclick="triggerDriveSync()" style="font-size:10px;background:none;color:var(--text-dim);border:none;text-decoration:underline;cursor:pointer;padding:2px;">Sync Google Drive folder into Mobius</button>
@@ -403,9 +403,52 @@ function openLocalPicker() {
   if (docsOpen) toggleDocs();
   document.getElementById('docInput').click();
 }
-function openGoogleDrive() {
-  if (docsOpen) toggleDocs();
-  window.open('https://drive.google.com/drive/folders/1VVnAQfq___O30Jz7wW_ovRNQdk8jQdLj', '_blank');
+// Browses the Mobius Drive folder in-panel (via the existing service
+// account — no separate Google sign-in), instead of opening a dead-end
+// browser tab. Selecting a file imports it the same way a device upload
+// works: attached to the next message + queued for indexing.
+function openGoogleDrive() { showDriveBrowser(); }
+
+async function showDriveBrowser() {
+  const el = document.getElementById('dp-list');
+  el.innerHTML = '<div class="dp-empty">Loading Drive files…</div>';
+  try {
+    const data = await fetch('/api/drive/browse').then(r=>r.json());
+    if (!data.ok) { el.innerHTML = '<div class="dp-empty">'+esc(data.error||'Drive not configured')+'</div>'; return; }
+    if (!data.files?.length) { el.innerHTML = '<div class="dp-empty">No files found in Drive folder.</div>'; return; }
+    el.innerHTML = '<div style="padding:6px 10px;cursor:pointer;font-size:11px;color:var(--text-dim);text-decoration:underline;" onclick="loadDocList()">&larr; Back to my documents</div>' +
+      data.files.map(f =>
+        '<div class="dp-item"><span class="dp-item-name" title="'+esc(f.name)+'">'+esc(f.name)+'</span>' +
+        '<button class="dp-item-import" data-id="'+esc(f.id)+'" data-name="'+esc(f.name)+'" data-mime="'+esc(f.mimeType)+'" onclick="importDriveFile(this)" style="font-size:10px;">Import</button></div>'
+      ).join('');
+  } catch (e) { el.innerHTML = '<div class="dp-empty">Error loading Drive files.</div>'; }
+}
+
+async function importDriveFile(btn) {
+  const { id, name, mime } = btn.dataset;
+  const preview = document.getElementById('doc-attach-preview');
+  preview.className = 'has-items';
+  const chip = document.createElement('div'); chip.className = 'doc-chip';
+  chip.innerHTML = '<span>'+esc(name)+'</span><span style="color:var(--text-dim)"> importing…</span>';
+  preview.appendChild(chip);
+  btn.disabled = true; btn.textContent = 'Importing…';
+  try {
+    const r = await fetch('/api/drive/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: id, filename: name, mimeType: mime }),
+    }).then(x => x.json());
+    if (r.ok) {
+      attachedDocs.push({ filename: r.filename, text: r.text });
+      chip.innerHTML = '<span>✓ '+esc(r.filename)+' (will be sent with your next message)</span><button class="doc-chip-remove" onclick="removeAttachedDoc(\''+esc(r.filename)+'\',this)">×</button>';
+      btn.textContent = '✓ Imported';
+    } else {
+      chip.innerHTML = '<span style="color:var(--red)">✗ '+esc(name)+' — '+esc(r.error||'import failed')+'</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
+      btn.textContent = 'Import'; btn.disabled = false;
+    }
+  } catch (e) {
+    chip.innerHTML = '<span style="color:var(--red)">✗ '+esc(name)+' — network error</span><button class="doc-chip-remove" onclick="this.parentElement.remove()">×</button>';
+    btn.textContent = 'Import'; btn.disabled = false;
+  }
 }
 
 async function loadDocList() {

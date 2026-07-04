@@ -1,5 +1,5 @@
 // Mobius Service Worker
-const CACHE = 'mobius-v6'; // bump this on every deploy that changes index.html/app shell
+const CACHE = 'mobius-v7'; // bump this on every deploy that changes index.html/app shell
 const STATIC = ['/manifest.json', '/logo.png', '/favicon.png'];
 
 self.addEventListener('install', e => {

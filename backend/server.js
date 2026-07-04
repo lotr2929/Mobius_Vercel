@@ -67,7 +67,7 @@ import fs         from 'fs';
 import { fileURLToPath } from 'url';
 import { createClient }  from '@supabase/supabase-js';
 import multer  from 'multer';
-import { syncDrive, uploadToDrive, backfillFullDocs } from './drive-indexer.mjs';
+import { syncDrive, uploadToDrive, backfillFullDocs, getDriveClient, listFiles, extractText, DRIVE_FOLDER_ID } from './drive-indexer.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app  = express();
@@ -666,6 +666,10 @@ app.post('/api/docs/upload', upload.single('file'), async (req, res) => {
       const pdfParse = (await import('pdf-parse')).default;
       const data = await pdfParse(req.file.buffer);
       text = data.text;
+    } else if (filename.endsWith('.docx')) {
+      const mammoth = (await import('mammoth')).default;
+      const data = await mammoth.extractRawText({ buffer: req.file.buffer });
+      text = data.value;
     } else {
       text = req.file.buffer.toString('utf8');
     }
@@ -682,6 +686,34 @@ app.post('/api/docs/upload', upload.single('file'), async (req, res) => {
     }
 
     res.json({ ok: true, filename, chars: text.length, text, drive: driveResult });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Browse the Mobius Drive folder — lists files via the existing service
+// account (no separate OAuth/Picker setup needed). Frontend shows this as
+// a pickable list; selecting a file calls /api/drive/import below.
+app.get('/api/drive/browse', async (req, res) => {
+  if (!GDRIVE_KEY) return res.status(400).json({ error: 'Drive not configured' });
+  try {
+    const drive = getDriveClient(GDRIVE_KEY);
+    const files = await listFiles(drive, DRIVE_FOLDER_ID);
+    res.json({ ok: true, files: files.map(f => ({ id: f.id, name: f.path, mimeType: f.mimeType, modifiedTime: f.modifiedTime })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Import one file chosen from the Drive browse list — downloads the whole
+// file, extracts text (same extractText() used by the background sync),
+// and saves it via saveDoc() so it behaves exactly like a device upload
+// (attached to the next message + queued for indexing).
+app.post('/api/drive/import', async (req, res) => {
+  if (!GDRIVE_KEY) return res.status(400).json({ error: 'Drive not configured' });
+  const { fileId, filename } = req.body || {};
+  if (!fileId) return res.status(400).json({ error: 'No fileId' });
+  try {
+    const drive = getDriveClient(GDRIVE_KEY);
+    const text = await extractText(drive, { id: fileId, mimeType: req.body.mimeType });
+    await saveDoc(filename, text);
+    res.json({ ok: true, filename, chars: text.length, text });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

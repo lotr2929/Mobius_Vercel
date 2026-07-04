@@ -14,7 +14,7 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-const DRIVE_FOLDER_ID = '1VVnAQfq___O30Jz7wW_ovRNQdk8jQdLj';
+export const DRIVE_FOLDER_ID = '1VVnAQfq___O30Jz7wW_ovRNQdk8jQdLj';
 const CHUNK_SIZE      = 600;
 const CHUNK_OVERLAP   = 100;
 const SUPPORTED_MIME  = new Set([
@@ -38,7 +38,7 @@ export function getDriveClient(keyOrCredentials) {
   return google.drive({ version: 'v3', auth });
 }
 
-// ── Embeddings (Gemini text-embedding-004, 768-dim) ──────────────────────────
+// ── Embeddings (Gemini gemini-embedding-001, 1024-dim) ───────────────────
 async function embedGemini(text, geminiKey) {
   if (!geminiKey) return null;
   const r = await fetch(

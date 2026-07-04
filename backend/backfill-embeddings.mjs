@@ -32,28 +32,26 @@ async function embedGemini(text) {
   return data.embedding?.values || null;
 }
 
-async function embedWithRetry(text, retries = 5) {
+// Retries only genuine transient errors. A 429 means the daily quota is
+// exhausted — that won't clear in seconds, so retrying with backoff just
+// wastes minutes per row once the cap is hit. Fails fast on 429 instead,
+// same fix already applied to embedQuery() in server.js and embedText() in
+// drive-indexer.mjs.
+async function embedWithRetry(text, retries = 3) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const result = await embedGemini(text);
       if (result) return result;
     } catch (e) {
-      const isRateLimit = /429/.test(e.message);
-      const wait = isRateLimit ? 20000 * (attempt + 1) : 3000 * (attempt + 1);
-      console.warn(`  attempt ${attempt + 1}/${retries} failed: ${e.message} — waiting ${wait}ms`);
-      if (attempt < retries - 1) await new Promise(r => setTimeout(r, wait));
+      if (/429/.test(e.message)) {
+        console.warn('  gemini quota exhausted — leaving remaining rows null for next run');
+        return null;
+      }
+      console.warn(`  attempt ${attempt + 1}/${retries} failed: ${e.message}`);
+      if (attempt < retries - 1) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
     }
   }
   return null; // give up on this row after all retries; leaves embedding null for next run
-}
-
-async function fetchBatch(table, limit = 200) {
-  const { data, error } = await supabase
-    .from(table)
-    .select('id, chunk:content')
-    .is('embedding', null)
-    .limit(limit);
-  return { data, error };
 }
 
 async function backfillTable(table, textColumn) {
@@ -70,6 +68,7 @@ async function backfillTable(table, textColumn) {
 
     console.log(`[${table}] batch of ${rows.length} (remaining unknown until next check)`);
 
+    let doneThisPass = 0;
     for (const row of rows) {
       const text = row[textColumn] || '';
       if (!text.trim()) { totalFailed++; continue; }
@@ -79,13 +78,23 @@ async function backfillTable(table, textColumn) {
         await supabase.from(table)
           .update({ embedding, embedding_provider: 'gemini' })
           .eq('id', row.id);
-        totalDone++;
+        totalDone++; doneThisPass++;
         if (totalDone % 25 === 0) console.log(`  [${table}] embedded so far: ${totalDone}`);
       } else {
         totalFailed++;
         console.warn(`  [${table}] id=${row.id} gave up after retries — left null for next run`);
       }
       await new Promise(r => setTimeout(r, 200)); // pace requests, avoid hammering rate limit
+    }
+
+    // A full pass with zero successes means quota is exhausted (or every
+    // remaining row is genuinely bad text) — refetching the same un-embedded
+    // rows again would just repeat the same failures forever. Stop here;
+    // re-run this script later (tomorrow's quota reset, typically) to
+    // pick up exactly where this left off.
+    if (doneThisPass === 0) {
+      console.log(`[${table}] no progress this pass — stopping (quota exhausted or all remaining rows failed). Re-run later to resume.`);
+      break;
     }
   }
   console.log(`[${table}] done — embedded: ${totalDone}, gave up: ${totalFailed}`);
