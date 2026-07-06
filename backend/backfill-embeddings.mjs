@@ -1,5 +1,5 @@
 // backfill-embeddings.mjs
-// Resumable: embeds any mobius_docs rows where embedding is null.
+// Resumable: embeds any mobius_docs / mobius_messages rows where embedding is null.
 // Gemini-only (no cross-provider fallback — Gemini/Mistral vectors are
 // not comparable even at matching dimensions). Safe to re-run if it stops
 // partway — it always picks up wherever "embedding is null" left off.
@@ -13,6 +13,11 @@ const SB_KEY = process.env.SUPABASE_KEY;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
 const supabase = createClient(SB_URL, SB_KEY);
+
+const TABLES = [
+  { table: 'mobius_docs', textColumn: 'chunk' },
+  { table: 'mobius_messages', textColumn: 'content' },
+];
 
 async function embedGemini(text) {
   const r = await fetch(
@@ -43,10 +48,7 @@ async function embedWithRetry(text, retries = 3) {
       const result = await embedGemini(text);
       if (result) return result;
     } catch (e) {
-      if (/429/.test(e.message)) {
-        console.warn('  gemini quota exhausted — leaving remaining rows null for next run');
-        return null;
-      }
+      if (/429/.test(e.message)) return 'QUOTA_EXHAUSTED';
       console.warn(`  attempt ${attempt + 1}/${retries} failed: ${e.message}`);
       if (attempt < retries - 1) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
     }
@@ -54,8 +56,26 @@ async function embedWithRetry(text, retries = 3) {
   return null; // give up on this row after all retries; leaves embedding null for next run
 }
 
-async function backfillTable(table, textColumn) {
-  let totalDone = 0, totalFailed = 0;
+async function getCounts(table) {
+  const { count: embedded } = await supabase
+    .from(table).select('id', { count: 'exact', head: true }).not('embedding', 'is', null);
+  const { count: notEmbedded } = await supabase
+    .from(table).select('id', { count: 'exact', head: true }).is('embedding', null);
+  return { embedded: embedded ?? 0, total: (embedded ?? 0) + (notEmbedded ?? 0) };
+}
+
+const fmt = n => n.toLocaleString();
+
+function printSummaryLine(table, embedded, total) {
+  console.log(`${table.padEnd(16)} ${fmt(embedded)}/${fmt(total)}`);
+}
+
+// embeddedSoFar/total tracks the TRUE cumulative count (rows already
+// embedded before this run + rows embedded during this run) — never resets
+// to zero at the start of a run.
+async function backfillTable(table, textColumn, embeddedSoFar, total) {
+  let quotaExhausted = false;
+
   while (true) {
     const { data: rows, error } = await supabase
       .from(table)
@@ -66,51 +86,70 @@ async function backfillTable(table, textColumn) {
     if (error) { console.error(`[${table}]`, error.message); break; }
     if (!rows || rows.length === 0) break;
 
-    console.log(`[${table}] batch of ${rows.length} (remaining unknown until next check)`);
-
     let doneThisPass = 0;
     for (const row of rows) {
       const text = row[textColumn] || '';
-      if (!text.trim()) { totalFailed++; continue; }
+      if (!text.trim()) { continue; }
 
       const embedding = await embedWithRetry(text);
+      if (embedding === 'QUOTA_EXHAUSTED') {
+        quotaExhausted = true;
+        break; // stop working through this batch right away — no point burning more calls
+      }
       if (embedding) {
         await supabase.from(table)
           .update({ embedding, embedding_provider: 'gemini' })
           .eq('id', row.id);
-        totalDone++; doneThisPass++;
-        if (totalDone % 25 === 0) console.log(`  [${table}] embedded so far: ${totalDone}`);
+        embeddedSoFar++; doneThisPass++;
       } else {
-        totalFailed++;
+        process.stdout.write('\n');
         console.warn(`  [${table}] id=${row.id} gave up after retries — left null for next run`);
       }
+      process.stdout.write(`\r  ${table.padEnd(16)} ${fmt(embeddedSoFar)}/${fmt(total)}   `);
       await new Promise(r => setTimeout(r, 200)); // pace requests, avoid hammering rate limit
     }
 
-    // A full pass with zero successes means quota is exhausted (or every
-    // remaining row is genuinely bad text) — refetching the same un-embedded
-    // rows again would just repeat the same failures forever. Stop here;
-    // re-run this script later (tomorrow's quota reset, typically) to
-    // pick up exactly where this left off.
+    if (quotaExhausted) { process.stdout.write('\n'); break; }
+
+    // A full pass with zero successes (and no quota flag) means every
+    // remaining row is genuinely bad text — refetching them again would
+    // just repeat the same failures forever. Stop here.
     if (doneThisPass === 0) {
-      console.log(`[${table}] no progress this pass — stopping (quota exhausted or all remaining rows failed). Re-run later to resume.`);
+      console.log(`\n[${table}] no progress this pass — stopping (all remaining rows failed).`);
       break;
     }
   }
-  console.log(`[${table}] done — embedded: ${totalDone}, gave up: ${totalFailed}`);
-  return { totalDone, totalFailed };
+  return { embeddedSoFar, quotaExhausted };
 }
 
 async function main() {
   if (!GEMINI_KEY) { console.error('GEMINI_API_KEY missing from .env'); return; }
 
-  console.log('=== Backfilling mobius_docs ===');
-  await backfillTable('mobius_docs', 'chunk');
+  const counts = {};
+  console.log('Starting point:');
+  for (const { table } of TABLES) {
+    counts[table] = await getCounts(table);
+    printSummaryLine(table, counts[table].embedded, counts[table].total);
+  }
+  console.log('');
 
-  console.log('\n=== Backfilling mobius_messages ===');
-  await backfillTable('mobius_messages', 'content');
+  let quotaHit = false;
+  for (const { table, textColumn } of TABLES) {
+    if (quotaHit) break; // same daily quota covers all tables — don't bother attempting
+    const { embedded, total } = counts[table];
+    if (embedded >= total) { console.log(`[${table}] already complete.\n`); continue; }
 
-  console.log('\nAll done.');
+    console.log(`=== Backfilling ${table} ===`);
+    const result = await backfillTable(table, textColumn, embedded, total);
+    counts[table].embedded = result.embeddedSoFar;
+    if (result.quotaExhausted) quotaHit = true;
+    console.log('');
+  }
+
+  console.log(quotaHit ? 'GEMINI QUOTA EXHAUSTED — stopped. Final counts:' : 'All done. Final counts:');
+  for (const { table } of TABLES) {
+    printSummaryLine(table, counts[table].embedded, counts[table].total);
+  }
 }
 
 main();

@@ -136,6 +136,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 
 /* ── History nav ── */
 #hist-nav{display:flex;align-items:center;gap:2px;margin-right:4px;}
+#query-nav{display:flex;align-items:center;gap:2px;margin-right:4px;}
 
 /* ── Mobile adjustments ── */
 @media (max-width:480px){
@@ -171,25 +172,29 @@ textarea#qinput::placeholder{color:var(--text-dim);}
   <div id="doc-attach-preview"></div>
   <textarea id="qinput" placeholder="Ask anything…" rows="2"></textarea>
   <div class="controls">
-    <!-- Image attach -->
-    <button class="icon-btn" title="Attach image" onclick="imgInput.click()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    <!-- Attach (images + files) -->
+    <button class="icon-btn" title="Attach files" onclick="toggleDocs()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 01-7.07-7.07l9.19-9.19a3.5 3.5 0 014.95 4.95l-9.19 9.19a1.5 1.5 0 01-2.12-2.12l8.49-8.49"/></svg>
     </button>
-    <!-- Doc attach -->
-    <button class="icon-btn" title="Upload document" onclick="toggleDocs()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-    </button>
-    <!-- History nav -->
+    <!-- Chat nav -->
     <div id="hist-nav">
-      <button class="icon-btn" id="btn-older" title="Older" onclick="navHist(-1)">
+      <button class="icon-btn" id="btn-older" title="Older chat" onclick="navHist(-1)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-      <button class="icon-btn" id="btn-newer" title="Newer" onclick="navHist(1)">
+      <button class="icon-btn" id="btn-newer" title="Newer chat" onclick="navHist(1)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     </div>
-    <span class="hint">Ctrl+↵</span>
-    <button class="icon-btn" id="drive-refresh-btn" title="Sync Google Drive now" onclick="triggerDriveSync()">
+    <!-- Query nav -->
+    <div id="query-nav">
+      <button class="icon-btn" id="btn-qup" title="Previous query" onclick="navQueryHist(-1)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-qdown" title="Next query" onclick="navQueryHist(1)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </div>
+    <button class="icon-btn" id="reset-btn" title="Reset" onclick="resetInput()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
     </button>
     <button id="send-btn" onclick="handleSend()">
@@ -233,6 +238,9 @@ let attachedImgs = [];
 let attachedDocs = []; // [{filename, text}] — raw text for the NEXT message only
 let history = [];   // [{role,content,created_at,ai}]
 let histIdx = -1;   // -1 = live view
+let queryHistory = [];   // typed queries you've sent, oldest first
+let queryHistIdx = -1;   // -1 = live draft
+let queryHistDraft = ''; // holds what was in the box before navigating
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function tick() {
@@ -363,6 +371,39 @@ function navHist(dir) {
   const next = histIdx === -1 ? history.length - 1 + (dir === 1 ? 0 : 0) : histIdx + dir;
   if (next < 0 || next >= history.length) return;
   showHistItem(next);
+}
+
+// ── Query history (recall previously typed/sent queries) ───────────────────
+function navQueryHist(dir) {
+  if (!queryHistory.length) return;
+  const input = document.getElementById('qinput');
+  if (queryHistIdx === -1) queryHistDraft = input.value;
+  if (dir === -1) {
+    const next = queryHistIdx === -1 ? queryHistory.length - 1 : queryHistIdx - 1;
+    if (next < 0) return;
+    queryHistIdx = next;
+    input.value = queryHistory[queryHistIdx];
+  } else {
+    if (queryHistIdx === -1) return;
+    const next = queryHistIdx + 1;
+    if (next >= queryHistory.length) { queryHistIdx = -1; input.value = queryHistDraft; }
+    else { queryHistIdx = next; input.value = queryHistory[queryHistIdx]; }
+  }
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+}
+
+// ── Reset (clear input, attachments, and return to a blank live view) ──────
+function resetInput() {
+  const input = document.getElementById('qinput');
+  input.value = ''; input.style.height = 'auto';
+  attachedImgs = []; renderImgPreviews();
+  attachedDocs = [];
+  document.getElementById('doc-attach-preview').innerHTML = '';
+  document.getElementById('doc-attach-preview').className = '';
+  queryHistIdx = -1; queryHistDraft = '';
+  histIdx = -1;
+  document.getElementById('feed').innerHTML = '';
 }
 
 // ── Image handling ─────────────────────────────────────────────────────────
@@ -539,6 +580,8 @@ async function handleSend() {
   const q = input.value.trim();
   if (!q || busy) return;
   busy = true;
+  if (!queryHistory.length || queryHistory[queryHistory.length - 1] !== q) queryHistory.push(q);
+  queryHistIdx = -1; queryHistDraft = '';
   input.value = ''; input.style.height = 'auto';
   histIdx = -1;
   const imgs = attachedImgs.slice(); attachedImgs = []; renderImgPreviews();
