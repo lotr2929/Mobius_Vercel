@@ -612,7 +612,7 @@ async function handleSend() {
   ansEl.innerHTML = '<span class="thinking-dots">thinking…</span>';
   scrollFeed();
 
-  let full = ''; let usedModel = ''; let searched = false;
+  let full = ''; let usedModel = ''; let searched = false; let tavilyRemaining = '';
 
   try {
     const body = { query: q };
@@ -642,6 +642,7 @@ async function handleSend() {
               searched = true;
               document.getElementById('status-dot').className = 'searching';
             }
+            if (obj.event.startsWith('tavily:')) tavilyRemaining = obj.event.slice(7);
             if (obj.event.startsWith('error:not-configured:')) {
               full += '\n\n⚠ That model isn\'t configured on this deployment (missing API key).';
               ansEl.innerHTML = md(full);
@@ -665,6 +666,7 @@ async function handleSend() {
         '<span>'+fmtDT(new Date().toISOString())+'</span>'+
         (usedModel ? '<span class="ai-badge">'+esc(usedModel)+'</span>' : '')+
         (searched ? '<span class="search-badge">&#x1F50D; web</span>' : '')+
+        (tavilyRemaining ? '<span class="ai-badge" title="Tavily credits remaining this month">&#x1F50D; '+esc(tavilyRemaining)+'</span>' : '')+
         '<button class="copy-btn" onclick="copyBubble(this)" title="Copy">&#x2398;</button>';
     }
     // Add to local history

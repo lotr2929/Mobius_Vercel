@@ -282,18 +282,38 @@ async function resolveQuery(userQuery, history) {
   }
 }
 
-// ── Needs-search detection ────────────────────────────────────────────────────
-function needsSearch(query) {
-  const q = query.toLowerCase();
-  const signals = [
-    /\b(latest|current|recent|today|now|2025|2026|this year|this week)\b/,
-    /\b(news|price|weather|stock|rate|score|result|update|release)\b/,
-    /\bwho is\b|\bwhat is\b|\bwhen did\b|\bwhere is\b/,
-    /\b(search|look up|find out|check)\b/,
-  ];
-  return signals.some(r => r.test(q));
+// ── Tavily credit usage ─────────────────────────────────────────────────────
+// GET /usage doesn't consume a credit itself; used to surface "credits
+// remaining this month" in the UI so Boon can see how close he is to the
+// free-tier cap without leaving Mobius.
+async function getTavilyUsage() {
+  if (!TAVILY_KEY) return null;
+  try {
+    const r = await fetch('https://api.tavily.com/usage', {
+      headers: { 'Authorization': 'Bearer ' + TAVILY_KEY },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const limit = data?.account?.plan_limit;
+    const used = data?.account?.plan_usage;
+    if (typeof limit !== 'number' || typeof used !== 'number') return null;
+    return { remaining: limit - used, limit };
+  } catch { return null; }
 }
 
+// ── Needs-search detection ────────────────────────────────────────────────────
+// Search is now the default (Boon wants every substantive question grounded
+// in live web results, not just training data) — this just filters out the
+// handful of message types where a search would be pointless: pure
+// greetings/acknowledgements, or messages that are really about an attached
+// document (that's handled by docContext instead, see step 3).
+function isTrivialChat(query) {
+  const q = query.toLowerCase().trim();
+  if (q.length < 3) return true;
+  const trivial = /^(hi|hey|hello|yo|sup|thanks|thank you|ta|cheers|ok|okay|k|cool|nice|great|got it|noted|ack|good morning|good night|bye|goodbye|yes|no|yep|nope|sure)[\s!.?]*$/;
+  return trivial.test(q);
+}
 // ── History (Supabase + local fallback) ───────────────────────────────────────
 // Messages stored as: { role, content, created_at }
 // Each user+assistant pair = one exchange
@@ -567,9 +587,12 @@ app.post('/api/chat', async (req, res) => {
     // 1b. Resolve query against recent history (fixes "it"/"that" references)
     const resolvedQuery = await resolveQuery(userQuery, history);
 
-    // 2. Web search if needed
+    // 2. Web search — on by default for every substantive question, so
+    //    answers are grounded in current information rather than training
+    //    data alone. Skipped only for trivial chit-chat (greetings, "thanks",
+    //    etc.) to avoid burning search quota on messages with nothing to look up.
     let searchContext = '';
-    if (needsSearch(resolvedQuery) && TAVILY_KEY) {
+    if (!isTrivialChat(resolvedQuery) && TAVILY_KEY) {
       send({ event: 'searching web...' });
       const result = await tavilySearch(resolvedQuery);
       if (result) searchContext = result;
@@ -644,6 +667,10 @@ app.post('/api/chat', async (req, res) => {
 
     // 7. Save assistant response (with which model actually answered)
     await saveMessage('assistant', full, { model: usedModel });
+
+    // 7b. Tavily credits remaining — surfaced in the UI meta row
+    const tavilyUsage = await getTavilyUsage();
+    if (tavilyUsage) send({ event: 'tavily:' + tavilyUsage.remaining + '/' + tavilyUsage.limit });
 
     res.write('data: [DONE]\n\n');
     res.end();
