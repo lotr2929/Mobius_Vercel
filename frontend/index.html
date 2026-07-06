@@ -64,6 +64,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   font-size:14px;line-height:1.6;max-width:96%;
 }
 .bubble-meta{font-size:10px;color:var(--text-dim);margin-top:4px;display:flex;gap:8px;align-items:center;padding-left:2px;}
+.bubble-files{font-size:10px;color:var(--text-dim);margin-top:4px;text-align:right;font-style:italic;}
 .ai-badge{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1px 6px;font-size:9px;color:var(--text-dim);}
 .search-badge{background:#2a1e08;border:1px solid #5a4a2a;border-radius:8px;padding:1px 6px;font-size:9px;color:#c8a84b;}
 .copy-btn{background:none;border:none;cursor:pointer;color:var(--text-dim);padding:2px 4px;border-radius:2px;font-size:10px;margin-left:auto;}
@@ -82,9 +83,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .bubble-answer tr:nth-child(even) td{background:var(--surface);}
 .bubble-answer hr{border:none;border-top:1px solid var(--border);margin:8px 0;}
 .bubble-answer strong{font-weight:700;color:var(--text-muted);}
-.bubble-answer code{font-family:var(--font-mono);font-size:11px;background:var(--code-bg);color:#86efac;padding:1px 4px;border-radius:2px;}
+.bubble-answer code{font-family:var(--font);font-style:italic;font-size:11px;background:var(--code-bg);color:#86efac;padding:1px 4px;border-radius:2px;}
 .bubble-answer pre{font-family:var(--font-mono);font-size:11px;background:var(--code-bg);color:#d4d4d4;padding:10px 12px;border-radius:2px;overflow-x:auto;margin:6px 0;}
-.bubble-answer pre code{background:none;color:inherit;padding:0;}
+.bubble-answer pre code{font-family:var(--font-mono);font-style:normal;background:none;color:inherit;padding:0;}
 .bubble-answer a{color:var(--green-light);text-decoration:underline;}
 
 /* ── Input area ── */
@@ -179,19 +180,19 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     <!-- Chat nav -->
     <div id="hist-nav">
       <button class="icon-btn" id="btn-older" title="Older chat" onclick="navHist(-1)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <button class="icon-btn" id="btn-newer" title="Newer chat" onclick="navHist(1)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     </div>
     <!-- Query nav -->
     <div id="query-nav">
       <button class="icon-btn" id="btn-qup" title="Previous query" onclick="navQueryHist(-1)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
       </button>
       <button class="icon-btn" id="btn-qdown" title="Next query" onclick="navQueryHist(1)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
     </div>
     <button class="icon-btn" id="reset-btn" title="Reset" onclick="resetInput()">
@@ -317,6 +318,7 @@ function makeBubble(role, content, meta={}) {
   wrap.className = 'bubble';
   if (role === 'user') {
     wrap.innerHTML = '<div class="bubble-query">' + esc(content) + '</div>';
+    if (meta.docs && meta.docs.length) wrap.innerHTML += '<div class="bubble-files">' + meta.docs.map(esc).join(', ') + '</div>';
     if (meta.ts) wrap.innerHTML += '<div class="bubble-meta" style="justify-content:flex-end"><span>' + fmtDT(meta.ts) + '</span></div>';
   } else {
     const ansId = 'ans-' + Date.now() + Math.random().toString(36).slice(2);
@@ -347,11 +349,14 @@ async function loadHistory() {
     history = [];
     for (let i=0; i<msgs.length; i++) {
       if (msgs[i]?.role==='user' && msgs[i+1]?.role==='assistant') {
-        history.push({ user: msgs[i].content, assistant: msgs[i+1].content, ts: msgs[i].created_at, ai: msgs[i+1].ai_provider||'' });
+        history.push({ user: msgs[i].content, assistant: msgs[i+1].content, ts: msgs[i].created_at, ai: msgs[i+1].ai_provider||'', docs: msgs[i].docs||[] });
         i++;
       }
     }
     if (history.length) { /* fresh page on load — don't auto-show the last exchange; use the ← nav to browse back into it */ }
+    // Seed typed-query recall (↑/↓) with past queries so it works immediately on load, not just after sending something new this session.
+    queryHistory = history.map(h => h.user).filter((q, i, arr) => q !== arr[i - 1]);
+    queryHistIdx = -1; queryHistDraft = '';
   } catch(e) { console.warn('loadHistory:', e); }
 }
 
@@ -361,7 +366,7 @@ function showHistItem(idx) {
   const p = history[idx];
   const feed = document.getElementById('feed');
   feed.innerHTML = '';
-  feed.appendChild(makeBubble('user', p.user, { ts: p.ts }));
+  feed.appendChild(makeBubble('user', p.user, { ts: p.ts, docs: p.docs }));
   feed.appendChild(makeBubble('assistant', p.assistant, { ts: p.ts, ai: p.ai }));
   scrollFeed();
 }
@@ -598,7 +603,7 @@ async function handleSend() {
   if (imgs.length) {
     userContent = '[image attached] ' + q;
   }
-  feed.appendChild(makeBubble('user', userContent));
+  feed.appendChild(makeBubble('user', userContent, { docs: docs.map(d=>d.filename) }));
 
   // Assistant bubble (streaming)
   const aiBubble = makeBubble('assistant', '');
@@ -663,7 +668,7 @@ async function handleSend() {
         '<button class="copy-btn" onclick="copyBubble(this)" title="Copy">&#x2398;</button>';
     }
     // Add to local history
-    history.push({ user: q, assistant: full, ts: new Date().toISOString(), ai: usedModel });
+    history.push({ user: q, assistant: full, ts: new Date().toISOString(), ai: usedModel, docs: docs.map(d=>d.filename) });
 
   } catch(e) {
     ansEl.innerHTML = '<div style="color:var(--red)">'+esc(e.message)+'</div>';

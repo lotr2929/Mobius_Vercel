@@ -305,7 +305,7 @@ async function getHistory(limit = 60) {
   if (supabase) {
     const { data, error } = await supabase
       .from('mobius_messages')
-      .select('role, content, created_at')
+      .select('role, content, created_at, ai_provider, docs')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (!error && data) return data.reverse();
@@ -313,12 +313,14 @@ async function getHistory(limit = 60) {
   return [];
 }
 
-async function saveMessage(role, content) {
+async function saveMessage(role, content, opts = {}) {
   if (supabase) {
     const embedding = await embedQuery(content);
     await supabase.from('mobius_messages').insert({
       role, content, embedding,
       embedding_provider: embedding ? 'gemini' : null,
+      ai_provider: opts.model || null,
+      docs: opts.docs && opts.docs.length ? opts.docs : null,
       created_at: new Date().toISOString(),
     });
   }
@@ -608,9 +610,10 @@ app.post('/api/chat', async (req, res) => {
         olderRelevant.map(m => `${m.role}: ${m.content}`).join('\n\n');
     }
 
-    // 4. Build messages for AI
+    // 4. Build messages for AI (strip UI-only fields like ai_provider/docs —
+    //    providers reject message objects with unexpected keys)
     const messages = [
-      ...history,
+      ...history.map(m => ({ role: m.role, content: m.content })),
       ...(searchContext || docContext ? [{
         role: 'user',
         content: `[Context for your response]\n${searchContext}${docContext}\n\n[User message]\n${userQuery}`
@@ -620,11 +623,12 @@ app.post('/api/chat', async (req, res) => {
       }])
     ];
 
-    // 5. Save user message to history
-    await saveMessage('user', userQuery);
+    // 5. Save user message to history (with filenames of anything attached this turn)
+    await saveMessage('user', userQuery, { docs: attachedDocs.map(d => d.filename) });
 
     // 6. Stream response
     let full = '';
+    let usedModel = '';
     const controller = new AbortController();
     req.on('close', () => controller.abort());
 
@@ -633,12 +637,13 @@ app.post('/api/chat', async (req, res) => {
         full += chunk;
         send({ token: chunk });
       } else if (chunk.event) {
+        if (chunk.event.startsWith('model:')) usedModel = chunk.event.slice(6);
         send({ event: chunk.event });
       }
     }
 
-    // 7. Save assistant response
-    await saveMessage('assistant', full);
+    // 7. Save assistant response (with which model actually answered)
+    await saveMessage('assistant', full, { model: usedModel });
 
     res.write('data: [DONE]\n\n');
     res.end();
