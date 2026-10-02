@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#2e5231">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<title>Mobius — sign in</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--bg:#e2dccd;--surface:#f5eedd;--surface2:#ede5d4;--border:#c9bfae;--border2:#8d7c64;--text:#1b1510;--text-dim:#8d7c64;--green:#2e5231;--red:#8d3a3a;--font:'Century Gothic','Avenir','Segoe UI','Verdana',sans-serif;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;}
+main{max-width:360px;margin:0 auto;padding:12vh 20px 20px;text-align:center;}
+#logo{width:72px;height:72px;object-fit:contain;}
+h1{font-size:28px;color:var(--green);letter-spacing:-0.5px;margin:6px 0 22px;}
+p{color:var(--text-dim);font-size:13px;line-height:1.5;margin-bottom:14px;}
+button,input{font-family:var(--font);font-size:15px;width:100%;border-radius:3px;}
+button{background:var(--green);color:#fff;border:none;padding:12px;cursor:pointer;}
+button:disabled{opacity:.5;cursor:default;}
+button.link{background:none;color:var(--text-dim);text-decoration:underline;font-size:12px;padding:10px;width:auto;}
+input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:11px 12px;margin-bottom:10px;outline:none;}
+input:focus{border-color:var(--border2);}
+#msg{min-height:20px;margin-top:14px;font-size:13px;color:var(--red);}
+#setup{display:none;margin-top:6px;}
+</style>
+</head>
+<body>
+<main>
+  <img id="logo" src="/logo.png" alt="" onerror="this.style.display='none'">
+  <h1>Mobius</h1>
+
+  <div id="unlockPanel">
+    <p id="unlockHint">Use your fingerprint or this device's PIN.</p>
+    <button id="unlockBtn">Unlock</button>
+    <button class="link" id="showSetup">Set up this device</button>
+  </div>
+
+  <div id="setup">
+    <p id="setupHint">Enter your setup code to add this device. You will then confirm with your fingerprint or PIN.</p>
+    <input id="code" type="password" placeholder="Setup code" autocomplete="off">
+    <input id="name" type="text" placeholder="Device name (optional), e.g. Phone" autocomplete="off">
+    <button id="registerBtn">Register this device</button>
+  </div>
+
+  <div id="msg"></div>
+</main>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const say = (text, ok) => { $('msg').textContent = text || ''; $('msg').style.color = ok ? 'var(--green)' : 'var(--red)'; };
+
+// WebAuthn speaks ArrayBuffers; the server speaks base64url.
+const dec = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); s += '='.repeat((4 - s.length % 4) % 4); return Uint8Array.from(atob(s), c => c.charCodeAt(0)); };
+const enc = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+  return d;
+}
+
+function problem(e) {
+  if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return 'Cancelled or timed out. Try again.';
+  if (e && e.name === 'InvalidStateError') return 'This device is already registered. Use Unlock.';
+  return (e && e.message) || 'Something went wrong';
+}
+
+async function unlock() {
+  say(''); $('unlockBtn').disabled = true;
+  try {
+    const o = await post('/auth/login/options');
+    o.challenge = dec(o.challenge);
+    (o.allowCredentials || []).forEach(c => { c.id = dec(c.id); });
+    const c = await navigator.credentials.get({ publicKey: o });
+    await post('/auth/login/verify', { response: {
+      id: c.id, rawId: enc(c.rawId), type: c.type,
+      clientExtensionResults: c.getClientExtensionResults(),
+      authenticatorAttachment: c.authenticatorAttachment,
+      response: {
+        clientDataJSON: enc(c.response.clientDataJSON),
+        authenticatorData: enc(c.response.authenticatorData),
+        signature: enc(c.response.signature),
+        userHandle: c.response.userHandle ? enc(c.response.userHandle) : undefined,
+      },
+    } });
+    location.replace('/');
+  } catch (e) { say(problem(e)); $('unlockBtn').disabled = false; }
+}
+
+async function register() {
+  say(''); $('registerBtn').disabled = true;
+  const setupCode = $('code').value.trim();
+  try {
+    const o = await post('/auth/register/options', { setupCode });
+    o.challenge = dec(o.challenge);
+    o.user.id = dec(o.user.id);
+    (o.excludeCredentials || []).forEach(c => { c.id = dec(c.id); });
+    const c = await navigator.credentials.create({ publicKey: o });
+    await post('/auth/register/verify', { setupCode, deviceName: $('name').value.trim(), response: {
+      id: c.id, rawId: enc(c.rawId), type: c.type,
+      clientExtensionResults: c.getClientExtensionResults(),
+      authenticatorAttachment: c.authenticatorAttachment,
+      response: {
+        clientDataJSON: enc(c.response.clientDataJSON),
+        attestationObject: enc(c.response.attestationObject),
+        transports: c.response.getTransports ? c.response.getTransports() : [],
+      },
+    } });
+    location.replace('/');
+  } catch (e) { say(problem(e)); $('registerBtn').disabled = false; }
+}
+
+$('unlockBtn').onclick = unlock;
+$('registerBtn').onclick = register;
+$('showSetup').onclick = () => { $('setup').style.display = 'block'; $('showSetup').style.display = 'none'; $('code').focus(); };
+$('code').addEventListener('keydown', e => { if (e.key === 'Enter') register(); });
+
+(async () => {
+  if (!window.PublicKeyCredential) { say('This browser does not support passkeys.'); $('unlockBtn').disabled = true; return; }
+  try {
+    const s = await fetch('/auth/status').then(r => r.json());
+    if (!s.enabled || s.authenticated) { location.replace('/'); return; }
+    if (!s.passkeys) {                       // nothing registered yet: go straight to setup
+      $('unlockPanel').style.display = 'none';
+      $('setup').style.display = 'block';
+    }
+  } catch { /* leave the default view */ }
+})();
+</script>
+</body>
+</html>

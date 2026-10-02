@@ -11,6 +11,8 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import { PORT, FRONTEND_DIR, IS_VERCEL, START_TIME, CRON_SECRET, CRON_BUDGET_MS, KEYS } from './config.js';
+import { authRouter, authGate, authEnabled } from './auth.js';
+import { lastUpdated } from './version.js';
 import { supabase } from './db.js';
 import { availableNames } from './ai/cascade.js';
 import { chatTurn } from './chat.js';
@@ -26,11 +28,16 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
+
+// Login (passkeys). Active only when SESSION_SECRET is set; see auth.js.
+app.use(authRouter);
+app.use(authGate);
+
 app.use(express.static(FRONTEND_DIR));
 
 // ── Status & history ─────────────────────────────────────────────────────────
 app.get('/api/status', (req, res) => {
-  res.json({ ok: true, startTime: START_TIME, supabase: !!supabase, cascade: availableNames() });
+  res.json({ ok: true, startTime: START_TIME, supabase: !!supabase, cascade: availableNames(), updated: lastUpdated() });
 });
 
 app.get('/api/history', async (req, res) => {
@@ -204,6 +211,7 @@ if (!IS_VERCEL) {
     console.log(`AI cascade: ${availableNames().join(' → ') || 'none configured'}`);
     console.log(`Tavily    : ${KEYS.tavily ? 'enabled' : 'disabled'}`);
     console.log(`Drive     : ${driveConfigured() ? 'configured' : 'NOT configured'}`);
+    console.log(`Login     : ${authEnabled ? 'passkeys required' : 'off (open)'}`);
 
     // Drive sync 10 s after start, memory upkeep 60 s after, then both every 6 hours.
     const drive = () => runDriveSync().then(r => r && console.log('[drive] auto-sync:', r)).catch(e => console.error('[drive]', e.message));

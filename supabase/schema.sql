@@ -77,6 +77,19 @@ create table if not exists mobius_state (
   updated_at timestamptz not null default now()
 );
 
+-- Passkeys registered for login (fingerprint / Windows Hello). Row Level Security is on with no
+-- policies: only the server's secret key can read or write these.
+create table if not exists mobius_passkeys (
+  id          text primary key,          -- credential id (base64url)
+  public_key  text not null,             -- base64url
+  counter     bigint not null default 0,
+  transports  text[],
+  device_name text,
+  created_at  timestamptz not null default now(),
+  last_used   timestamptz
+);
+alter table mobius_passkeys enable row level security;
+
 -- ── Memory functions ─────────────────────────────────────────────────────────
 
 -- Replace the row of this status for (kind, key); the old one is archived, and only the

@@ -31,10 +31,18 @@ Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`,
 - `/api/pcm/profile/approve` and `/api/pcm/profile/reject` decide it
 - `POST /api/pcm/profile` with `{"content": "..."}` writes the profile directly
 
+## Login (passkeys)
+- On only when `SESSION_SECRET` is set (set on Vercel, not locally, so localhost stays open). Code: `backend/auth.js`, page: `frontend/login.html`, passkeys in `mobius_passkeys` (RLS on).
+- First visit to the live site shows the sign-in page; use `SETUP_CODE` (Vercel env var) to register each device once, then fingerprint / Windows Hello PIN logs in. Sessions last 30 days (signed cookie).
+- Passkeys are tied to the site's hostname (`mobius-pwa.vercel.app`); they do not work on localhost, a Tailscale IP or another Vercel domain.
+- Lost every device? Use `SETUP_CODE` to register a new one. To switch login off, remove `SESSION_SECRET` in Vercel and redeploy.
+
 ## Layout
 ```
 backend/
   server.js        routes only (the /api contract the UI expects — keep stable)
+  auth.js          passkey login + session gate
+  version.js       the "Last updated" stamp
   chat.js          one chat turn
   config.js        env + constants (the only place env vars are read)
   db.js util.js web.js maintain-cli.mjs

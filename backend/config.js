@@ -25,6 +25,12 @@ export const SUPABASE_URL = env.SUPABASE_URL || '';
 export const SUPABASE_KEY = env.SUPABASE_KEY || '';
 export const CRON_SECRET  = env.CRON_SECRET  || '';
 
+// ── Login (passkeys) ─────────────────────────────────────────────────────────
+// Login is on only when SESSION_SECRET is set (do that on Vercel; leave it out locally).
+export const SESSION_SECRET = env.SESSION_SECRET || ''; // long random string; signs the login cookie
+export const SETUP_CODE     = env.SETUP_CODE     || ''; // one-time code that lets a new device register a passkey
+export const RP_ID           = env.RP_ID          || ''; // optional override; defaults to the site's hostname
+
 // ── Google Drive ─────────────────────────────────────────────────────────────
 // Credentials come from GOOGLE_SERVICE_ACCOUNT_JSON (Vercel) or the gitignored
 // google-service-account.json in the repo root (local).
