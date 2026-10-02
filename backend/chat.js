@@ -18,6 +18,7 @@ import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive } from './pcm/memory.js';
 import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
 import { learnFromExchange, learnedNotice } from './pcm/learn.js';
+import { PROFILE_SEND_MAX } from './pcm/profile.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
@@ -135,7 +136,7 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
 
     const idle = !recent.length || Date.now() - Date.parse(recent.at(-1).created_at) > 3600e3;
     ctx.suggestions = idle && !memoryAction ? pendingNotes.length : 0; // mention waiting suggestions once, at the start of a conversation
-    const system = buildSystem(clip(profile, 3000), ctx);
+    const system = buildSystem(clip(profile, PROFILE_SEND_MAX), ctx);
     const finalContent = context.text ? `[Memory context — retrieved for this message]\n${context.text}\n\n[User message]\n${userQuery}` : userQuery;
     const messages = [
       // Older turns are clipped; the latest exchange goes in whole.

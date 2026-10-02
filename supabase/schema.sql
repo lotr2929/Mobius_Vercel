@@ -130,6 +130,19 @@ create table if not exists mobius_trash (
 create index if not exists mobius_trash_created on mobius_trash (created_at desc);
 alter table mobius_trash enable row level security;
 
+-- Development notes: Boon's to-do list of instructions and improvements, typed in Settings from any
+-- device, to be worked through in the next session at the laptop. Not sent to any AI model.
+create table if not exists mobius_devnotes (
+  id         bigserial primary key,
+  content    text not null,
+  status     text not null default 'open',     -- 'open' | 'done'
+  result     text,                              -- what was done about it, filled in when it is marked done
+  created_at timestamptz not null default now(),
+  done_at    timestamptz
+);
+create index if not exists mobius_devnotes_status on mobius_devnotes (status, created_at);
+alter table mobius_devnotes enable row level security;
+
 -- Sizes for the Settings page (the free plan allows 500 MB for the whole project).
 create or replace function pcm_storage ()
 returns table (name text, bytes bigint)

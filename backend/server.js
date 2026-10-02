@@ -26,6 +26,7 @@ import { getSettings, saveSettings } from './pcm/settings.js';
 import { listTrash, trashStats, restoreTrash, deleteTrash, canMirror } from './pcm/backup.js';
 import { housekeeping, storageReport } from './pcm/housekeeping.js';
 import { listNotes, addNote, updateNote, setStatus } from './pcm/notes.js';
+import { listDevNotes, addDevNote, updateDevNote, setDevNoteDone, removeDevNote } from './pcm/devnotes.js';
 import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
 import { extractFromBuffer } from './docs/extract.js';
@@ -229,6 +230,27 @@ app.post('/api/backup/:id/restore', async (req, res) => {
 });
 app.delete('/api/backup/:id', async (req, res) => {
   try { await deleteTrash(Number(req.params.id)); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Development notes: Boon's own to-do list for Mobius, for the next session at the laptop.
+app.get('/api/devnotes', async (req, res) => res.json(await listDevNotes()));
+app.post('/api/devnotes', async (req, res) => {
+  try { res.json({ ok: true, id: await addDevNote(req.body?.content) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put('/api/devnotes/:id', async (req, res) => {
+  try { await updateDevNote(Number(req.params.id), req.body?.content); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/devnotes/:id/:action', async (req, res) => { // action: done | reopen
+  const { id, action } = req.params;
+  if (!['done', 'reopen'].includes(action)) return res.status(400).json({ error: 'Unknown action' });
+  try { await setDevNoteDone(Number(id), action === 'done', req.body?.result); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/devnotes/:id', async (req, res) => {
+  try { await removeDevNote(Number(req.params.id)); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

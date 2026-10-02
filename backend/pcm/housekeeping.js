@@ -1,5 +1,6 @@
 // pcm/housekeeping.js — Mobius tidies itself. Part of every maintenance run.
 //   • writes anything trashed while it was running in the cloud into the laptop's Backup folder
+//   • condenses a profile that was saved whole because no AI was available at the time
 //   • rebuilds documents whose search chunks are missing
 //   • retires old data: stale suggestions, long-forgotten notes, old traces, old trash
 //   • measures how full Supabase is, so Settings can warn before the free plan runs out
@@ -8,6 +9,8 @@ import { supabase } from '../db.js';
 import { isoDaysAgo } from '../util.js';
 import { mirror, trash, purgeTrash } from './backup.js';
 import { setState } from './memory.js';
+import { condenseProfileIfNeeded } from './profile.js';
+import { tidyDevNotes, syncFile } from './devnotes.js';
 
 export const STORAGE_LIMIT_BYTES = 500 * 1024 * 1024; // Supabase free plan, whole project
 
@@ -65,8 +68,10 @@ export async function housekeeping() {
   const report = {};
   const steps = [
     ['backupFolder', () => mirror()],
+    ['profile', () => condenseProfileIfNeeded()],
     ['documents', () => healDocs()],
     ['notes', () => tidyNotes()],
+    ['devNotes', async () => { const r = await tidyDevNotes(); await syncFile(); return r; }],
     ['traces', () => pruneTraces()],
     ['trash', () => purgeTrash()],
     ['storage', () => storageReport()],

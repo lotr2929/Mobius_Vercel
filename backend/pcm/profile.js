@@ -1,14 +1,17 @@
 // pcm/profile.js — the personal profile (memory tier 2).
-// It is sent to the model with every message, so it has a size limit. A profile over the limit is
-// condensed by a model rather than refused or chopped, and the old version is kept (last five,
-// then the trash) so nothing is lost.
+// It is sent to the model with every message, so it has a target size (PROFILE_MAX). A profile
+// over the target is condensed by a model rather than refused or chopped, and the old version is
+// kept (last five, then the trash) so nothing is lost. If no model is available the profile is
+// kept whole and condensed later (housekeeping retries); PROFILE_SEND_MAX is the safety limit on
+// what is actually sent.
 import { askModel } from '../ai/cascade.js';
-import { put, setState } from './memory.js';
+import { put, setState, getActive } from './memory.js';
 import { clip } from '../util.js';
 
-export const PROFILE_MAX = 3000;
+export const PROFILE_MAX = 3000;       // the target
+export const PROFILE_SEND_MAX = 6000;  // never send more than this to a model
 
-// → { text, shortened, from?, truncated? }
+// → { text, shortened, from?, tooLong? }   tooLong: over the target and no model could condense it
 export async function fitProfile(input) {
   const text = String(input).trim();
   if (text.length <= PROFILE_MAX) return { text, shortened: false };
@@ -21,13 +24,11 @@ Reply with ONLY the condensed profile.
 
 ${clip(text, 14000)}`, { role: 'deep', timeoutMs: 40000 })).trim();
       if (out.length <= PROFILE_MAX && out.length > text.length * 0.3) return { text: out, shortened: true, from: text.length };
-    } catch { /* try the next target, then fall back */ }
+    } catch { /* try the next target */ }
   }
 
-  // No model could do it: cut at the last whole line that fits, never mid-sentence.
-  const cut = text.slice(0, PROFILE_MAX);
-  const nl = cut.lastIndexOf('\n');
-  return { text: (nl > PROFILE_MAX * 0.6 ? cut.slice(0, nl) : cut).trim(), shortened: true, from: text.length, truncated: true };
+  // No model could do it right now: keep the whole profile rather than lose anything.
+  return { text, shortened: false, tooLong: true };
 }
 
 // Save as the active profile. `manual` means Boon typed it himself, which holds off the weekly
@@ -38,4 +39,14 @@ export async function saveProfile(input, { manual = false } = {}) {
   await put('profile', 'main', { content: fit.text });
   if (manual) await setState('profile_edited_at', new Date().toISOString());
   return fit;
+}
+
+// Housekeeping: a profile saved whole because no model was available gets condensed once one is.
+export async function condenseProfileIfNeeded() {
+  const current = (await getActive('profile'))?.content || '';
+  if (current.length <= PROFILE_MAX) return { condensed: false };
+  const fit = await fitProfile(current);
+  if (fit.tooLong) return { condensed: false, stillTooLong: current.length };
+  await put('profile', 'main', { content: fit.text }); // the long version stays under earlier versions
+  return { condensed: true, from: current.length, to: fit.text.length };
 }

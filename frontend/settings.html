@@ -77,6 +77,16 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
 
 <!-- ───────────── Notes ───────────── -->
 <section>
+  <h2>Development notes</h2>
+  <p class="hint">Your to-do list for Mobius itself: instructions, fixes and ideas to work through together at the laptop. Type them in from any device. They are kept in the cloud, are never sent to any AI model, and we go through the open ones at the start of the next session. Click an item's text to edit it; tick it when it is done.</p>
+  <textarea id="devInput" rows="3" style="min-height:80px" placeholder="e.g. Make the model badge show which AI answered, in the answer header. (Ctrl+Enter to add)"></textarea>
+  <div class="row"><button id="devAdd">Add to the list</button><span id="devCount" class="count"></span></div>
+  <div id="devOpen" class="card"></div>
+  <details id="devDoneBox" style="display:none;margin-top:8px"><summary class="sub" style="cursor:pointer" id="devDoneSummary"></summary><div id="devDone" class="card"></div></details>
+</section>
+
+<!-- Memory notes (what the AI is given with every message) -->
+<section>
   <h2>Notes Mobius keeps</h2>
   <p class="hint">Things you asked it to remember, or definitions and preferences it noted from what you said. They go to the AI with every message. Click a note's text to edit it. In the chat you can also say "Remember that …", "Forget #14", "Show notes".</p>
   <div id="notes" class="card"></div>
@@ -179,9 +189,11 @@ $('save').onclick = async () => {
   try {
     const r = await api('POST', '/api/pcm/profile', { content: $('profile').value });
     await loadProfile();
-    say(r.shortened
-      ? `Saved. It was ${r.from.toLocaleString()} characters, so Mobius condensed it to ${r.text.length.toLocaleString()}${r.truncated ? ' (no AI was available, so it was cut at a line break — please check the end)' : ''}. Your original is under Earlier versions.`
-      : 'Profile saved. It is used from your next message.', 'ok');
+    say(r.tooLong
+      ? `Saved in full. It is ${r.text.length.toLocaleString()} characters, over the ${max.toLocaleString()} target, and no AI was available to condense it right now. Nothing was cut; Mobius will condense it automatically once one is, keeping this version under Earlier versions.`
+      : r.shortened
+        ? `Saved. It was ${r.from.toLocaleString()} characters, so Mobius condensed it to ${r.text.length.toLocaleString()}. Your original is under Earlier versions.`
+        : 'Profile saved. It is used from your next message.', 'ok');
   } catch (e) { say(e.message, 'err'); updateCount(); }
 };
 $('revert').onclick = () => { $('profile').value = saved; updateCount(); say(''); };
@@ -235,6 +247,8 @@ function hkLines(r) {
   if (r.notes?.expiredSuggestions) out.push(`${r.notes.expiredSuggestions} unreviewed suggestion(s) lapsed.`);
   if (r.notes?.retired) out.push(`${r.notes.retired} old forgotten note(s) moved to the backup.`);
   if (r.traces?.deleted) out.push(`${r.traces.deleted} old log entries cleared.`);
+  if (r.profile?.condensed) out.push(`Condensed your profile from ${r.profile.from} to ${r.profile.to} characters (the longer version is under Earlier versions).`);
+  if (r.devNotes?.retired) out.push(`${r.devNotes.retired} finished development note(s) over 90 days old moved to the backup.`);
   if (r.trash?.purged) out.push(`${r.trash.purged} old backup item(s) cleared.`);
   Object.entries(r).forEach(([k, v]) => { if (v?.error) out.push(`Problem in ${k}: ${v.error}`); });
   if (!out.length) out.push('Nothing needed tidying.');
@@ -285,7 +299,48 @@ async function loadTrash() {
   });
 }
 
-Promise.all([loadProfile(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
+// ── Development notes ───────────────────────────────────────────────────────────────────
+function devRow(n, done) {
+  const row = el('div', 'note'), text = el('span', 'text', n.content);
+  text.style.whiteSpace = 'pre-wrap';
+  const box = el('input'); box.type = 'checkbox'; box.checked = done; box.style.marginTop = '5px';
+  box.onchange = async () => { try { await api('POST', `/api/devnotes/${n.id}/${done ? 'reopen' : 'done'}`, {}); await loadDev(); } catch (e) { box.checked = done; say(e.message, 'err'); } };
+  row.append(box);
+  const body = el('div', 'text'); body.append(text);
+  if (done) body.append(el('div', 'sub', (n.result ? 'Done: ' + n.result + ' · ' : 'Done · ') + when(n.done_at)));
+  else body.append(el('div', 'sub', '#' + n.id + ' · added ' + when(n.created_at)));
+  row.append(body);
+  if (!done) {
+    text.contentEditable = 'true';
+    text.onblur = async () => {
+      const v = text.innerText.trim(); if (v === n.content) return;
+      try { await api('PUT', '/api/devnotes/' + n.id, { content: v }); n.content = v; say('Saved.', 'ok'); } catch (e) { text.textContent = n.content; say(e.message, 'err'); }
+    };
+    text.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); text.blur(); } };
+  }
+  const del = el('button', 'small warn', 'Delete');
+  del.onclick = async () => { if (!confirm('Delete this note? It goes to the backup.')) return; try { await api('DELETE', '/api/devnotes/' + n.id); await loadDev(); } catch (e) { say(e.message, 'err'); } };
+  row.append(del);
+  return row;
+}
+async function loadDev() {
+  const d = await api('GET', '/api/devnotes');
+  const open = $('devOpen'); open.replaceChildren();
+  if (!d.open.length) open.append(el('div', 'empty', 'Nothing on the list. Add what you want us to work on next.'));
+  d.open.forEach(n => open.append(devRow(n, false)));
+  $('devCount').textContent = d.open.length + ' open';
+  $('devDoneBox').style.display = d.done.length ? 'block' : 'none';
+  $('devDoneSummary').textContent = 'Done (' + d.done.length + ')';
+  const done = $('devDone'); done.replaceChildren();
+  d.done.forEach(n => done.append(devRow(n, true)));
+}
+$('devAdd').onclick = async () => {
+  const v = $('devInput').value.trim(); if (!v) return;
+  try { await api('POST', '/api/devnotes', { content: v }); $('devInput').value = ''; say('Added to the list.', 'ok'); await loadDev(); } catch (e) { say(e.message, 'err'); }
+};
+$('devInput').addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') $('devAdd').click(); });
+
+Promise.all([loadProfile(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
 </script>
 </body>
 </html>

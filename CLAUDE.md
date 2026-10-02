@@ -46,14 +46,20 @@ All state is in Supabase, so the phone and laptop (and the local server and Verc
 | Tier | Holds | Stored in | Refreshed by |
 |---|---|---|---|
 | 1 Immediate | last 20 messages verbatim + 7-day digest | `mobius_messages`, `mobius_memory` kind `week` | digest: `pcm/maintain.js` |
-| 2 Personal | profile of Boon (max 3,000 chars; a longer one is condensed by a model) | `mobius_memory` kind `profile` | weekly update, used at once; Boon edits it in Settings |
+| 2 Personal | profile of Boon (target 3,000 chars; a longer one is condensed by a model) | `mobius_memory` kind `profile` | weekly update, used at once; Boon edits it in Settings |
 | 3 Current | one note per project active in the last 30 days | `mobius_memory` kind `project` | incremental, from new messages |
 | 4 Archive | every message and document | `mobius_messages`, `mobius_docs`, `mobius_docs_full` | live; embeddings filled in the background |
 
 Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`, `pcm_search_docs`). With Gemini's quota exhausted it degrades to keywords only.
 
+## Development notes: Boon's to-do list for Mobius (READ AT THE START OF EVERY SESSION)
+- Boon types instructions and improvements into Settings > Development notes from any device. Stored in `mobius_devnotes` (Supabase); on the laptop a readable copy of the open items is kept in `_dev\devnotes.md`. Never sent to any AI model.
+- **At the start of a session:** read the open items (`select id, content, created_at from mobius_devnotes where status = 'open' order by id;` via the Supabase connector, or `GET /api/devnotes`), tell Boon what is waiting, and work through them with him.
+- **When one is finished:** mark it done with a line saying what was done: `update mobius_devnotes set status = 'done', done_at = now(), result = '...' where id = N;`. Boon sees it under Done in Settings.
+- Removed notes go to the backup like everything else (`devnote` kind); finished ones are retired after 90 days.
+
 ## Settings page (`/settings.html`, gear icon after the refresh icon in the app)
-- **Profile:** edit and save (limit 3,000 chars; over the limit it is condensed by a `deep`-role model, never refused or chopped mid-sentence; the original stays under earlier versions). Mobius also updates it weekly from conversations and **uses the update straight away**, keeping the old version; a manual edit holds the automatic update off for a day.
+- **Profile:** edit and save (target 3,000 chars; over it, a `deep`-role model condenses it, never refused or chopped; the original stays under earlier versions). **If no model is available the whole profile is kept** (up to 6,000 chars is sent to the model) and housekeeping condenses it later. Mobius also updates it weekly from conversations and **uses the update straight away**, keeping the old version; a manual edit holds the automatic update off for a day.
 - **Notes and suggestions:** edit, add, forget; save or drop suggestions (same as the chat commands).
 - **Learning mode:** auto / suggest only / off (stored in `mobius_state` key `settings`; `pcm/settings.js`).
 - **Models:** read-only status. **Storage & housekeeping:** database use against the 500 MB free plan, last housekeeping report, run it now. **Backup:** everything removed, with Restore.
@@ -83,7 +89,7 @@ backend/
   config.js        env + constants (the only place env vars are read)
   db.js util.js web.js maintain-cli.mjs models-cli.mjs
   ai/              models.js (registry), cascade.js (runs them), audit.js (checks them), prompt.js
-  pcm/             router, retrieve, assemble, maintain, memory, messages, embed, notes, learn, profile, settings, backup, housekeeping
+  pcm/             router, retrieve, assemble, maintain, memory, messages, embed, notes, devnotes, learn, profile, settings, backup, housekeeping
   docs/            store, extract, drive
 frontend/          PWA (do not change without being asked)
 supabase/schema.sql   idempotent; run in the Supabase SQL Editor
