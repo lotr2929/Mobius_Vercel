@@ -52,10 +52,10 @@ All state is in Supabase, so the phone and laptop (and the local server and Verc
 
 Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`, `pcm_search_docs`). With Gemini's quota exhausted it degrades to keywords only.
 
-## Profile approval (no UI yet)
-- `GET /api/pcm/profile` shows the active profile and any waiting proposal
-- `/api/pcm/profile/approve` and `/api/pcm/profile/reject` decide it
-- `POST /api/pcm/profile` with `{"content": "..."}` writes the profile directly
+## Profile and notes: the Memory page (`/profile.html`, linked as "Profile & notes" in the app header)
+- Edit and save the profile (limit 3,000 characters, enforced; saving archives the old version, last 5 kept and loadable from the page), read and use or dismiss the weekly proposal, load an earlier version.
+- Edit, add or forget notes; save or drop suggestions. Same operations as the chat commands.
+- API behind it: `GET/POST /api/pcm/profile`, `POST /api/pcm/profile/approve|reject`, `GET/POST /api/pcm/notes`, `PUT /api/pcm/notes/:id`, `POST /api/pcm/notes/:id/forget|save|drop`.
 
 ## Login (passkeys)
 - On only when `SESSION_SECRET` is set (set on Vercel, not locally, so localhost stays open). Code: `backend/auth.js`, page: `frontend/login.html`, passkeys in `mobius_passkeys` (RLS on).

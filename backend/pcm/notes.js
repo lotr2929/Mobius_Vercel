@@ -24,6 +24,14 @@ export async function listNotes(statuses = ['active', 'proposed']) {
   return data || [];
 }
 
+// Rewrite the text of a note (from the Memory page).
+export async function updateNote(id, content) {
+  const text = String(content).trim().replace(/\s+/g, ' ').slice(0, 500);
+  if (!text) throw new Error('A note cannot be empty');
+  const { error } = await supabase.from(T).update({ content: text, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) throw new Error('notes: ' + error.message);
+}
+
 export async function setStatus(ids, status) {
   if (!ids.length) return;
   const { error } = await supabase.from(T).update({ status, updated_at: new Date().toISOString() }).in('id', ids);

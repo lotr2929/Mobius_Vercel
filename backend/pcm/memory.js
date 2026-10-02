@@ -20,6 +20,14 @@ async function one(kind, key, status) {
 export const getActive   = (kind, key = 'main') => one(kind, key, 'active');
 export const getProposed = (kind, key = 'main') => one(kind, key, 'proposed');
 
+// Earlier versions of a row (superseded or dismissed), newest first.
+export async function history(kind, key = 'main', limit = 5) {
+  if (!supabase) return [];
+  const { data } = await supabase.from(T).select('content, created_at')
+    .eq('kind', kind).eq('key', key).eq('status', 'archived').order('created_at', { ascending: false }).limit(limit);
+  return data || [];
+}
+
 export async function listActive(kind) {
   if (!supabase) return [];
   const { data, error } = await supabase.from(T).select('key, content, keywords, updated_at')

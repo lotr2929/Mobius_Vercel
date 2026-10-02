@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#2e5231">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<title>Mobius — Profile &amp; notes</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--bg:#e2dccd;--surface:#f5eedd;--surface2:#ede5d4;--border:#c9bfae;--border2:#8d7c64;--text:#1b1510;--muted:#443a2d;--dim:#8d7c64;--green:#2e5231;--green2:#4a7c4e;--red:#8d3a3a;--font:'Century Gothic','Avenir','Segoe UI','Verdana',sans-serif;}
+html{background:var(--bg);}
+body{max-width:760px;margin:0 auto;padding:12px 14px 60px;color:var(--text);font-family:var(--font);font-size:15px;line-height:1.55;}
+header{display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:14px;}
+header img{width:40px;height:40px;object-fit:contain;}
+header h1{font-size:22px;color:var(--green);letter-spacing:-0.4px;}
+header a{margin-left:auto;color:var(--green2);font-size:13px;}
+h2{font-size:15px;color:var(--muted);margin:22px 0 4px;}
+p.hint{font-size:12px;color:var(--dim);margin-bottom:8px;}
+textarea,input[type=text]{width:100%;font-family:var(--font);font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:10px 12px;outline:none;}
+textarea:focus,input[type=text]:focus{border-color:var(--border2);}
+textarea{min-height:300px;resize:vertical;line-height:1.5;}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+.count{font-size:12px;color:var(--dim);margin-left:auto;}
+.count.over{color:var(--red);font-weight:bold;}
+button{font-family:var(--font);font-size:13px;border:none;border-radius:3px;padding:8px 14px;cursor:pointer;background:var(--green);color:#fff;}
+button.plain{background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
+button.warn{background:none;color:var(--red);border:1px solid var(--border);}
+button:disabled{opacity:.45;cursor:default;}
+#status{min-height:20px;font-size:13px;margin:6px 0;}
+#status.ok{color:var(--green);} #status.err{color:var(--red);}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:10px 12px;margin-top:8px;}
+.card pre{white-space:pre-wrap;word-break:break-word;font-family:var(--font);font-size:13px;max-height:260px;overflow:auto;margin:6px 0;}
+.note{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);}
+.note:last-child{border-bottom:none;}
+.note .id{color:var(--dim);font-size:12px;min-width:34px;padding-top:2px;}
+.note .text{flex:1;font-size:14px;word-break:break-word;}
+.note .text[contenteditable=true]{background:var(--surface2);outline:1px solid var(--border2);padding:2px 4px;}
+.note button{padding:4px 9px;font-size:12px;}
+.empty{color:var(--dim);font-size:13px;padding:6px 0;}
+select{font-family:var(--font);font-size:13px;padding:7px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);max-width:100%;}
+</style>
+</head>
+<body>
+<header>
+  <img src="/logo.png" alt="" onerror="this.style.display='none'">
+  <h1>Profile &amp; notes</h1>
+  <a href="/">&larr; Back to Mobius</a>
+</header>
+
+<div id="status"></div>
+
+<h2>Your profile</h2>
+<p class="hint">Who you are, as Mobius should know you. This text goes to the AI with every message, so only write what you are happy for the AI providers to see. Edit freely, then Save.</p>
+<textarea id="profile" spellcheck="true"></textarea>
+<div class="row">
+  <button id="save">Save profile</button>
+  <button id="revert" class="plain">Discard changes</button>
+  <span id="count" class="count"></span>
+</div>
+
+<div id="proposalBox" class="card" style="display:none">
+  <strong>A new profile was proposed</strong> <span id="proposalDate" class="hint"></span>
+  <p class="hint">Mobius drafted this from your recent conversations. It changes nothing until you use it.</p>
+  <pre id="proposalText"></pre>
+  <div class="row">
+    <button id="useProposal">Load into the editor</button>
+    <button id="approveProposal" class="plain">Approve as it is</button>
+    <button id="dismissProposal" class="warn">Dismiss</button>
+  </div>
+</div>
+
+<div class="row" style="margin-top:12px">
+  <select id="versions"><option value="">Earlier versions…</option></select>
+  <button id="loadVersion" class="plain" disabled>Load into the editor</button>
+</div>
+
+<h2>Notes Mobius keeps</h2>
+<p class="hint">Things you asked it to remember, or definitions and preferences it noted from what you said. Sent to the AI with every message. Click a note's text to edit it.</p>
+<div id="notes" class="card"></div>
+<div class="row">
+  <input type="text" id="newNote" placeholder="Add a note, e.g. I prefer short numbered answers" style="flex:1">
+  <button id="addNote">Add note</button>
+</div>
+
+<div id="suggestionBox" style="display:none">
+  <h2>Suggestions waiting for you</h2>
+  <p class="hint">Things Mobius noticed in your conversations that you may want it to remember. Nothing is kept until you save it.</p>
+  <div id="suggestions" class="card"></div>
+  <div class="row"><button id="saveAll" class="plain">Save all</button><button id="dropAll" class="warn">Drop all</button></div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let saved = '';        // what is stored right now
+let max = 3000;
+
+function say(text, kind) { const s = $('status'); s.textContent = text || ''; s.className = kind || ''; if (text && kind === 'ok') setTimeout(() => { if (s.textContent === text) say(''); }, 4000); }
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.reload(); throw new Error('Signed out'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+  return d;
+}
+const when = iso => iso ? new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+function updateCount() {
+  const n = $('profile').value.trim().length;
+  $('count').textContent = n.toLocaleString() + ' / ' + max.toLocaleString() + ' characters';
+  $('count').className = 'count' + (n > max ? ' over' : '');
+  const dirty = $('profile').value.trim() !== saved.trim();
+  $('save').disabled = !dirty || n === 0 || n > max;
+  $('revert').disabled = !dirty;
+  return dirty;
+}
+
+async function loadProfile() {
+  const d = await api('GET', '/api/pcm/profile');
+  max = d.max || 3000;
+  saved = d.active || '';
+  $('profile').value = saved;
+  $('proposalBox').style.display = d.proposed ? 'block' : 'none';
+  if (d.proposed) { $('proposalText').textContent = d.proposed; $('proposalDate').textContent = '· ' + when(d.proposedAt); }
+  const sel = $('versions');
+  sel.length = 1;
+  (d.versions || []).forEach((v, i) => { const o = new Option(when(v.at) + ' — ' + v.content.replace(/\s+/g, ' ').slice(0, 50) + '…', i); sel.add(o); });
+  window.__versions = d.versions || [];
+  $('loadVersion').disabled = true;
+  updateCount();
+}
+
+$('profile').addEventListener('input', updateCount);
+$('save').onclick = async () => {
+  try {
+    await api('POST', '/api/pcm/profile', { content: $('profile').value });
+    say('Profile saved. It is used from your next message.', 'ok');
+    await loadProfile();
+  } catch (e) { say(e.message, 'err'); }
+};
+$('revert').onclick = () => { $('profile').value = saved; updateCount(); say(''); };
+$('useProposal').onclick = () => { $('profile').value = $('proposalText').textContent; updateCount(); say('Proposal loaded. Edit it if you like, then Save.', 'ok'); $('profile').focus(); };
+$('approveProposal').onclick = async () => {
+  try { await api('POST', '/api/pcm/profile/approve'); say('Proposal approved and now in use.', 'ok'); await loadProfile(); } catch (e) { say(e.message, 'err'); }
+};
+$('dismissProposal').onclick = async () => {
+  try { await api('POST', '/api/pcm/profile/reject'); say('Proposal dismissed.', 'ok'); await loadProfile(); } catch (e) { say(e.message, 'err'); }
+};
+$('versions').onchange = () => { $('loadVersion').disabled = !$('versions').value; };
+$('loadVersion').onclick = () => {
+  const v = window.__versions[Number($('versions').value)];
+  if (v) { $('profile').value = v.content; updateCount(); say('Earlier version loaded. Save to make it current.', 'ok'); }
+};
+window.addEventListener('beforeunload', e => { if (updateCount()) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (!$('save').disabled) $('save').click(); } });
+
+// ── Notes ────────────────────────────────────────────────────────────────────
+function noteRow(n, buttons) {
+  const row = document.createElement('div'); row.className = 'note';
+  const id = document.createElement('span'); id.className = 'id'; id.textContent = '#' + n.id;
+  const text = document.createElement('span'); text.className = 'text'; text.textContent = n.content;
+  row.append(id, text);
+  buttons.forEach(([label, cls, fn]) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; row.append(b); });
+  return { row, text };
+}
+
+async function noteAction(id, action) {
+  try { await api('POST', `/api/pcm/notes/${id}/${action}`); await loadNotes(); } catch (e) { say(e.message, 'err'); }
+}
+
+async function loadNotes() {
+  const d = await api('GET', '/api/pcm/notes');
+  const box = $('notes'); box.replaceChildren();
+  if (!d.active.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No notes yet.'; box.append(e); }
+  d.active.forEach(n => {
+    const { row, text } = noteRow(n, [['Forget', 'warn', () => noteAction(n.id, 'forget')]]);
+    text.contentEditable = 'true';
+    text.onblur = async () => {
+      const v = text.textContent.trim();
+      if (v === n.content) return;
+      try { await api('PUT', '/api/pcm/notes/' + n.id, { content: v }); n.content = v; say('Note #' + n.id + ' updated.', 'ok'); } catch (e) { text.textContent = n.content; say(e.message, 'err'); }
+    };
+    text.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } };
+    box.append(row);
+  });
+
+  $('suggestionBox').style.display = d.suggested.length ? 'block' : 'none';
+  const sbox = $('suggestions'); sbox.replaceChildren();
+  d.suggested.forEach(n => sbox.append(noteRow(n, [['Save', '', () => noteAction(n.id, 'save')], ['Drop', 'warn', () => noteAction(n.id, 'drop')]]).row));
+  window.__suggested = d.suggested;
+}
+
+$('addNote').onclick = async () => {
+  const v = $('newNote').value.trim(); if (!v) return;
+  try { await api('POST', '/api/pcm/notes', { content: v }); $('newNote').value = ''; say('Note added.', 'ok'); await loadNotes(); } catch (e) { say(e.message, 'err'); }
+};
+$('newNote').addEventListener('keydown', e => { if (e.key === 'Enter') $('addNote').click(); });
+$('saveAll').onclick = async () => { for (const n of window.__suggested || []) await api('POST', `/api/pcm/notes/${n.id}/save`).catch(() => {}); await loadNotes(); say('All suggestions saved.', 'ok'); };
+$('dropAll').onclick = async () => { for (const n of window.__suggested || []) await api('POST', `/api/pcm/notes/${n.id}/drop`).catch(() => {}); await loadNotes(); say('All suggestions dropped.', 'ok'); };
+
+Promise.all([loadProfile(), loadNotes()]).catch(e => say(e.message, 'err'));
+</script>
+</body>
+</html>

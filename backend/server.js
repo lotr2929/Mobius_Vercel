@@ -20,7 +20,8 @@ import { chatTurn } from './chat.js';
 import { geoFromHeaders, memoryStats } from './self.js';
 import { startTrace, saveTrace, recentTraces, getTrace } from './trace.js';
 import { getMessages } from './pcm/messages.js';
-import { getActive, getProposed, put, promote, discard } from './pcm/memory.js';
+import { getActive, getProposed, put, promote, discard, history } from './pcm/memory.js';
+import { listNotes, addNote, updateNote, setStatus } from './pcm/notes.js';
 import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
 import { extractFromBuffer } from './docs/extract.js';
@@ -184,17 +185,22 @@ app.all('/api/pcm/maintain', async (req, res) => {
   res.json(await runMaintenance({ budgetMs: IS_VERCEL ? CRON_BUDGET_MS : Infinity }));
 });
 
-// The personal profile: weekly proposals wait here for approval.
+// The personal profile (edited on the Memory page, /profile.html). Weekly proposals wait here for approval.
+const PROFILE_MAX = 3000; // what is sent to the model with every message
 app.get('/api/pcm/profile', async (req, res) => {
+  const [active, proposed, versions] = await Promise.all([getActive('profile'), getProposed('profile'), history('profile')]);
   res.json({
-    active:   (await getActive('profile'))?.content || null,
-    proposed: (await getProposed('profile'))?.content || null,
+    active: active?.content || null, activeAt: active?.updated_at || null,
+    proposed: proposed?.content || null, proposedAt: proposed?.created_at || null,
+    versions: versions.map(v => ({ content: v.content, at: v.created_at })),
+    max: PROFILE_MAX,
   });
 });
-app.post('/api/pcm/profile', async (req, res) => { // write the profile directly: { "content": "..." }
+app.post('/api/pcm/profile', async (req, res) => { // save the profile: { "content": "..." }
   const content = String(req.body?.content || '').trim();
-  if (!content) return res.status(400).json({ error: 'No content' });
-  try { await put('profile', 'main', { content: content.slice(0, 3000) }); res.json({ ok: true }); }
+  if (!content) return res.status(400).json({ error: 'The profile cannot be empty' });
+  if (content.length > PROFILE_MAX) return res.status(400).json({ error: `Too long: ${content.length} of ${PROFILE_MAX} characters` });
+  try { await put('profile', 'main', { content }); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.all('/api/pcm/profile/approve', async (req, res) => {
@@ -203,6 +209,29 @@ app.all('/api/pcm/profile/approve', async (req, res) => {
 });
 app.all('/api/pcm/profile/reject', async (req, res) => {
   try { await discard('profile'); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Notes (same things the chat commands do: "Remember ...", "Forget #14", "Save 14", "Drop 15").
+const NOTE_ACTIONS = { forget: 'forgotten', save: 'active', drop: 'rejected' };
+app.get('/api/pcm/notes', async (req, res) => {
+  const all = await listNotes();
+  res.json({ active: all.filter(n => n.status === 'active'), suggested: all.filter(n => n.status === 'proposed') });
+});
+app.post('/api/pcm/notes', async (req, res) => {
+  const content = String(req.body?.content || '').trim();
+  if (!content) return res.status(400).json({ error: 'A note cannot be empty' });
+  try { res.json({ ok: true, ...(await addNote(content, { source: 'asked', status: 'active' })) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put('/api/pcm/notes/:id', async (req, res) => {
+  try { await updateNote(Number(req.params.id), req.body?.content); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/pcm/notes/:id/:action', async (req, res) => {
+  const status = NOTE_ACTIONS[req.params.action];
+  if (!status) return res.status(400).json({ error: 'Unknown action' });
+  try { await setStatus([Number(req.params.id)], status); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
