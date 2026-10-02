@@ -1,7 +1,7 @@
 // pcm/router.js — analyse a request before any retrieval happens.
 // One cheap model call decides what to look up; a rule-based fallback keeps
 // working if every model is unavailable.
-import { askModel, ORDER } from '../ai/cascade.js';
+import { askModel } from '../ai/cascade.js';
 import { parseJson, nowIn } from '../util.js';
 
 // Greetings and acknowledgements: no memory lookup, no web search.
@@ -19,7 +19,7 @@ function fallbackPlan(query, projects) {
   const hit = projects
     .filter(p => q.includes(p.key.toLowerCase()) || (p.keywords || []).some(k => k.length > 3 && q.includes(k.toLowerCase())))
     .map(p => p.key);
-  return { standalone: query, queries: [query.slice(0, 160)], projects: hit.slice(0, 2), needsArchive: true, sinceDays: null, aboutSelf: ABOUT_SELF.test(query) };
+  return { standalone: query, queries: [query.slice(0, 160)], projects: hit.slice(0, 2), needsArchive: true, sinceDays: null, aboutSelf: ABOUT_SELF.test(query), needsWeb: true };
 }
 
 function accept(j, query, projects, fallback) {
@@ -36,13 +36,14 @@ function accept(j, query, projects, fallback) {
     needsArchive: j.needsArchive !== false,
     sinceDays: days,
     aboutSelf: typeof j.aboutSelf === 'boolean' ? j.aboutSelf : fallback.aboutSelf,
+    needsWeb: typeof j.needsWeb === 'boolean' ? j.needsWeb : true,
   };
 }
 
 // → { standalone, queries[], projects[], needsArchive, sinceDays, aboutSelf }
 // ctx = { now, where } from self.js describeContext()
 export async function analyse(query, recent, projects, ctx = {}) {
-  if (isTrivial(query)) return { standalone: query, queries: [query], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false };
+  if (isTrivial(query)) return { standalone: query, queries: [query], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false, needsWeb: false };
   const fallback = fallbackPlan(query, projects);
 
   const known = projects.length
@@ -67,8 +68,11 @@ Reply with ONLY a JSON object, no commentary:
   "projects": ["exact names from the known projects that this message concerns, otherwise empty"],
   "needsArchive": true or false,
   "sinceDays": integer or null,
-  "aboutSelf": true or false
+  "aboutSelf": true or false,
+  "needsWeb": true or false
 }
+
+needsWeb is false when the answer comes from information already given (the date, time or location above), from Boon's own memory, or from the conversation: for example "what time is it", "what do you know about me", "summarise what we discussed". It is true for facts about the world, current events, or anything that could be looked up.
 
 aboutSelf is true when the message asks about this assistant itself: what Mobius is, how it works, its models, memory or version, where or on what device it is running, what it knows about itself. It is false for questions about Boon or the world.
 
@@ -76,7 +80,7 @@ needsArchive is true when answering needs older chats or stored documents: refer
 sinceDays is set only when the message limits itself to a period ("last week" = 7, "this month" = 30), otherwise null.`;
 
   try {
-    const raw = await askModel(prompt, { order: ORDER.quick, timeoutMs: 8000 });
+    const raw = await askModel(prompt, { role: 'quick', timeoutMs: 8000 });
     return accept(parseJson(raw), query, projects, fallback);
   } catch (e) {
     console.warn('[pcm] router fell back to rules:', e.message);

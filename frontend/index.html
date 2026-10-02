@@ -247,6 +247,18 @@ let histIdx = -1;   // -1 = live view
 let queryHistory = [];   // typed queries you've sent, oldest first
 let queryHistIdx = -1;   // -1 = live draft
 let queryHistDraft = ''; // holds what was in the box before navigating
+let lastLatest = null;   // newest message time seen on the server; a change means another device has chatted
+
+// ── Error reporting ──────────────────────────────────────────────────────────────────────────────
+// Browser errors go to the same trace log as the server's, so problems can be read from the record.
+function reportError(message, extra) {
+  try {
+    fetch('/api/debug/client', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+      body: JSON.stringify(Object.assign({ message: String(message), page: location.pathname }, extra)) }).catch(() => {});
+  } catch (e) {}
+}
+window.addEventListener('error', e => reportError(e.message, { source: (e.filename || '') + ':' + e.lineno, stack: e.error && e.error.stack }));
+window.addEventListener('unhandledrejection', e => reportError('Unhandled promise rejection: ' + ((e.reason && e.reason.message) || e.reason), { stack: e.reason && e.reason.stack }));
 
 // ── Clock ──────────────────────────────────────────────────────────────────
 function tick() {
@@ -265,6 +277,7 @@ async function checkStatus() {
     const d = await res.json();
     document.getElementById('status-dot').className = d.ok ? '' : 'offline';
     if (d.updated) document.getElementById('build-info').textContent = 'Last updated ' + d.updated;
+    if (d.latest && d.latest !== lastLatest) { lastLatest = d.latest; loadHistory(true); } // another device chatted: refresh the history list
     document.getElementById('model-badge').textContent = (d.cascade||[]).join(' → ') || 'no AI';
   } catch {
     document.getElementById('status-dot').className = 'offline';
@@ -272,6 +285,7 @@ async function checkStatus() {
   }
 }
 setInterval(checkStatus, 30000); checkStatus();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkStatus(); }); // coming back to the app picks up other devices' messages
 
 // ── Markdown ───────────────────────────────────────────────────────────────
 function md(text) {
@@ -350,7 +364,8 @@ function copyBubble(btn) {
 }
 
 // ── History loading ────────────────────────────────────────────────────────
-async function loadHistory() {
+async function loadHistory(quiet) {
+  if (quiet && (busy || histIdx !== -1 || queryHistIdx !== -1)) return; // a background refresh never disturbs what you are doing
   try {
     const data = await fetch('/api/history?limit=200').then(r=>r.json());
     const msgs = data.messages || [];
@@ -691,12 +706,12 @@ async function handleSend() {
               ansEl.innerHTML = md(full);
             }
             if (obj.event.startsWith('error:unknown-model:')) {
-              full += '\n\n⚠ Unknown model — try Ask: Gemini, Ask: Mistral, Ask: Cerebras, or Ask: Groq.';
+              full += '\n\n⚠ Unknown model — try Ask: Gemini, Qwen, GPT-OSS, Mistral, Lite or Codestral.';
               ansEl.innerHTML = md(full);
             }
           }
           if (obj.token) { full += obj.token; ansEl.innerHTML = md(full); scrollFeed(); }
-          if (obj.error) { ansEl.innerHTML += '<div style="color:var(--red);font-size:12px;margin-top:6px">⚠ '+esc(obj.error)+'</div>'; }
+          if (obj.error) { ansEl.innerHTML += '<div style="color:var(--red);font-size:12px;margin-top:6px">⚠ '+esc(obj.error)+'</div>'; reportError('server error: ' + obj.error, { source: q.slice(0, 80) }); }
         } catch {}
       }
     }
@@ -717,6 +732,7 @@ async function handleSend() {
 
   } catch(e) {
     ansEl.innerHTML = '<div style="color:var(--red)">'+esc(e.message)+'</div>';
+    reportError('chat request failed: ' + e.message, { source: q.slice(0, 80), stack: e.stack });
     document.getElementById('status-dot').className = 'offline';
   }
 

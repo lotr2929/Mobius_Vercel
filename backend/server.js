@@ -14,9 +14,11 @@ import { PORT, FRONTEND_DIR, IS_VERCEL, START_TIME, CRON_SECRET, CRON_BUDGET_MS,
 import { authRouter, authGate, authEnabled } from './auth.js';
 import { lastUpdated } from './version.js';
 import { supabase } from './db.js';
-import { availableNames } from './ai/cascade.js';
+import { availableNames, modelStatus } from './ai/cascade.js';
+import { auditModels, probeModels } from './ai/audit.js';
 import { chatTurn } from './chat.js';
 import { geoFromHeaders, memoryStats } from './self.js';
+import { startTrace, saveTrace, recentTraces, getTrace } from './trace.js';
 import { getMessages } from './pcm/messages.js';
 import { getActive, getProposed, put, promote, discard } from './pcm/memory.js';
 import { runMaintenance } from './pcm/maintain.js';
@@ -37,14 +39,43 @@ app.use(authGate);
 app.use(express.static(FRONTEND_DIR));
 
 // ── Status & history ─────────────────────────────────────────────────────────
-app.get('/api/status', (req, res) => {
-  res.json({ ok: true, startTime: START_TIME, supabase: !!supabase, cascade: availableNames(), updated: lastUpdated() });
+// Status. `cascade` feeds the header, so it is kept short; `latest` lets other devices notice new messages.
+app.get('/api/status', async (req, res) => {
+  const names = availableNames();
+  const latest = (await getMessages(1))[0]?.created_at || null;
+  res.json({
+    ok: true, startTime: START_TIME, supabase: !!supabase, updated: lastUpdated(), latest,
+    cascade: names.length > 3 ? [...names.slice(0, 3), `+${names.length - 3} more`] : names,
+  });
 });
 
 app.get('/api/history', async (req, res) => {
   try {
     res.json({ messages: await getMessages(parseInt(req.query.limit) || 100) });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Models ───
+app.get('/api/models', (req, res) => res.json({ models: modelStatus() }));
+app.all('/api/models/audit', async (req, res) => {          // ?probe=1 also makes one tiny live call per model
+  const report = await auditModels();
+  res.json(req.query.probe ? { ...report, probe: await probeModels() } : report);
+});
+
+// ── Debugging ───
+const traceLine = t => ({ id: t.id, at: t.created_at, kind: t.kind, query: t.data.query, model: t.data.model, plan: t.data.plan, marks: t.data.marks, error: t.data.error, answer: t.data.answer_head?.slice(0, 160) });
+app.get('/api/debug/traces', async (req, res) => {
+  const rows = await recentTraces(parseInt(req.query.n) || 5, req.query.kind || null);
+  res.json({ traces: rows.map(traceLine) });
+});
+app.get('/api/debug/trace/:id', async (req, res) => res.json((await getTrace(req.params.id)) || { error: 'not found' }));
+
+// Errors the browser hits are reported here, so they land in the same record as the server's.
+app.post('/api/debug/client', async (req, res) => {
+  const b = req.body || {};
+  const cut = (s, n) => String(s ?? '').slice(0, n);
+  await saveTrace(startTrace('client', { message: cut(b.message, 400), source: cut(b.source, 200), stack: cut(b.stack, 1500), page: cut(b.page, 100), client: b.client || null }));
+  res.json({ ok: true });
 });
 
 // ── Chat (Server-Sent Events) ────────────────────────────────────────────────

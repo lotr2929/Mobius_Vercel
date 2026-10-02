@@ -4,14 +4,16 @@
 //   3. recall in parallel: profile, week, projects, archive, named document, web
 //   4. assemble a budgeted context pack (pcm/assemble)
 //   5. stream the answer from the free-model cascade
-//   6. save both messages; top up embeddings in the background
+//   6. save the question and answer together; top up embeddings in the background
 // Memory failures never stop the chat: every recall step degrades to "nothing found".
+// Every turn leaves a trace (trace.js) so that a wrong answer can be diagnosed afterwards.
 
 import { KEYS, RECENT_MESSAGES } from './config.js';
 import { buildSystem } from './ai/prompt.js';
 import { runCascade, parseAskPrefix } from './ai/cascade.js';
+import { restoreAudit } from './ai/audit.js';
 import { analyse, isTrivial } from './pcm/router.js';
-import { getMessages, saveMessage } from './pcm/messages.js';
+import { getMessages, saveExchange, settled } from './pcm/messages.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive } from './pcm/memory.js';
 import { assembleContext } from './pcm/assemble.js';
@@ -19,6 +21,7 @@ import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
 import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilyUsage } from './web.js';
+import { startTrace, saveTrace } from './trace.js';
 import { clip, safe } from './util.js';
 
 const ATTACHED_TITLE = "Attached document(s) — full text — CONFIRM RECEIPT: start your reply by explicitly listing these exact filenames as received before addressing the user's message";
@@ -32,82 +35,118 @@ const fmtPast = ms => [...ms]
   .map(m => `[${m.created_at.slice(0, 10)}] ${m.role}: ${clip(m.content, 700)}`)
   .join('\n\n');
 
+// A short, harmless summary of what the browser reported, for the trace.
+const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c.browser, standalone: c.standalone, screen: c.screen, tz: c.tz };
+
 // Yields { event } and { token } objects for server.js to relay as SSE.
 // client = what the browser reported about the device; geo = approximate location from the request.
 export async function* chatTurn({ query, docs = [], client = null, geo = null, signal }) {
+  await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
+
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
-  const userQuery = cleanQuery || query; // "Ask: Mistral" alone shouldn't blank the query
+  const userQuery = cleanQuery || query; // "Ask: Qwen" alone shouldn't blank the query
   const attached = (Array.isArray(docs) ? docs : []).filter(d => d?.text);
   const ctx = describeContext(client, geo); // { tz, now, where }
 
-  // 1–2. verbatim window, then the plan
-  const recent = await getMessages(RECENT_MESSAGES);
-  const projects = await listActive('project');
-  const plan = await analyse(userQuery, recent, projects, ctx);
+  const trace = startTrace('chat', {
+    query: userQuery, forced: forceProvider, attached: attached.map(d => d.filename),
+    where: ctx.where, tz: ctx.tz, client: clientBrief(client), events: [],
+  });
 
-  // 3. recall, with the web search running alongside
-  const useWeb = !!KEYS.tavily && !isTrivial(plan.standalone) && !plan.aboutSelf; // no web search for questions about Mobius itself
-  if (useWeb) yield { event: 'searching web...' };
+  try {
+    // 1–2. verbatim window (complete exchanges only), then the plan
+    const raw = await getMessages(RECENT_MESSAGES + 4);
+    const recent = settled(raw).slice(-RECENT_MESSAGES);
+    const projects = await listActive('project');
+    trace.set({ recent: recent.map(m => ({ id: m.id, role: m.role, chars: m.content.length, head: m.content.slice(0, 80) })), unanswered_dropped: raw.length - settled(raw).length })
+      .mark('loaded');
+    const plan = await analyse(userQuery, recent, projects, ctx);
+    trace.set({ plan }).mark('analysed');
 
-  const [web, profile, week, archive, namedFile, selfText] = await Promise.all([
-    useWeb ? tavilySearch(plan.standalone) : null,
-    safe(getProfile, ''),
-    safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
-    plan.needsArchive
-      ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays }), NOTHING)
-      : NOTHING,
-    attached.length ? null : safe(() => findNamedDoc(plan.standalone), null),
-    plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
-  ]);
-  const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
+    // 3. recall, with the web search running alongside
+    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf; // none for greetings, questions about Mobius, or answers already in hand
+    if (useWeb) yield { event: 'searching web...' };
 
-  const seen = new Set(recent.map(m => m.id));
-  const past = archive.messages.filter(m => !seen.has(m.id));
-  const chunks = namedText ? [] : archive.docs;
-  const chosen = projects.filter(p => plan.projects.includes(p.key));
+    const [web, profile, week, archive, namedFile, selfText] = await Promise.all([
+      useWeb ? tavilySearch(plan.standalone) : null,
+      safe(getProfile, ''),
+      safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
+      plan.needsArchive
+        ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays }), NOTHING)
+        : NOTHING,
+      attached.length ? null : safe(() => findNamedDoc(plan.standalone), null),
+      plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
+    ]);
+    const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
 
-  // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
-  const noDocs = !attached.length && !namedText && !chunks.length && /\b(file|document|paper|upload|attach)/i.test(userQuery);
-  const context = assembleContext([
-    { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
-    { title: ATTACHED_TITLE, rank: 1, cap: 20000,
-      text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
-    { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
-    { title: 'Note', rank: 1, cap: 400, text: noDocs ? NO_DOCS_NOTE : '' },
-    { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
-    { title: 'Past week', rank: 4, cap: 3600,
-      text: [week.digest, week.gap && `Since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
-    { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
-    { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
-    { title: 'Web search results', rank: 6, cap: 2600, text: web },
-  ]);
+    const seen = new Set(recent.map(m => m.id));
+    const past = archive.messages.filter(m => !seen.has(m.id));
+    const chunks = namedText ? [] : archive.docs;
+    const chosen = projects.filter(p => plan.projects.includes(p.key));
+    trace.set({ recalled: {
+      web: web ? web.length : 0, profile: profile.length, weekDigest: week.digest.length, weekGap: week.gap.length,
+      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, projects: chosen.map(p => p.key), self: selfText.length,
+    } }).mark('recalled');
 
-  const system = buildSystem(clip(profile, 3000), ctx);
-  const messages = [
-    // Older turns are clipped; the latest exchange goes in whole.
-    ...recent.map((m, i) => ({ role: m.role, content: i >= recent.length - 2 ? m.content : clip(m.content, 4000) })),
-    { role: 'user', content: context ? `[Memory context — retrieved for this message]\n${context}\n\n[User message]\n${userQuery}` : userQuery },
-  ];
+    // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
+    const noDocs = !attached.length && !namedText && !chunks.length && /\b(file|document|paper|upload|attach)/i.test(userQuery);
+    const context = assembleContext([
+      { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
+      { title: ATTACHED_TITLE, rank: 1, cap: 20000,
+        text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
+      { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
+      { title: 'Note', rank: 1, cap: 400, text: noDocs ? NO_DOCS_NOTE : '' },
+      { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
+      { title: 'Past week', rank: 4, cap: 3600,
+        text: [week.digest, week.gap && `Since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
+      { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
+      { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
+      { title: 'Web search results', rank: 6, cap: 2600, text: web },
+    ]);
 
-  // 5–6. answer, remember
-  await saveMessage('user', userQuery, { docs: attached.map(d => d.filename) });
+    const system = buildSystem(clip(profile, 3000), ctx);
+    const finalContent = context.text ? `[Memory context — retrieved for this message]\n${context.text}\n\n[User message]\n${userQuery}` : userQuery;
+    const messages = [
+      // Older turns are clipped; the latest exchange goes in whole.
+      ...recent.map((m, i) => ({ role: m.role, content: i >= recent.length - 2 ? m.content : clip(m.content, 4000) })),
+      { role: 'user', content: finalContent },
+    ];
+    trace.set({
+      sections: context.sections,
+      system_chars: system.length, system: system.slice(0, 6000),
+      messages: messages.map(m => ({ role: m.role, chars: m.content.length })),
+      prompt: finalContent.slice(0, 30000), // exactly what the model was asked
+    }).mark('assembled');
 
-  let full = '', usedModel = '';
-  for await (const chunk of runCascade(messages, { signal, system, only: forceProvider })) {
-    if (typeof chunk === 'string') {
-      full += chunk;
-      yield { token: chunk };
-    } else if (chunk.event) {
-      if (chunk.event.startsWith('model:')) usedModel = chunk.event.slice(6);
-      yield { event: chunk.event };
+    // 5. answer
+    let full = '', usedModel = '';
+    for await (const chunk of runCascade(messages, { signal, system, only: forceProvider })) {
+      if (typeof chunk === 'string') {
+        if (!full) trace.mark('first_token');
+        full += chunk;
+        yield { token: chunk };
+      } else if (chunk.event) {
+        if (chunk.event.startsWith('model:')) usedModel = chunk.event.slice(6);
+        trace.data.events.push(chunk.event.slice(0, 160));
+        yield { event: chunk.event };
+      }
     }
-  }
-  await saveMessage('assistant', full, { model: usedModel });
+    trace.set({ model: usedModel, answer_chars: full.length, answer_head: full.slice(0, 600) }).mark('answered');
 
-  if (useWeb) {
-    const usage = await tavilyUsage();
-    if (usage) yield { event: `tavily:${usage.remaining}/${usage.limit}` };
-  }
+    // 6. remember — only a finished answer to a question that is still wanted
+    if (!signal?.aborted && full.trim()) await saveExchange({ query: userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
 
-  embedBacklog({ messages: 4, docs: 8 }).catch(() => {}); // quiet top-up, never blocks the reply
+    if (useWeb) {
+      const usage = await tavilyUsage();
+      if (usage) yield { event: `tavily:${usage.remaining}/${usage.limit}` };
+    }
+
+    embedBacklog({ messages: 4, docs: 8 }).catch(() => {}); // quiet top-up, never blocks the reply
+  } catch (e) {
+    trace.set({ error: String(e.message).slice(0, 500) });
+    throw e;
+  } finally {
+    trace.set({ aborted: !!signal?.aborted }).mark('end');
+    await saveTrace(trace); // awaited so a serverless function isn't frozen before the write lands
+  }
 }

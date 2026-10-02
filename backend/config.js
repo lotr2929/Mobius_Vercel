@@ -14,11 +14,10 @@ export const IS_VERCEL = env.VERCEL === '1';
 export const START_TIME = Date.now();
 
 export const KEYS = {
-  gemini:   env.GEMINI_API_KEY   || '',
-  mistral:  env.MISTRAL_API_KEY  || '',
-  cerebras: env.CEREBRAS_API_KEY || '',
-  groq:     env.GROQ_API_KEY     || '',
-  tavily:   env.TAVILY_API_KEY   || '',
+  gemini:  env.GEMINI_API_KEY  || '',
+  mistral: env.MISTRAL_API_KEY || '',
+  groq:    env.GROQ_API_KEY    || '',
+  tavily:  env.TAVILY_API_KEY  || '',
 };
 
 export const SUPABASE_URL = env.SUPABASE_URL || '';

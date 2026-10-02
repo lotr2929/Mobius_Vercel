@@ -1,12 +1,14 @@
 // pcm/maintain.js — the jobs that keep the memory tiers current. All are incremental
 // (each remembers a cursor in mobius_state), so an interrupted run loses nothing.
+//   models    the model stack: is every registered model still offered? any new ones?
 //   week      tier 1  rolling digest of the past seven days
 //   projects  tier 3  one note per current project, updated from new messages
 //   profile   tier 2  weekly *proposal* for the personal profile; Boon approves it
 //   embed     tier 4  embed messages and document chunks saved without a vector
 import { supabase } from '../db.js';
 import { RECENT_MESSAGES, WEEK_DAYS, PROJECT_DORMANT_DAYS } from '../config.js';
-import { askModel, ORDER } from '../ai/cascade.js';
+import { askModel } from '../ai/cascade.js';
+import { auditModels } from '../ai/audit.js';
 import { embedQuery, embedPatient } from './embed.js';
 import { getActive, getProposed, listActive, put, retireStale, getState, setState } from './memory.js';
 import { clip, isoDaysAgo, parseJson } from '../util.js';
@@ -64,7 +66,7 @@ Merge the new material into the digest.
 - Drop anything no longer relevant to the last seven days.
 - Keep topics discussed, decisions made, questions left open, and things Boon said he will do. Skip small talk.
 - Compact bullet points grouped by topic. At most 1,800 characters.
-Reply with ONLY the updated digest.`, { order: ORDER.deep, timeoutMs: 40000 });
+Reply with ONLY the updated digest.`, { role: 'deep', timeoutMs: 40000 });
 
   await put('week', 'main', { content: clip(text, 2200) });
   await setState('week_upto', newUpto);
@@ -98,7 +100,7 @@ Return updates ONLY for projects these messages actually touch.
 - "keywords" are 4 to 8 terms (names, tools, acronyms) likely to appear when the project is mentioned.
 - If nothing qualifies, return {"updates": []}.
 
-Reply with ONLY JSON: {"updates":[{"name":"...","keywords":["..."],"summary":"..."}]}`, { order: ORDER.deep, timeoutMs: 45000 });
+Reply with ONLY JSON: {"updates":[{"name":"...","keywords":["..."],"summary":"..."}]}`, { role: 'deep', timeoutMs: 45000 });
 
     const updates = parseJson(raw).updates;
     for (const u of Array.isArray(updates) ? updates : []) {
@@ -140,7 +142,7 @@ ${lines.join('\n')}
 Rewrite the profile, merging in anything new and durable.
 - Keep every fact already in the current profile (including family, health and commercial details Boon asked to be kept) unless his new messages contradict it. Never drop a line just because it is sensitive.
 - Add only things he actually said about himself or his work: who he is, the areas and projects he works on, his interests, how he likes to be answered. Do not infer new health, family or money details, and do not guess at his personality; prefer his own wording to interpretation.
-Plain markdown bullets, at most 480 words (about 3,000 characters). Reply with ONLY the profile.`, { order: ORDER.deep, timeoutMs: 40000 });
+Plain markdown bullets, at most 480 words (about 3,000 characters). Reply with ONLY the profile.`, { role: 'deep', timeoutMs: 40000 });
 
   await put('profile', 'main', { content: clip(text, 3000), status: 'proposed' });
   await setState('profile_last', new Date().toISOString());
@@ -176,6 +178,7 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
   const t0 = Date.now();
   const left = () => budgetMs - (Date.now() - t0);
   const steps = [
+    ['models',   async () => { const a = await auditModels(); return { retired: a.retired, newModels: a.candidates }; }],
     ['week',     () => refreshWeek()],
     ['projects', () => refreshProjects(left)],
     ['profile',  () => proposeProfile()],

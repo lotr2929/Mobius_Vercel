@@ -6,6 +6,7 @@ import { clip } from '../util.js';
 export const TOTAL_CHARS = 30000; // ≈ 8K tokens
 
 // parts: [{ title, text, cap, rank }] in display order.
+// → { text, sections: [{ title, chars, cap, offered, cut }] }  (sections is for the debug trace)
 export function assembleContext(parts, total = TOTAL_CHARS) {
   const live = parts.filter(p => p.text && p.text.trim());
   const body = new Map();
@@ -17,5 +18,14 @@ export function assembleContext(parts, total = TOTAL_CHARS) {
     body.set(p, text);
     left -= text.length + p.title.length + 4;
   }
-  return live.filter(p => body.has(p)).map(p => `[${p.title}]\n${body.get(p)}`).join('\n\n');
+  const kept = live.filter(p => body.has(p));
+  return {
+    text: kept.map(p => `[${p.title}]\n${body.get(p)}`).join('\n\n'),
+    sections: live.map(p => ({
+      title: p.title.slice(0, 60),
+      offered: p.text.trim().length,
+      chars: body.has(p) ? body.get(p).length : 0,
+      cut: !body.has(p) || body.get(p).length < p.text.trim().length,
+    })),
+  };
 }

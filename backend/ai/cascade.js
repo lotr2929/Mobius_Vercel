@@ -1,11 +1,14 @@
-// ai/cascade.js — the free cloud model stack: Gemini 2.5 Flash → Mistral Small →
-// Cerebras gpt-oss-120b → Groq gpt-oss-120b.
-// Each provider streams tokens; runCascade falls through on failure.
+// ai/cascade.js — runs the free cloud models listed in models.js.
+// Each model streams tokens; runCascade falls through to the next on failure, and a model that
+// has just failed is skipped for a while instead of being retried on every message.
 
 import { KEYS } from '../config.js';
 import { BASE_PROMPT, UTILITY_PROMPT } from './prompt.js';
+import { MODELS, modelByKey, orderFor } from './models.js';
 
-// ── Plumbing ─────────────────────────────────────────────────────────────────
+export { parseAskPrefix } from './models.js';
+
+// ── Transport ────────────────────────────────────────────────────────────────
 async function post(url, headers, body, signal, label) {
   const r = await fetch(url, {
     method: 'POST',
@@ -40,98 +43,68 @@ async function* sse(r, pick) {
   }
 }
 
-function openAICompat({ label, url, key, model, maxTokens }) {
-  return async function* (messages, signal, system) {
-    const r = await post(url, { Authorization: 'Bearer ' + key }, {
-      model, stream: true, max_tokens: maxTokens,
-      messages: [{ role: 'system', content: system }, ...messages],
-    }, signal, label);
-    yield* sse(r, o => o.choices?.[0]?.delta?.content);
-  };
-}
-
-// ── Providers ────────────────────────────────────────────────────────────────
-// maxChars is the most prompt text (system + messages) we will send that provider.
-const PROVIDERS = {
-  gemini: {
-    name: 'gemini-2.5-flash',
-    maxChars: 300000,
-    available: () => !!KEYS.gemini,
-    stream: async function* (messages, signal, system) {
-      const r = await post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${KEYS.gemini}`,
-        {},
-        {
-          contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-          systemInstruction: { parts: [{ text: system }] },
-          generationConfig: { maxOutputTokens: 8192 },
-        },
-        signal, 'Gemini');
-      yield* sse(r, o => (o.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join(''));
-    },
-  },
-  mistral: {
-    name: 'mistral-small',
-    maxChars: 90000,
-    available: () => !!KEYS.mistral,
-    stream: openAICompat({ label: 'Mistral', url: 'https://api.mistral.ai/v1/chat/completions', key: KEYS.mistral, model: 'mistral-small-latest', maxTokens: 8192 }),
-  },
-  cerebras: {
-    name: 'gpt-oss-120b (cerebras)',
-    maxChars: 14000, // free tier: 8K-token context shared by prompt and reply
-    available: () => !!KEYS.cerebras,
-    stream: openAICompat({ label: 'Cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', key: KEYS.cerebras, model: 'gpt-oss-120b', maxTokens: 3000 }),
-  },
-  groq: {
-    name: 'gpt-oss-120b (groq)', // llama-3.3-70b-versatile was retired by Groq
-    maxChars: 22000, // free tier: ~12K tokens per minute
-    available: () => !!KEYS.groq,
-    stream: openAICompat({ label: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: KEYS.groq, model: 'openai/gpt-oss-120b', maxTokens: 4096 }),
-  },
+const openAICompat = (label, url) => async function* (model, messages, signal, system) {
+  const r = await post(url, { Authorization: 'Bearer ' + keyFor(model) }, {
+    model: model.id, stream: true, max_tokens: model.maxTokens,
+    messages: [{ role: 'system', content: system }, ...messages],
+  }, signal, label);
+  yield* sse(r, o => o.choices?.[0]?.delta?.content);
 };
 
-// A provider that just failed is skipped for a while instead of being retried on every message:
-// a minute after a rate limit, six hours after "payment required" / "model not found" / bad key.
+async function* streamGemini(model, messages, signal, system) {
+  const r = await post(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:streamGenerateContent?alt=sse&key=${KEYS.gemini}`,
+    {},
+    {
+      contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+      systemInstruction: { parts: [{ text: system }] },
+      generationConfig: { maxOutputTokens: model.maxTokens },
+    },
+    signal, 'Gemini');
+  yield* sse(r, o => (o.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join(''));
+}
+
+const PROVIDERS = {
+  gemini:  { stream: streamGemini },
+  groq:    { stream: openAICompat('Groq',    'https://api.groq.com/openai/v1/chat/completions') },
+  mistral: { stream: openAICompat('Mistral', 'https://api.mistral.ai/v1/chat/completions') },
+};
+const keyFor = model => KEYS[model.provider] || '';
+
+// ── What is usable right now ─────────────────────────────────────────────────
+// Three reasons a model is skipped: no key for its provider, the audit found it retired,
+// or it failed recently (resting).
+const retired = new Set();    // keys the audit could not find at the provider
 const downUntil = {};
 const downWhy = {};
-const usable = key => PROVIDERS[key].available() && Date.now() >= (downUntil[key] || 0);
+
+const configured = m => !!keyFor(m) && !retired.has(m.key);
+const usable = key => { const m = modelByKey(key); return !!m && configured(m) && Date.now() >= (downUntil[key] || 0); };
 
 function pickKeys(order) {
   const ok = order.filter(usable);
-  return ok.length ? ok : order.filter(k => PROVIDERS[k].available()); // all resting: try them anyway
+  return ok.length ? ok : order.filter(k => configured(modelByKey(k))); // all resting: try them anyway
 }
 
+// A minute after a rate limit, six hours after "payment required", "not found" or a bad key.
 function markDown(key, err) {
   const status = Number((/HTTP (\d{3})/.exec(err.message) || [])[1]);
   downUntil[key] = Date.now() + ([401, 402, 403, 404].includes(status) ? 6 * 3600e3 : status === 429 ? 60e3 : 20e3);
   downWhy[key] = status ? `HTTP ${status}${status === 429 ? ' rate limit or quota' : status === 402 ? ' payment required' : status === 404 ? ' model not found' : ''}` : 'error or timeout';
 }
 
-// For Mobius's self-report: which models are usable right now.
-export const providerStatus = () => ORDER.chat.map(k => {
-  const p = PROVIDERS[k];
-  if (!p.available()) return `${p.name}: not configured`;
-  return Date.now() < (downUntil[k] || 0) ? `${p.name}: resting after a failure (${downWhy[k]})` : `${p.name}: ready`;
-});
+export function setRetired(keys) { retired.clear(); keys.forEach(k => retired.add(k)); }
 
-// Order matters. Answers lead with Gemini. Quick utility calls (routing) lead with
-// the fast providers to keep Gemini's daily quota for answers and embeddings.
-export const ORDER = {
-  chat:  ['gemini', 'mistral', 'cerebras', 'groq'],
-  quick: ['cerebras', 'mistral', 'groq', 'gemini'],
-  deep:  ['gemini', 'mistral', 'groq', 'cerebras'],
-};
+export const availableNames = () => orderFor('chat').filter(k => configured(modelByKey(k))).map(k => modelByKey(k).name);
 
-export const availableNames = () => ORDER.chat.filter(k => PROVIDERS[k].available()).map(k => PROVIDERS[k].name);
+// For the self-report and /api/models: one entry per model.
+export const modelStatus = () => MODELS.map(m => ({
+  key: m.key, name: m.name, id: m.id, provider: m.provider, tags: m.tags,
+  state: !keyFor(m) ? 'no key' : retired.has(m.key) ? 'retired (not listed by the provider)'
+       : Date.now() < (downUntil[m.key] || 0) ? `resting after a failure (${downWhy[m.key]})` : 'ready',
+}));
 
-// "Ask: Mistral …" forces one model so Boon can get a second opinion on demand.
-export function parseAskPrefix(query) {
-  const m = query.match(/^ask:?\s*(gemini|groq|mistral|cerebras)\s*:?\s*/i);
-  if (!m) return { forceProvider: null, cleanQuery: query };
-  return { forceProvider: m[1].toLowerCase(), cleanQuery: query.slice(m[0].length).trim() };
-}
-
-// ── Fitting a prompt to a provider ───────────────────────────────────────────
+// ── Fitting a prompt to a model ──────────────────────────────────────────────
 // Providers reject consecutive same-role turns and a non-user first turn.
 function normalise(messages) {
   const out = [];
@@ -164,18 +137,19 @@ function fit(messages, system, maxChars) {
 
 // ── Streaming a chat answer ──────────────────────────────────────────────────
 // Yields token strings and { event } objects (model:, fallback:, error:).
-export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null } = {}) {
-  if (only && !PROVIDERS[only]) { yield { event: 'error:unknown-model:' + only }; return; }
-  for (const key of only ? [only] : pickKeys(ORDER.chat)) {
-    const p = PROVIDERS[key];
-    if (!p.available()) {
-      if (only) yield { event: 'error:not-configured:' + p.name };
+// `only` forces one model; `task` (a tag such as 'code') tries models strong at it first.
+export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null } = {}) {
+  if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
+  for (const key of only ? [only] : pickKeys(orderFor('chat', task))) {
+    const m = modelByKey(key);
+    if (!keyFor(m)) {
+      if (only) yield { event: 'error:not-configured:' + m.name };
       continue;
     }
     let started = false;
     try {
-      yield { event: 'model:' + p.name };
-      for await (const token of p.stream(fit(normalise(messages), system, p.maxChars), signal, system)) {
+      yield { event: 'model:' + m.name };
+      for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(messages), system, m.maxChars), signal, system)) {
         started = true;
         yield token;
       }
@@ -184,29 +158,29 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
       if (signal?.aborted) return;
       if (started) throw e; // half an answer already went out; don't graft a second model onto it
       markDown(key, e);
-      console.warn(`[cascade] ${p.name} failed: ${e.message} — trying next`);
-      yield { event: 'fallback:' + p.name + ':' + e.message.slice(0, 80) };
+      console.warn(`[cascade] ${m.name} failed: ${e.message} — trying next`);
+      yield { event: 'fallback:' + m.name + ':' + e.message.slice(0, 80) };
       if (only) return;
     }
   }
-  throw new Error('All cascade providers failed');
+  throw new Error('All models failed');
 }
 
 // ── One-shot call (routing, summarising) ─────────────────────────────────────
-// Each provider gets its own timeout; the first non-empty answer wins.
-export async function askModel(prompt, { order = ORDER.quick, timeoutMs = 25000, system = UTILITY_PROMPT } = {}) {
+// Each model gets its own timeout; the first non-empty answer wins. role: 'quick' | 'deep'.
+export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT } = {}) {
   let lastError;
-  for (const key of pickKeys(order)) {
-    const p = PROVIDERS[key];
-    if (!p.available()) continue;
+  for (const key of pickKeys(orderFor(role))) {
+    const m = modelByKey(key);
+    if (!keyFor(m)) continue;
     try {
       let out = '';
-      for await (const token of p.stream(fit(normalise([{ role: 'user', content: prompt }]), system, p.maxChars), AbortSignal.timeout(timeoutMs), system)) out += token;
+      for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise([{ role: 'user', content: prompt }]), system, m.maxChars), AbortSignal.timeout(timeoutMs), system)) out += token;
       if (out.trim()) return out.trim();
     } catch (e) {
       markDown(key, e);
       lastError = e;
     }
   }
-  throw lastError || new Error('No AI provider is configured');
+  throw lastError || new Error('No AI model is configured');
 }

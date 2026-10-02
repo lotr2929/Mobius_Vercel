@@ -5,7 +5,8 @@
 import os from 'os';
 import { PORT, IS_VERCEL, START_TIME, RECENT_MESSAGES, WEEK_DAYS, PROJECT_DORMANT_DAYS } from './config.js';
 import { supabase } from './db.js';
-import { providerStatus } from './ai/cascade.js';
+import { modelStatus } from './ai/cascade.js';
+import { MODELS, orderFor, askKeywords } from './ai/models.js';
 import { listActive, getActive, getProposed, getState } from './pcm/memory.js';
 import { lastUpdated } from './version.js';
 import { nowIn, validTimeZone } from './util.js';
@@ -92,7 +93,7 @@ Mobius is Boon Lay Ong's personal AI assistant: a chat app (an installable PWA) 
 - Both use the same Supabase database, so the memory is shared.
 
 ## The models
-You are one of four free cloud models tried in order for each answer: Gemini 2.5 Flash, then Mistral Small, Cerebras gpt-oss-120b and Groq gpt-oss-120b. If one fails or is rate-limited, the next one answers, and a model that has just failed is skipped for a while (a minute after a rate limit, hours after "payment required" or "model not found"). Boon can force one by starting a message with "Ask: Mistral" (or Gemini, Cerebras, Groq). Models are stateless: they remember nothing between messages. Everything you know about Boon and past conversations comes from what Mobius puts in front of you each time.
+You are one of several free cloud models. Each answer is tried on them in order until one works: ${orderFor('chat').map(k => MODELS.find(m => m.key === k).name).join(', then ')}. If one fails or is rate-limited, the next one answers, and a model that has just failed is skipped for a while (a minute after a rate limit, hours after "payment required" or "model not found"). A checking job compares the list against what each provider actually offers and flags models that disappear or new ones that appear. Each model is tagged with what it is good at (${[...new Set(MODELS.flatMap(m => m.tags))].join(', ')}) so work can be steered to the best one for the task. Boon can force one model by starting a message with "Ask:" and a name (${askKeywords().join(', ')}). Models are stateless: they remember nothing between messages. Everything you know about Boon and past conversations comes from what Mobius puts in front of you each time. Free tiers are limited: the best proprietary models (such as Gemini Pro) are not available on these keys.
 
 ## Memory (PCM, Persistent Contextual Memory), stored in Supabase
 1. Immediate: the last ${RECENT_MESSAGES} messages arrive verbatim, plus a rolling digest of the past ${WEEK_DAYS} days.
@@ -123,7 +124,7 @@ export async function selfReport(client, geo, ctx) {
     `- This request was served by: ${serverSummary()}`,
     `- The device Boon is using: ${deviceSummary(client)}`,
     `- App: last updated ${lastUpdated() || 'unknown'}`,
-    `- Models right now: ${providerStatus().join('; ')}`,
+    `- Models right now: ${modelStatus().map(m => `${m.name}: ${m.state}`).join('; ')}`,
     stats && `- Memory: ${stats.messages.total} messages (${stats.messages.unembedded} not yet embedded), ${stats.docChunks.total} document chunks (${stats.docChunks.unembedded} not yet embedded); personal profile ${stats.profile.active ? 'set' : 'not set'}${stats.profile.proposed ? ' (a new proposal is waiting for approval)' : ''}; week digest ${stats.weekDigest ? 'present' : 'not built yet'}; current projects: ${stats.projects.join('; ') || 'none'}; last maintenance run ${stats.lastMaintenance || 'never'}`,
   ];
   return `${MANUAL}\n\n${live.filter(Boolean).join('\n')}`;

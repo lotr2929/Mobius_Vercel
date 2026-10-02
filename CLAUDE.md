@@ -3,18 +3,34 @@
 Personal AI chat with tiered memory (PCM) and web search. Rewritten 1 Oct 2026; the previous version is in `..\Mobius(old)` and in git history.
 
 ## Keep (the three fixed points)
-1. Free cloud models: Gemini 2.5 Flash → Mistral Small → Cerebras gpt-oss-120b → Groq gpt-oss-120b (`backend/ai/cascade.js`). A model that fails is skipped for a while (1 min after a rate limit, 6 h after 402/404/bad key). When one dies, check the provider's live model list: Groq retired llama-3.3-70b-versatile, and Cerebras began returning "payment required" in Oct 2026.
+1. Free cloud models, kept current (see "The model stack" below)
 2. Supabase as the memory store (shared "dlbs" project, `mobius_` tables)
-3. Simple chat UI (`frontend/index.html`, vanilla JS, unchanged by the rewrite)
+3. Simple chat UI (`frontend/index.html`, vanilla JS)
+
+## The model stack (`backend/ai/models.js` is the single list)
+- 8 models across Gemini, Groq and Mistral, each tagged with strengths (general, reasoning, code, fast, long-context, multilingual) and ranked per role: `chat` (answers), `quick` (routing), `deep` (big summaries). Edit that file to add, remove or re-rank; nothing else needs changing.
+- Prefer `-latest` aliases where a provider offers them; they follow new releases by themselves.
+- A model that fails is skipped for a while (1 min after a rate limit, 6 h after 402/404/bad key). Free-tier limits are per model.
+- **Keeping it current:** `npm run models` (add `-- --probe` for a tiny live call per model) compares the list with what each provider offers: it flags retired models (skipped automatically) and lists new ones. The same audit runs inside the 6-hourly maintenance. Review its "worth a look" list and update `models.js`.
+- Learned the hard way (Oct 2026): Groq retired llama-3.3-70b; Cerebras and Mistral Small/Medium/Magistral and all Gemini Pro models are closed to these free keys. Check access with `--probe`, not just the model list.
+- `runCascade(..., { task: 'code' })` tries models tagged for that task first; nothing sets it yet. Intended for the later "best model per job" routing.
 
 ## How a message is handled (`backend/chat.js`)
-1. Load the last 12 messages verbatim (memory tier 1).
-2. `pcm/router.js` makes one cheap model call: standalone rewrite of the message, search queries, which projects it concerns, whether the archive is needed. Rule-based fallback if every model fails.
-3. Recall in parallel: profile, week digest, archive search, named document, web search (Tavily, on for every non-trivial message).
-4. `pcm/assemble.js` builds a budgeted context pack (≈30K chars; sections ranked, lowest-ranked cut first).
-5. Stream the answer from the cascade; save both messages; embed a few backlog rows in the background.
+1. Load the last 12 messages (complete question+answer pairs only) verbatim.
+2. `pcm/router.js` makes one cheap model call: standalone rewrite of the message, search queries, which projects it concerns, whether the archive, the web or Mobius's own documentation is needed. Rule-based fallback if every model fails.
+3. Recall in parallel: profile, week digest, archive search, named document, web search (Tavily, skipped when the answer is already in hand).
+4. `pcm/assemble.js` builds a budgeted context pack (about 30K chars; sections ranked, lowest-ranked cut first).
+5. Stream the answer from the cascade; save the question and answer together; embed a few backlog rows in the background.
 
 Memory failures never stop the chat; each recall step degrades to "nothing found".
+
+## Debugging (read this first when something looks wrong)
+- Every chat turn writes a **trace** to `mobius_traces` (14 days kept, RLS on): the question, the router's plan, what was recalled, the exact prompt sent, which model answered, fallbacks, timings, errors. Browser errors are reported there too.
+- Read them: `select id, created_at, data->>'query', data->>'model', data->'plan', data->'marks' from mobius_traces order by id desc limit 5;` in the Supabase SQL Editor (or via the Supabase connector), or `GET /api/debug/traces?n=5` and `/api/debug/trace/<id>` (login required on the live site).
+- Fixed on 2 Oct 2026 (found by trace): a question whose answer failed was saved alone, then merged into the *next* question and answered in its place. Now pairs are saved together and unanswered rows are ignored.
+
+## Syncing devices
+All state is in Supabase, so the phone and laptop (and the local server and Vercel) share one history and memory. Each device refreshes its history list every 30 seconds and when the app regains focus; the arrows then include exchanges from the other device. A question and its answer are written in one insert, so two devices chatting at once never interleave.
 
 ## The four memory tiers
 | Tier | Holds | Stored in | Refreshed by |
@@ -41,13 +57,14 @@ Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`,
 ```
 backend/
   server.js        routes only (the /api contract the UI expects — keep stable)
+  chat.js          one chat turn, with its trace
   auth.js          passkey login + session gate
-  self.js          self-awareness: date/place, device, server, the Mobius manual (aboutSelf questions)
+  self.js          self-awareness: date/place, device, server, the Mobius manual
+  trace.js         the flight recorder
   version.js       the "Last updated" stamp
-  chat.js          one chat turn
   config.js        env + constants (the only place env vars are read)
-  db.js util.js web.js maintain-cli.mjs
-  ai/              cascade.js, prompt.js
+  db.js util.js web.js maintain-cli.mjs models-cli.mjs
+  ai/              models.js (registry), cascade.js (runs them), audit.js (checks them), prompt.js
   pcm/             router, retrieve, assemble, maintain, memory, messages, embed
   docs/            store, extract, drive
 frontend/          PWA (do not change without being asked)
@@ -57,10 +74,11 @@ supabase/schema.sql   idempotent; run in the Supabase SQL Editor
 ## Run
 - `start.bat` / `stop.bat` — local server on port 3005
 - `npm run maintain` — memory jobs now, no time limit, drains the embedding backlog (`-- --drive` also syncs Drive)
-- `GET /api/pcm/status` — counts and last maintenance; `/api/pcm/maintain` runs the jobs
+- `npm run models` — check the model stack against the providers (`-- --probe` for live calls)
+- `GET /api/pcm/status` — counts and last maintenance; `/api/pcm/maintain` runs the jobs; `/api/models` model states
 - Vercel cron `/api/cron/daily` is time-boxed; the local server runs upkeep every 6 hours
 
 ## Rules
 - Embeddings are Gemini only (`gemini-embedding-001`, 1024-dim). Never mix providers in one column.
 - `C:\_myProjects` is a junction to `D:\_myProjects`; `start.bat` uses the D: path on purpose — do not "fix" it.
-- Cerebras free tier has an 8K-token context; `fit()` in `cascade.js` trims prompts per provider.
+- Prompts are trimmed per model (`fit()` in `cascade.js`) to respect free-tier limits.

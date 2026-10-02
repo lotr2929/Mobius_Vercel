@@ -90,6 +90,17 @@ create table if not exists mobius_passkeys (
 );
 alter table mobius_passkeys enable row level security;
 
+-- Flight recorder: one row per chat turn / browser error, deleted after 14 days. Holds full
+-- prompts (personal memory included), so Row Level Security is on with no policies.
+create table if not exists mobius_traces (
+  id         bigserial primary key,
+  created_at timestamptz not null default now(),
+  kind       text not null,           -- 'chat' | 'client'
+  data       jsonb not null
+);
+create index if not exists mobius_traces_created on mobius_traces (created_at desc);
+alter table mobius_traces enable row level security;
+
 -- ── Memory functions ─────────────────────────────────────────────────────────
 
 -- Replace the row of this status for (kind, key); the old one is archived, and only the
