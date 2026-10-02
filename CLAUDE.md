@@ -8,7 +8,7 @@ Personal AI chat with tiered memory (PCM) and web search. Rewritten 1 Oct 2026; 
 3. Simple chat UI (`frontend/index.html`, vanilla JS)
 
 ## The model stack (`backend/ai/models.js` is the single list)
-- 8 models across Gemini, Groq and Mistral, each tagged with strengths (general, reasoning, code, fast, long-context, multilingual) and ranked per role: `chat` (answers), `quick` (routing), `deep` (big summaries). Edit that file to add, remove or re-rank; nothing else needs changing.
+- Each model is tagged with strengths (general, reasoning, code, fast, long-context, multilingual) and ranked per role: `chat` (answers), `quick` (routing), `deep` (big summaries), `learn` (deciding what to remember).
 - Prefer `-latest` aliases where a provider offers them; they follow new releases by themselves.
 - A model that fails is skipped for a while (1 min after a rate limit, 6 h after 402/404/bad key). Free-tier limits are per model.
 - **Keeping it current:** `npm run models` (add `-- --probe` for a tiny live call per model) compares the list with what each provider offers: it flags retired models (skipped automatically) and lists new ones. The same audit runs inside the 6-hourly maintenance. Review its "worth a look" list and update `models.js`.
@@ -31,8 +31,9 @@ Memory failures never stop the chat; each recall step degrades to "nothing found
 
 ## Notes: remembering what Boon asks, and finding what he would want (`pcm/notes.js`)
 - **Commands** are plain sentences at the start of a message, matched by rules (no model needed, so they work even when every model is down): `Remember that ...` / `Note: ...` / `Keep in mind ...` / `From now on ...` save a note at once; `Forget ...` or `Forget #14` removes one; `Show notes`; `Show suggestions`; `Save 14, 16` / `Save all`; `Drop 15` / `Drop all`.
+- **Learning as he talks** (`pcm/learn.js`, config `LEARN_MODE` = `auto` | `suggest` | `off`): the `learn`-role model reads each message alongside the assistant's previous reply and what is already saved. In `auto` mode an *explicit* definition of his own term, correction of the assistant, or standing preference is saved at once; the reply ends with a line saying what was noted and how to undo it (`forget #14`). Anything less certain becomes a suggestion. It runs in parallel with the answer (starts at the first token), so it adds no waiting time. Found necessary after the model guessed the meaning of his own term "Scriptura Fidelium" wrongly.
 - Active notes (table `mobius_notes`) are sent to the model with every message (all of them if they fit in 3,000 chars, else the most relevant plus the newest).
-- **Review job** (`harvestNotes` in `pcm/maintain.js`, part of the 6-hourly maintenance): a model reads new conversation, compares it with notes, profile and projects, and *suggests* up to 8 notes per batch. Suggestions stay `proposed` until Boon says "save"; at the start of a conversation Mobius mentions that some are waiting. First run read the whole history. Max 20 waiting at a time. Rejected or forgotten notes are not suggested again.
+- **Review job** (`harvestNotes` in `pcm/maintain.js`, part of the 6-hourly maintenance): a model reads new conversation, compares it with notes, profile and projects, and *suggests* up to 8 notes per batch. Suggestions from the review job stay `proposed` until Boon says "save"; at the start of a conversation Mobius mentions that some are waiting. First run read the whole history. Max 20 waiting at a time. Rejected or forgotten notes are not suggested again.
 - Not yet built: folding long-lived notes into the profile; semantic (embedding) selection when notes outgrow the prompt.
 
 ## Conversation continuity
@@ -91,3 +92,4 @@ supabase/schema.sql   idempotent; run in the Supabase SQL Editor
 - Embeddings are Gemini only (`gemini-embedding-001`, 1024-dim). Never mix providers in one column.
 - `C:\_myProjects` is a junction to `D:\_myProjects`; `start.bat` uses the D: path on purpose — do not "fix" it.
 - Prompts are trimmed per model (`fit()` in `cascade.js`) to respect free-tier limits.
+- Cleaning up test data: never delete `mobius_messages` by id range or time. Real chats from the phone and laptop arrive interleaved with test traffic (a range delete on 2 Oct 2026 removed five real phone chats; they were rebuilt from `mobius_traces`, one reply truncated). Identify test rows by their content, and check first.

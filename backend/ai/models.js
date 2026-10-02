@@ -14,6 +14,7 @@
 //               chat   answering Boon
 //               quick  small utility calls (routing): fast first
 //               deep   big summarising jobs: large context first
+//               learn  deciding what is worth remembering from a message: sound judgement, quick
 //   ask       extra words that work after "Ask:" to force this model
 //
 // Free-tier reality (checked 2 Oct 2026): Gemini Pro models, Mistral Small/Medium/Magistral and
@@ -23,31 +24,31 @@
 export const MODELS = [
   { key: 'gemini',    name: 'gemini-3.8-flash',          provider: 'gemini',  id: 'gemini-3.8-flash',
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 1, quick: 6, deep: 1 }, ask: ['flash'] },
+    rank: { chat: 1, quick: 6, deep: 1, learn: 6 }, ask: ['flash'] },
 
   { key: 'gptoss',    name: 'gpt-oss-120b (groq)',       provider: 'groq',    id: 'openai/gpt-oss-120b',
     tags: ['reasoning', 'general', 'code'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 2, quick: 3, deep: 5 }, ask: ['gpt-oss', 'groq', 'gpt'] },
+    rank: { chat: 2, quick: 3, deep: 5, learn: 1 }, ask: ['gpt-oss', 'groq', 'gpt'] },
 
   { key: 'gemini37',  name: 'gemini-3.7-flash',          provider: 'gemini',  id: 'gemini-3.7-flash',
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 3, quick: 5, deep: 2 }, ask: ['flash-3.7'] },
+    rank: { chat: 3, quick: 5, deep: 2, learn: 2 }, ask: ['flash-3.7'] },
 
   { key: 'qwen',      name: 'qwen3.8-27b (groq)',        provider: 'groq',    id: 'qwen/qwen3.8-27b',
     tags: ['general', 'code', 'multilingual', 'fast'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 4, quick: 1, deep: 6 }, ask: ['qwen'] },
+    rank: { chat: 4, quick: 1, deep: 6, learn: 3 }, ask: ['qwen'] },
 
   { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', id: 'ministral-14b-latest',
     tags: ['general', 'fast'], maxChars: 90000, maxTokens: 4096,
-    rank: { chat: 5, quick: 4, deep: 4 }, ask: ['mistral'] },
+    rank: { chat: 5, quick: 4, deep: 4, learn: 5 }, ask: ['mistral'] },
 
   { key: 'lite',      name: 'gemini-3.1-flash-lite',     provider: 'gemini',  id: 'gemini-3.1-flash-lite',
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 6, quick: 2, deep: 3 }, ask: ['flash-lite'] },
+    rank: { chat: 6, quick: 2, deep: 3, learn: 4 }, ask: ['flash-lite'] },
 
   { key: 'gptoss20',  name: 'gpt-oss-20b (groq)',        provider: 'groq',    id: 'openai/gpt-oss-20b',
     tags: ['fast', 'reasoning'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 7, quick: 7, deep: 7 }, ask: ['gpt-oss-20b'] },
+    rank: { chat: 7, quick: 7, deep: 7, learn: 7 }, ask: ['gpt-oss-20b'] },
 
   { key: 'codestral', name: 'codestral (mistral)',       provider: 'mistral', id: 'codestral-latest',
     tags: ['code'], maxChars: 90000, maxTokens: 4096,

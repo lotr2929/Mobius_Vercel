@@ -101,7 +101,7 @@ You are one of several free cloud models. Each answer is tried on them in order 
 2. Personal: a profile of who Boon is, carried in your system prompt. A weekly update is only proposed; Boon approves it.
 3. Current: one note per project active in the last ${PROJECT_DORMANT_DAYS} days.
 4. Archive: every message and every document, searched by meaning (Gemini embeddings) and by keyword together.
-Notes: Boon can tell you to remember things, and they are saved at once and sent to you with every message. He says "Remember that ...", "Note: ..." or "From now on ..." to save one, "Forget ..." (or "Forget #14") to remove one, and "Show notes" to list them. A review job also reads his conversations and suggests notes; these wait until he says "Show suggestions", then "Save 14, 16", "Save all" or "Drop 15". Suggestions never become active on their own.
+Notes: Boon can tell you to remember things, and they are saved at once and sent to you with every message. He says "Remember that ...", "Note: ..." or "From now on ..." to save one, "Forget ..." (or "Forget #14") to remove one, and "Show notes" to list them. A review job also reads his conversations and suggests notes; these wait until he says "Show suggestions", then "Save 14, 16", "Save all" or "Drop 15". You also notice things yourself as the conversation goes: when Boon clearly defines a term of his own, corrects you, or states a standing preference, it is saved at once as a note and reported to him at the end of the reply with how to undo it ("forget #14"); anything less certain becomes a suggestion.
 Memory is imperfect: summaries can be stale or wrong. If something Boon mentions is not in your context, say so rather than guess.
 
 ## How each message is handled
@@ -123,8 +123,8 @@ export async function selfReport(client, geo, ctx) {
     '## Right now',
     `- Date and time: ${ctx.now}`,
     `- Approximate location: ${ctx.where}`,
-    `- This request was served by: ${serverSummary()}`,
-    `- The device Boon is using: ${deviceSummary(client)}`,
+    `- The device Boon is using right now ("this device", "your device" and "the device you're on" all mean THIS): ${deviceSummary(client)}`,
+    `- The server that handled this request (Mobius's software runs here; it is not Boon's device): ${serverSummary()}`,
     `- App: last updated ${lastUpdated() || 'unknown'}`,
     `- Models right now: ${modelStatus().map(m => `${m.name}: ${m.state}`).join('; ')}`,
     stats && `- Memory: ${stats.messages.total} messages (${stats.messages.unembedded} not yet embedded), ${stats.docChunks.total} document chunks (${stats.docChunks.unembedded} not yet embedded); personal profile ${stats.profile.active ? 'set' : 'not set'}${stats.profile.proposed ? ' (a new proposal is waiting for approval)' : ''}; ${stats.notes.active ?? 0} saved notes and ${stats.notes.suggested ?? 0} suggested notes waiting for review; week digest ${stats.weekDigest ? 'present' : 'not built yet'}; current projects: ${stats.projects.join('; ') || 'none'}; last maintenance run ${stats.lastMaintenance || 'never'}`,

@@ -24,6 +24,13 @@ export const SUPABASE_URL = env.SUPABASE_URL || '';
 export const SUPABASE_KEY = env.SUPABASE_KEY || '';
 export const CRON_SECRET  = env.CRON_SECRET  || '';
 
+// What Mobius does when Boon states something worth keeping, without being told to remember it:
+//   'auto'    explicit definitions, corrections and preferences are saved at once (and reported, with undo);
+//             everything else becomes a suggestion that waits for his say-so
+//   'suggest' everything becomes a suggestion
+//   'off'     no learning from messages
+export const LEARN_MODE = env.LEARN_MODE || 'auto';
+
 // ── Login (passkeys) ─────────────────────────────────────────────────────────
 // Login is on only when SESSION_SECRET is set (do that on Vercel; leave it out locally).
 export const SESSION_SECRET = env.SESSION_SECRET || ''; // long random string; signs the login cookie

@@ -17,6 +17,7 @@ import { getMessages, saveExchange, settled } from './pcm/messages.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive } from './pcm/memory.js';
 import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
+import { learnFromExchange, learnedNotice } from './pcm/learn.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
@@ -148,11 +149,16 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
       prompt: finalContent.slice(0, 30000), // exactly what the model was asked
     }).mark('assembled');
 
-    // 5. answer
-    let full = '', usedModel = '';
+    // 5. answer. Learning (pcm/learn.js) starts with the first token and runs alongside the rest of
+    //    the answer, so it adds no waiting time and never runs for an answer that failed.
+    let full = '', usedModel = '', learning = null;
+    const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
     for await (const chunk of runCascade(messages, { signal, system, only: forceProvider })) {
       if (typeof chunk === 'string') {
-        if (!full) trace.mark('first_token');
+        if (!full) {
+          trace.mark('first_token');
+          if (!memoryAction) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
+        }
         full += chunk;
         yield { token: chunk };
       } else if (chunk.event) {
@@ -161,7 +167,12 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
         yield { event: chunk.event };
       }
     }
-    trace.set({ model: usedModel, answer_chars: full.length, answer_head: full.slice(0, 600) }).mark('answered');
+
+    // Anything Boon said that is worth keeping: say what was noted, so nothing is saved silently.
+    const learned = learning && !signal?.aborted ? await Promise.race([learning, new Promise(r => setTimeout(() => r([]), 4000))]) : [];
+    const notice = learnedNotice(learned);
+    if (notice) { full += notice; yield { token: notice }; }
+    trace.set({ learned, model: usedModel, answer_chars: full.length, answer_head: full.slice(0, 600) }).mark('answered');
 
     // 6. remember — only a finished answer to a question that is still wanted
     if (!signal?.aborted && full.trim()) await saveExchange({ query: userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
