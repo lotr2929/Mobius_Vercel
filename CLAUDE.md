@@ -16,7 +16,7 @@ Personal AI chat with tiered memory (PCM) and web search. Rewritten 1 Oct 2026; 
 - `runCascade(..., { task: 'code' })` tries models tagged for that task first; nothing sets it yet. Intended for the later "best model per job" routing.
 
 ## How a message is handled (`backend/chat.js`)
-1. Load the last 12 messages (complete question+answer pairs only) verbatim.
+1. Load the last 20 messages (complete question+answer pairs only) verbatim.
 2. `pcm/router.js` makes one cheap model call: standalone rewrite of the message, search queries, which projects it concerns, whether the archive, the web or Mobius's own documentation is needed. Rule-based fallback if every model fails.
 3. Recall in parallel: profile, week digest, archive search, named document, web search (Tavily, skipped when the answer is already in hand).
 4. `pcm/assemble.js` builds a budgeted context pack (about 30K chars; sections ranked, lowest-ranked cut first).
@@ -29,13 +29,22 @@ Memory failures never stop the chat; each recall step degrades to "nothing found
 - Read them: `select id, created_at, data->>'query', data->>'model', data->'plan', data->'marks' from mobius_traces order by id desc limit 5;` in the Supabase SQL Editor (or via the Supabase connector), or `GET /api/debug/traces?n=5` and `/api/debug/trace/<id>` (login required on the live site).
 - Fixed on 2 Oct 2026 (found by trace): a question whose answer failed was saved alone, then merged into the *next* question and answered in its place. Now pairs are saved together and unanswered rows are ignored.
 
+## Notes: remembering what Boon asks, and finding what he would want (`pcm/notes.js`)
+- **Commands** are plain sentences at the start of a message, matched by rules (no model needed, so they work even when every model is down): `Remember that ...` / `Note: ...` / `Keep in mind ...` / `From now on ...` save a note at once; `Forget ...` or `Forget #14` removes one; `Show notes`; `Show suggestions`; `Save 14, 16` / `Save all`; `Drop 15` / `Drop all`.
+- Active notes (table `mobius_notes`) are sent to the model with every message (all of them if they fit in 3,000 chars, else the most relevant plus the newest).
+- **Review job** (`harvestNotes` in `pcm/maintain.js`, part of the 6-hourly maintenance): a model reads new conversation, compares it with notes, profile and projects, and *suggests* up to 8 notes per batch. Suggestions stay `proposed` until Boon says "save"; at the start of a conversation Mobius mentions that some are waiting. First run read the whole history. Max 20 waiting at a time. Rejected or forgotten notes are not suggested again.
+- Not yet built: folding long-lived notes into the profile; semantic (embedding) selection when notes outgrow the prompt.
+
+## Conversation continuity
+One continuous stream (there is no separate "conversation" object). The last 20 messages (10 exchanges) go to the model verbatim; older material arrives as the week digest, recent un-digested lines, project notes and archive search. The UI's reset button only clears the screen.
+
 ## Syncing devices
 All state is in Supabase, so the phone and laptop (and the local server and Vercel) share one history and memory. Each device refreshes its history list every 30 seconds and when the app regains focus; the arrows then include exchanges from the other device. A question and its answer are written in one insert, so two devices chatting at once never interleave.
 
 ## The four memory tiers
 | Tier | Holds | Stored in | Refreshed by |
 |---|---|---|---|
-| 1 Immediate | last 12 messages verbatim + 7-day digest | `mobius_messages`, `mobius_memory` kind `week` | digest: `pcm/maintain.js` |
+| 1 Immediate | last 20 messages verbatim + 7-day digest | `mobius_messages`, `mobius_memory` kind `week` | digest: `pcm/maintain.js` |
 | 2 Personal | profile of Boon | `mobius_memory` kind `profile` | weekly *proposal*; Boon approves |
 | 3 Current | one note per project active in the last 30 days | `mobius_memory` kind `project` | incremental, from new messages |
 | 4 Archive | every message and document | `mobius_messages`, `mobius_docs`, `mobius_docs_full` | live; embeddings filled in the background |

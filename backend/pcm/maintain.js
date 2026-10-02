@@ -3,6 +3,7 @@
 //   models    the model stack: is every registered model still offered? any new ones?
 //   week      tier 1  rolling digest of the past seven days
 //   projects  tier 3  one note per current project, updated from new messages
+//   notes     suggestions of things worth remembering, found by reading the conversations
 //   profile   tier 2  weekly *proposal* for the personal profile; Boon approves it
 //   embed     tier 4  embed messages and document chunks saved without a vector
 import { supabase } from '../db.js';
@@ -11,6 +12,7 @@ import { askModel } from '../ai/cascade.js';
 import { auditModels } from '../ai/audit.js';
 import { embedQuery, embedPatient } from './embed.js';
 import { getActive, getProposed, listActive, put, retireStale, getState, setState } from './memory.js';
+import { listNotes, addNote } from './notes.js';
 import { clip, isoDaysAgo, parseJson } from '../util.js';
 
 const PAGE = 300;          // rows fetched per step
@@ -119,6 +121,50 @@ Reply with ONLY JSON: {"updates":[{"name":"...","keywords":["..."],"summary":"..
   return report;
 }
 
+// ── Notes: things worth remembering, found by reading the conversations ─────
+// The model reads new conversation, compares it with what is already known, and suggests notes.
+// Suggestions never become active by themselves: Boon says "show suggestions", then "save 14".
+async function harvestNotes(left) {
+  const report = { batches: 0, suggested: 0 };
+  for (let i = 0; i < 3 && left() > 15000; i++) {
+    const waiting = await listNotes(['proposed']);
+    if (waiting.length >= 20) { report.skipped = '20 suggestions are already waiting'; break; }
+    const upto = (await getState('notes_upto')) || '1970-01-01T00:00:00Z'; // first run reads the whole history
+    const { lines, upto: newUpto } = takeBatch(await messagesAfter(upto), m => line(m, 500));
+    if (lines.length < 4) break;
+
+    const known = (await listNotes(['active', 'proposed'])).slice(0, 60).map(n => `- ${flat(n.content, 160)}`).join('\n') || '(none yet)';
+    const profile = flat((await getActive('profile'))?.content, 1500) || '(none)';
+    const projects = (await listActive('project')).map(p => p.key).join('; ') || '(none)';
+    const raw = await askModel(`You review Boon's conversations with his personal AI assistant and suggest things worth remembering permanently. Today is ${today()}.
+
+Already remembered (notes):
+${known}
+
+Profile (already known): ${profile}
+Project notes exist for: ${projects}
+
+New conversation since the last review (oldest first):
+${lines.join('\n')}
+
+Suggest up to 8 NEW notes. A good note is something Boon stated or decided that will still matter in a month: a standing preference or rule for how to work with him, a decision, a commitment or deadline, a fact about his work, plans or circumstances.
+Skip: anything already remembered or in the profile; anything temporary (today's question, a one-off task); things only the assistant said that Boon did not confirm; small talk.
+Write each note as one sentence about Boon in the third person ("Boon prefers ..."), at most 200 characters.
+Reply with ONLY JSON: {"notes":["..."]}. If nothing qualifies, reply {"notes":[]}.`, { role: 'deep', timeoutMs: 45000 });
+
+    const found = parseJson(raw).notes;
+    for (const text of (Array.isArray(found) ? found : []).slice(0, 8)) {
+      const note = flat(text, 250);
+      if (note.length < 10) continue;
+      const r = await addNote(note, { source: 'suggested', status: 'proposed' });
+      if (r.id && !r.duplicate) report.suggested++;
+    }
+    await setState('notes_upto', newUpto);
+    report.batches++;
+  }
+  return report;
+}
+
 // ── Tier 2: personal profile (proposal only — never self-applies) ────────────
 async function proposeProfile() {
   if (await getProposed('profile')) return { skipped: 'a proposal is waiting for approval' };
@@ -181,6 +227,7 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
     ['models',   async () => { const a = await auditModels(); return { retired: a.retired, newModels: a.candidates }; }],
     ['week',     () => refreshWeek()],
     ['projects', () => refreshProjects(left)],
+    ['notes',    () => harvestNotes(left)],
     ['profile',  () => proposeProfile()],
     ['embed',    () => embedBacklog({ messages: cli ? 500 : 20, docs: cli ? 3000 : 30, patient: cli, left })],
   ];

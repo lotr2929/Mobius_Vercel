@@ -48,7 +48,7 @@ function loadDriveCredentials() {
 export const DRIVE_CREDENTIALS = loadDriveCredentials();
 
 // ── Memory (PCM) ─────────────────────────────────────────────────────────────
-export const RECENT_MESSAGES      = 12;  // tier 1: messages sent verbatim with every request
+export const RECENT_MESSAGES      = 20;  // tier 1: messages sent verbatim with every request (10 exchanges)
 export const WEEK_DAYS            = 7;   // tier 1: horizon of the rolling digest
 export const PROJECT_DORMANT_DAYS = 30;  // tier 3: a project untouched this long drops out of "current"
 export const CRON_BUDGET_MS       = 50000; // time-box for the daily cron route

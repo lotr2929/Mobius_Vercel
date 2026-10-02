@@ -101,6 +101,19 @@ create table if not exists mobius_traces (
 create index if not exists mobius_traces_created on mobius_traces (created_at desc);
 alter table mobius_traces enable row level security;
 
+-- Notes: things Boon asked Mobius to remember ("Remember that ..."), plus suggestions the review
+-- job found in his conversations, which wait for his say-so. Always sent to the model while active.
+create table if not exists mobius_notes (
+  id         bigserial primary key,
+  content    text not null,
+  source     text not null default 'asked',     -- 'asked' | 'suggested'
+  status     text not null default 'active',    -- 'active' | 'proposed' | 'forgotten' | 'rejected'
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists mobius_notes_status on mobius_notes (status, created_at desc);
+alter table mobius_notes enable row level security;
+
 -- ── Memory functions ─────────────────────────────────────────────────────────
 
 -- Replace the row of this status for (kind, key); the old one is archived, and only the

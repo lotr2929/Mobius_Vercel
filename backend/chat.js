@@ -16,6 +16,7 @@ import { analyse, isTrivial } from './pcm/router.js';
 import { getMessages, saveExchange, settled } from './pcm/messages.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive } from './pcm/memory.js';
+import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
@@ -58,9 +59,26 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
     const raw = await getMessages(RECENT_MESSAGES + 4);
     const recent = settled(raw).slice(-RECENT_MESSAGES);
     const projects = await listActive('project');
-    trace.set({ recent: recent.map(m => ({ id: m.id, role: m.role, chars: m.content.length, head: m.content.slice(0, 80) })), unanswered_dropped: raw.length - settled(raw).length })
-      .mark('loaded');
-    const plan = await analyse(userQuery, recent, projects, ctx);
+
+    // Notes: "Remember that ...", "Forget ...", "Save 14" and the like are carried out here, before any
+    // model is involved. The model is then told what happened so it can confirm it.
+    let notes = await listNotes(); // active + suggested
+    const command = parseCommand(userQuery, notes.some(n => n.status === 'proposed'));
+    const memoryAction = command
+      ? await safe(() => runCommand(command, { active: notes.filter(n => n.status === 'active'), pending: notes.filter(n => n.status === 'proposed') }), null)
+      : null;
+    if (memoryAction) notes = await listNotes();
+    const activeNotes = notes.filter(n => n.status === 'active');
+    const pendingNotes = notes.filter(n => n.status === 'proposed');
+
+    trace.set({
+      recent: recent.map(m => ({ id: m.id, role: m.role, chars: m.content.length, head: m.content.slice(0, 80) })),
+      unanswered_dropped: raw.length - settled(raw).length,
+      command: command?.action || null, memoryAction: memoryAction?.slice(0, 200) || null, notes: activeNotes.length, suggestions: pendingNotes.length,
+    }).mark('loaded');
+    const plan = memoryAction
+      ? { standalone: userQuery, queries: [userQuery], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false, needsWeb: false }
+      : await analyse(userQuery, recent, projects, ctx);
     trace.set({ plan }).mark('analysed');
 
     // 3. recall, with the web search running alongside
@@ -92,6 +110,8 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
     const noDocs = !attached.length && !namedText && !chunks.length && /\b(file|document|paper|upload|attach)/i.test(userQuery);
     const context = assembleContext([
       { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
+      { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
+      { title: 'Notes Boon asked you to keep (first person means Boon)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
       { title: ATTACHED_TITLE, rank: 1, cap: 20000,
         text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
       { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
@@ -104,6 +124,8 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
       { title: 'Web search results', rank: 6, cap: 2600, text: web },
     ]);
 
+    const idle = !recent.length || Date.now() - Date.parse(recent.at(-1).created_at) > 3600e3;
+    ctx.suggestions = idle && !memoryAction ? pendingNotes.length : 0; // mention waiting suggestions once, at the start of a conversation
     const system = buildSystem(clip(profile, 3000), ctx);
     const finalContent = context.text ? `[Memory context — retrieved for this message]\n${context.text}\n\n[User message]\n${userQuery}` : userQuery;
     const messages = [

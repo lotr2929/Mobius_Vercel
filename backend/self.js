@@ -76,6 +76,7 @@ export async function memoryStats() {
     messages:  { total: await count('mobius_messages'), unembedded: await count('mobius_messages', q => q.is('embedding', null)) },
     docChunks: { total: await count('mobius_docs'),     unembedded: await count('mobius_docs',     q => q.is('embedding', null)) },
     profile:   { active: !!(await getActive('profile')), proposed: !!(await getProposed('profile')) },
+    notes:     { active: await count('mobius_notes', q => q.eq('status', 'active')), suggested: await count('mobius_notes', q => q.eq('status', 'proposed')) },
     weekDigest: !!(await getActive('week')),
     projects:  (await listActive('project')).map(p => p.key),
     lastMaintenance: await getState('last_maintenance'),
@@ -100,6 +101,7 @@ You are one of several free cloud models. Each answer is tried on them in order 
 2. Personal: a profile of who Boon is, carried in your system prompt. A weekly update is only proposed; Boon approves it.
 3. Current: one note per project active in the last ${PROJECT_DORMANT_DAYS} days.
 4. Archive: every message and every document, searched by meaning (Gemini embeddings) and by keyword together.
+Notes: Boon can tell you to remember things, and they are saved at once and sent to you with every message. He says "Remember that ...", "Note: ..." or "From now on ..." to save one, "Forget ..." (or "Forget #14") to remove one, and "Show notes" to list them. A review job also reads his conversations and suggests notes; these wait until he says "Show suggestions", then "Save 14, 16", "Save all" or "Drop 15". Suggestions never become active on their own.
 Memory is imperfect: summaries can be stale or wrong. If something Boon mentions is not in your context, say so rather than guess.
 
 ## How each message is handled
@@ -125,7 +127,7 @@ export async function selfReport(client, geo, ctx) {
     `- The device Boon is using: ${deviceSummary(client)}`,
     `- App: last updated ${lastUpdated() || 'unknown'}`,
     `- Models right now: ${modelStatus().map(m => `${m.name}: ${m.state}`).join('; ')}`,
-    stats && `- Memory: ${stats.messages.total} messages (${stats.messages.unembedded} not yet embedded), ${stats.docChunks.total} document chunks (${stats.docChunks.unembedded} not yet embedded); personal profile ${stats.profile.active ? 'set' : 'not set'}${stats.profile.proposed ? ' (a new proposal is waiting for approval)' : ''}; week digest ${stats.weekDigest ? 'present' : 'not built yet'}; current projects: ${stats.projects.join('; ') || 'none'}; last maintenance run ${stats.lastMaintenance || 'never'}`,
+    stats && `- Memory: ${stats.messages.total} messages (${stats.messages.unembedded} not yet embedded), ${stats.docChunks.total} document chunks (${stats.docChunks.unembedded} not yet embedded); personal profile ${stats.profile.active ? 'set' : 'not set'}${stats.profile.proposed ? ' (a new proposal is waiting for approval)' : ''}; ${stats.notes.active ?? 0} saved notes and ${stats.notes.suggested ?? 0} suggested notes waiting for review; week digest ${stats.weekDigest ? 'present' : 'not built yet'}; current projects: ${stats.projects.join('; ') || 'none'}; last maintenance run ${stats.lastMaintenance || 'never'}`,
   ];
   return `${MANUAL}\n\n${live.filter(Boolean).join('\n')}`;
 }
