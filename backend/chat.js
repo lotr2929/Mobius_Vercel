@@ -29,6 +29,14 @@ const ATTACHED_TITLE = "Attached document(s) — full text — CONFIRM RECEIPT: 
 const NO_DOCS_NOTE = 'No documents were attached to this message, and no matching document was found by search either. Tell the user plainly that nothing was received with THIS message and ask them to re-attach.';
 const NOTHING = { messages: [], docs: [] };
 
+// Does the message read as if Boon expects a file to arrive with it ("summarise the attached paper")?
+// Used only to warn the model when nothing came. It must NOT fire on the bare words "document" or
+// "attachment" ("a flawed document written by humans", "there's no attachment"), which an earlier,
+// looser version did: it made Mobius reply "I didn't receive any document" to ordinary messages.
+const EXPECTS_FILE = /\b(?:attached|uploaded|uploading|attaching|enclosed)\b|\b(?:see|read|review|summari[sz]e|check|open|look at|analy[sz]e|edit|proofread)\s+(?:the |this |my |these )?(?:attached |uploaded )?(?:files?|documents?|pdfs?|papers?|spreadsheets?)\b|\bthis (?:file|document|pdf)\b/i;
+const DENIES_FILE = /\b(?:no|without|didn'?t|did not|never|not)\b[^.]{0,20}\b(?:attach\w*|upload\w*|files?|documents?)\b|\bthere(?:'s| is) no\b/i;
+export const expectsFile = q => EXPECTS_FILE.test(q) && !DENIES_FILE.test(q);
+
 const fmtProjects = ps => ps.map(p => `${p.key}:\n${p.content}`).join('\n\n');
 const fmtChunks   = ds => ds.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
 const fmtPast = ms => [...ms]
@@ -107,7 +115,7 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
     } }).mark('recalled');
 
     // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
-    const noDocs = !attached.length && !namedText && !chunks.length && /\b(file|document|paper|upload|attach)/i.test(userQuery);
+    const noDocs = !attached.length && !namedText && !chunks.length && expectsFile(userQuery);
     const context = assembleContext([
       { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
       { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
