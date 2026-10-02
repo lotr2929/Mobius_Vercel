@@ -1,6 +1,6 @@
 // Mobius Service Worker
-const CACHE = 'mobius-v25'; // bump this on every deploy that changes index.html/app shell
-const STATIC = ['/manifest.json', '/logo.png', '/favicon.ico', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'mobius-v26'; // bump this on every deploy that changes index.html/app shell
+const STATIC = ['/manifest.json', '/logo.png', '/favicon.ico', '/icon-192.png', '/icon-512.png', '/icon-maskable-192.png', '/icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)).then(() => self.skipWaiting()));

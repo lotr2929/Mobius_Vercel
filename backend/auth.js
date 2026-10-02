@@ -177,7 +177,7 @@ authRouter.post('/auth/logout', (req, res) => {
 // ── The gate ─────────────────────────────────────────────────────────────────
 // Everything except the login page, /auth/*, the files an install needs and the cron
 // route (which has its own CRON_SECRET check) requires a session.
-const OPEN = new Set(['/login.html', '/manifest.json', '/favicon.ico', '/icon-192.png', '/icon-512.png', '/logo.png', '/api/cron/daily']);
+const OPEN = new Set(['/login.html', '/manifest.json', '/favicon.ico', '/icon-192.png', '/icon-512.png', '/icon-maskable-192.png', '/icon-maskable-512.png', '/logo.png', '/api/cron/daily']);
 
 export function authGate(req, res, next) {
   if (!authEnabled || OPEN.has(req.path) || req.path.startsWith('/auth/') || hasSession(req)) return next();
