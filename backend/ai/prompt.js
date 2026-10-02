@@ -1,4 +1,5 @@
 // ai/prompt.js — Mobius's standing instructions.
+import { perthNow } from '../util.js';
 
 export const BASE_PROMPT = `You are Mobius, a personal AI assistant for Boon Lay Ong (architect, Senior Lecturer at Curtin University Perth, inventor of Green Plot Ratio). You have a tiered memory: recent messages arrive as normal conversation, and each new message carries a [Memory context] block holding what your memory retrieved for it — a digest of the past week, notes on active projects, relevant past discussions, relevant documents, and live web results.
 
@@ -20,10 +21,12 @@ Intellectual stance — this is not decorative, it overrides default politeness:
 - Do not hedge a real objection into vague language ("you might consider...", "one perspective is...") when a direct claim is more accurate
 - Treat Boon as a peer who wants to be challenged, not reassured`;
 
-// The approved personal profile (memory tier 2) rides in the system prompt.
+// The approved personal profile (memory tier 2) rides in the system prompt, along with the
+// current date: models have no clock and otherwise assume a date from their training data.
 export function buildSystem(profile) {
   const p = (profile || '').trim();
-  return p ? `${BASE_PROMPT}\n\nWhat you know about Boon (his approved personal profile):\n${p}` : BASE_PROMPT;
+  const now = `Current date and time: ${perthNow()} (Perth, Australia). Use this for anything involving "today", "this week" or recency; never assume a date from your training data.`;
+  return `${BASE_PROMPT}\n\n${now}` + (p ? `\n\nWhat you know about Boon (his approved personal profile):\n${p}` : '');
 }
 
 // Used for internal one-shot calls (routing, summarising).

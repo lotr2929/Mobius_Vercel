@@ -2,7 +2,7 @@
 // One cheap model call decides what to look up; a rule-based fallback keeps
 // working if every model is unavailable.
 import { askModel, ORDER } from '../ai/cascade.js';
-import { parseJson } from '../util.js';
+import { parseJson, perthNow } from '../util.js';
 
 // Greetings and acknowledgements: no memory lookup, no web search.
 const TRIVIAL = /^(hi|hey|hello|yo|sup|thanks|thank you|ta|cheers|ok|okay|k|cool|nice|great|got it|noted|ack|good morning|good night|bye|goodbye|yes|no|yep|nope|sure)[\s!.?]*$/;
@@ -45,7 +45,7 @@ export async function analyse(query, recent, projects) {
     : '(none yet)';
   const convo = recent.slice(-6).map(m => `${m.role}: ${m.content.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n') || '(no earlier messages)';
 
-  const prompt = `You prepare memory retrieval for a personal AI assistant.
+  const prompt = `You prepare memory retrieval for a personal AI assistant. Today is ${perthNow()} (Perth, Australia).
 
 Known projects:
 ${known}
@@ -57,7 +57,7 @@ Latest message: "${query}"
 
 Reply with ONLY a JSON object, no commentary:
 {
-  "standalone": "the latest message rewritten so it makes sense on its own; resolve it/that/this/the file using the conversation; unchanged if already standalone",
+  "standalone": "the latest message rewritten so it makes sense on its own; resolve it/that/this/the file using the conversation; replace relative dates (today, this week, this Sunday, next month) with the actual date or period; unchanged if already standalone",
   "queries": ["one or two short keyword searches (names, terms, topics) for finding relevant past chats and documents"],
   "projects": ["exact names from the known projects that this message concerns, otherwise empty"],
   "needsArchive": true or false,

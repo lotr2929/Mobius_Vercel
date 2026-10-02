@@ -2,6 +2,15 @@
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// "Friday 2 October 2026, 2:25pm" in Perth time. Models don't know the date; we tell them.
+export function perthNow() {
+  const f = Object.fromEntries(new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Perth', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(new Date()).map(p => [p.type, p.value]));
+  return `${f.weekday} ${f.day} ${f.month} ${f.year}, ${f.hour}:${f.minute}${String(f.dayPeriod).toLowerCase()}`;
+}
+
 export const isoDaysAgo = days => new Date(Date.now() - days * 864e5).toISOString();
 
 // Trim text to n characters, marking the cut.
