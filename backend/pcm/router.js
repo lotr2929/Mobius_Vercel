@@ -2,7 +2,7 @@
 // One cheap model call decides what to look up; a rule-based fallback keeps
 // working if every model is unavailable.
 import { askModel, ORDER } from '../ai/cascade.js';
-import { parseJson, perthNow } from '../util.js';
+import { parseJson, nowIn } from '../util.js';
 
 // Greetings and acknowledgements: no memory lookup, no web search.
 const TRIVIAL = /^(hi|hey|hello|yo|sup|thanks|thank you|ta|cheers|ok|okay|k|cool|nice|great|got it|noted|ack|good morning|good night|bye|goodbye|yes|no|yep|nope|sure)[\s!.?]*$/;
@@ -11,12 +11,15 @@ export function isTrivial(query) {
   return q.length < 3 || TRIVIAL.test(q);
 }
 
+// Messages about Mobius itself: how it works, its models, memory, device, location, version.
+const ABOUT_SELF = /\b(mobius|yourself|what are you|who are you|how do you (work|remember)|which model|what model|your (memory|models?|device|location|version|architecture|brain)|where are you|what device|are you running)\b/i;
+
 function fallbackPlan(query, projects) {
   const q = query.toLowerCase();
   const hit = projects
     .filter(p => q.includes(p.key.toLowerCase()) || (p.keywords || []).some(k => k.length > 3 && q.includes(k.toLowerCase())))
     .map(p => p.key);
-  return { standalone: query, queries: [query.slice(0, 160)], projects: hit.slice(0, 2), needsArchive: true, sinceDays: null };
+  return { standalone: query, queries: [query.slice(0, 160)], projects: hit.slice(0, 2), needsArchive: true, sinceDays: null, aboutSelf: ABOUT_SELF.test(query) };
 }
 
 function accept(j, query, projects, fallback) {
@@ -32,12 +35,14 @@ function accept(j, query, projects, fallback) {
     projects: [...new Set([...named, ...fallback.projects])].slice(0, 2),
     needsArchive: j.needsArchive !== false,
     sinceDays: days,
+    aboutSelf: typeof j.aboutSelf === 'boolean' ? j.aboutSelf : fallback.aboutSelf,
   };
 }
 
-// → { standalone, queries[], projects[], needsArchive, sinceDays }
-export async function analyse(query, recent, projects) {
-  if (isTrivial(query)) return { standalone: query, queries: [query], projects: [], needsArchive: false, sinceDays: null };
+// → { standalone, queries[], projects[], needsArchive, sinceDays, aboutSelf }
+// ctx = { now, where } from self.js describeContext()
+export async function analyse(query, recent, projects, ctx = {}) {
+  if (isTrivial(query)) return { standalone: query, queries: [query], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false };
   const fallback = fallbackPlan(query, projects);
 
   const known = projects.length
@@ -45,7 +50,7 @@ export async function analyse(query, recent, projects) {
     : '(none yet)';
   const convo = recent.slice(-6).map(m => `${m.role}: ${m.content.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n') || '(no earlier messages)';
 
-  const prompt = `You prepare memory retrieval for a personal AI assistant. Today is ${perthNow()} (Perth, Australia).
+  const prompt = `You prepare memory retrieval for a personal AI assistant. Right now it is ${ctx.now || nowIn()}. Boon's approximate location: ${ctx.where || 'Perth, Western Australia'}.
 
 Known projects:
 ${known}
@@ -57,12 +62,15 @@ Latest message: "${query}"
 
 Reply with ONLY a JSON object, no commentary:
 {
-  "standalone": "the latest message rewritten so it makes sense on its own; resolve it/that/this/the file using the conversation; replace relative dates (today, this week, this Sunday, next month) with the actual date or period; unchanged if already standalone",
+  "standalone": "the latest message rewritten so it makes sense on its own; resolve it/that/this/the file using the conversation; replace relative dates (today, this week, this Sunday, next month) with the actual date or period; for local questions (weather, nearby places, events, 'here', 'near me') add the place name; unchanged if already standalone",
   "queries": ["one or two short keyword searches (names, terms, topics) for finding relevant past chats and documents"],
   "projects": ["exact names from the known projects that this message concerns, otherwise empty"],
   "needsArchive": true or false,
-  "sinceDays": integer or null
+  "sinceDays": integer or null,
+  "aboutSelf": true or false
 }
+
+aboutSelf is true when the message asks about this assistant itself: what Mobius is, how it works, its models, memory or version, where or on what device it is running, what it knows about itself. It is false for questions about Boon or the world.
 
 needsArchive is true when answering needs older chats or stored documents: references to past discussions or decisions ("remember", "last time", "we agreed"), a named paper, file or project, or specifics of Boon's own work. It is false for self-contained general questions.
 sinceDays is set only when the message limits itself to a period ("last week" = 7, "this month" = 30), otherwise null.`;

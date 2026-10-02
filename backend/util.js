@@ -2,13 +2,18 @@
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// "Friday 2 October 2026, 2:25pm" in Perth time. Models don't know the date; we tell them.
-export function perthNow() {
+// "Friday 2 October 2026, 2:25pm (Australia/Perth)". Models have no clock; we tell them.
+export function validTimeZone(tz) {
+  if (!tz || typeof tz !== 'string') return false;
+  try { new Intl.DateTimeFormat('en-AU', { timeZone: tz }); return true; } catch { return false; }
+}
+
+export function nowIn(timeZone = 'Australia/Perth') {
   const f = Object.fromEntries(new Intl.DateTimeFormat('en-AU', {
-    timeZone: 'Australia/Perth', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    timeZone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
   }).formatToParts(new Date()).map(p => [p.type, p.value]));
-  return `${f.weekday} ${f.day} ${f.month} ${f.year}, ${f.hour}:${f.minute}${String(f.dayPeriod).toLowerCase()}`;
+  return `${f.weekday} ${f.day} ${f.month} ${f.year}, ${f.hour}:${f.minute}${String(f.dayPeriod).toLowerCase()} (${timeZone})`;
 }
 
 export const isoDaysAgo = days => new Date(Date.now() - days * 864e5).toISOString();

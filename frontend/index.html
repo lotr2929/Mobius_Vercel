@@ -587,6 +587,41 @@ async function triggerDriveSync() {
   }
 }
 
+// ── Device report ──────────────────────────────────────────────────────────
+// Sent with each message so Mobius can answer "where/when/what device" questions.
+let hiEntropy = null;
+async function getClientInfo() {
+  const n = navigator, s = screen, ua = n.userAgentData;
+  const info = {
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale: n.language,
+    platform: ua?.platform || n.platform || '',
+    mobile: ua ? ua.mobile : /Mobi|Android/i.test(n.userAgent),
+    screen: s.width + 'x' + s.height,
+    dpr: window.devicePixelRatio,
+    viewport: innerWidth + 'x' + innerHeight,
+    cores: n.hardwareConcurrency,
+    memoryGB: n.deviceMemory,
+    touch: n.maxTouchPoints,
+    online: n.onLine,
+    standalone: matchMedia('(display-mode: standalone)').matches,
+    connection: n.connection ? { type: n.connection.type, effectiveType: n.connection.effectiveType, downlink: n.connection.downlink, rtt: n.connection.rtt } : null,
+  };
+  const brands = (ua?.brands || []).filter(b => !/not.?a.?brand/i.test(b.brand));
+  info.browser = brands.length ? brands.map(b => b.brand + ' ' + b.version).join(', ') : (n.userAgent.match(/(Edg|Chrome|Firefox|Version)\/[\d.]+/) || [''])[0];
+  try {
+    if (ua?.getHighEntropyValues) {
+      hiEntropy = hiEntropy || await ua.getHighEntropyValues(['model', 'platformVersion', 'architecture', 'bitness']);
+      info.model = hiEntropy.model; info.platformVersion = hiEntropy.platformVersion;
+      info.arch = hiEntropy.architecture; info.bitness = hiEntropy.bitness;
+    }
+  } catch {}
+  try {
+    if (n.getBattery) { const b = await n.getBattery(); info.battery = { level: Math.round(b.level * 100), charging: b.charging }; }
+  } catch {}
+  return info;
+}
+
 // ── Send ───────────────────────────────────────────────────────────────────
 async function handleSend() {
   const input = document.getElementById('qinput');
@@ -623,7 +658,7 @@ async function handleSend() {
   let full = ''; let usedModel = ''; let searched = false; let tavilyRemaining = '';
 
   try {
-    const body = { query: q };
+    const body = { query: q, client: await getClientInfo().catch(() => null) };
     if (imgs.length) body.images = imgs.map(i=>({base64:i.base64,mimeType:i.mimeType}));
     if (docs.length) body.docs = docs.map(d=>({filename:d.filename,text:d.text}));
 

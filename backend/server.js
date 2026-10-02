@@ -16,8 +16,9 @@ import { lastUpdated } from './version.js';
 import { supabase } from './db.js';
 import { availableNames } from './ai/cascade.js';
 import { chatTurn } from './chat.js';
+import { geoFromHeaders, memoryStats } from './self.js';
 import { getMessages } from './pcm/messages.js';
-import { getActive, getProposed, listActive, put, promote, discard, getState } from './pcm/memory.js';
+import { getActive, getProposed, put, promote, discard } from './pcm/memory.js';
 import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
 import { extractFromBuffer } from './docs/extract.js';
@@ -48,7 +49,7 @@ app.get('/api/history', async (req, res) => {
 
 // ── Chat (Server-Sent Events) ────────────────────────────────────────────────
 app.post('/api/chat', async (req, res) => {
-  const { messages, query: q, docs } = req.body;
+  const { messages, query: q, docs, client } = req.body;
   const query = q || messages?.slice(-1)[0]?.content || '';
   if (!query) return res.status(400).json({ error: 'No query' });
 
@@ -61,7 +62,7 @@ app.post('/api/chat', async (req, res) => {
   res.on('close', () => { if (!res.writableEnded) controller.abort(); }); // client went away
 
   try {
-    for await (const item of chatTurn({ query, docs, signal: controller.signal })) send(item);
+    for await (const item of chatTurn({ query, docs, client, geo: geoFromHeaders(req.headers), signal: controller.signal })) send(item);
   } catch (e) {
     console.error('[chat]', e.message);
     send({ error: e.message });
@@ -143,20 +144,8 @@ app.all('/api/drive/backfill-full', handleBackfillFull);
 
 // ── Memory (PCM) ─────────────────────────────────────────────────────────────
 app.get('/api/pcm/status', async (req, res) => {
-  if (!supabase) return res.json({ ok: false, message: 'No Supabase connection' });
-  const count = async (table, narrow = q => q) => {
-    const { count: n, error } = await narrow(supabase.from(table).select('id', { count: 'exact', head: true }));
-    return error ? null : n;
-  };
-  res.json({
-    ok: true,
-    messages:  { total: await count('mobius_messages'), unembedded: await count('mobius_messages', q => q.is('embedding', null)) },
-    docChunks: { total: await count('mobius_docs'),     unembedded: await count('mobius_docs',     q => q.is('embedding', null)) },
-    profile:   { active: !!(await getActive('profile')), proposed: !!(await getProposed('profile')) },
-    weekDigest: !!(await getActive('week')),
-    projects:  (await listActive('project')).map(p => p.key),
-    lastMaintenance: await getState('last_maintenance'),
-  });
+  const stats = await memoryStats();
+  res.json(stats ? { ok: true, ...stats } : { ok: false, message: 'No Supabase connection' });
 });
 
 // Run the memory jobs now. Locally unbounded; on Vercel time-boxed.

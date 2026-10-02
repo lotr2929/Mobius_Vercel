@@ -17,6 +17,7 @@ import { listActive } from './pcm/memory.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
+import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilyUsage } from './web.js';
 import { clip, safe } from './util.js';
 
@@ -32,21 +33,23 @@ const fmtPast = ms => [...ms]
   .join('\n\n');
 
 // Yields { event } and { token } objects for server.js to relay as SSE.
-export async function* chatTurn({ query, docs = [], signal }) {
+// client = what the browser reported about the device; geo = approximate location from the request.
+export async function* chatTurn({ query, docs = [], client = null, geo = null, signal }) {
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
   const userQuery = cleanQuery || query; // "Ask: Mistral" alone shouldn't blank the query
   const attached = (Array.isArray(docs) ? docs : []).filter(d => d?.text);
+  const ctx = describeContext(client, geo); // { tz, now, where }
 
   // 1–2. verbatim window, then the plan
   const recent = await getMessages(RECENT_MESSAGES);
   const projects = await listActive('project');
-  const plan = await analyse(userQuery, recent, projects);
+  const plan = await analyse(userQuery, recent, projects, ctx);
 
   // 3. recall, with the web search running alongside
-  const useWeb = !!KEYS.tavily && !isTrivial(plan.standalone);
+  const useWeb = !!KEYS.tavily && !isTrivial(plan.standalone) && !plan.aboutSelf; // no web search for questions about Mobius itself
   if (useWeb) yield { event: 'searching web...' };
 
-  const [web, profile, week, archive, namedFile] = await Promise.all([
+  const [web, profile, week, archive, namedFile, selfText] = await Promise.all([
     useWeb ? tavilySearch(plan.standalone) : null,
     safe(getProfile, ''),
     safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
@@ -54,6 +57,7 @@ export async function* chatTurn({ query, docs = [], signal }) {
       ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays }), NOTHING)
       : NOTHING,
     attached.length ? null : safe(() => findNamedDoc(plan.standalone), null),
+    plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
   ]);
   const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
 
@@ -65,6 +69,7 @@ export async function* chatTurn({ query, docs = [], signal }) {
   // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
   const noDocs = !attached.length && !namedText && !chunks.length && /\b(file|document|paper|upload|attach)/i.test(userQuery);
   const context = assembleContext([
+    { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
     { title: ATTACHED_TITLE, rank: 1, cap: 20000,
       text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
     { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
@@ -77,7 +82,7 @@ export async function* chatTurn({ query, docs = [], signal }) {
     { title: 'Web search results', rank: 6, cap: 2600, text: web },
   ]);
 
-  const system = buildSystem(clip(profile, 3000));
+  const system = buildSystem(clip(profile, 3000), ctx);
   const messages = [
     // Older turns are clipped; the latest exchange goes in whole.
     ...recent.map((m, i) => ({ role: m.role, content: i >= recent.length - 2 ? m.content : clip(m.content, 4000) })),

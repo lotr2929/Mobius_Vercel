@@ -1,5 +1,5 @@
-// ai/cascade.js — the free cloud model stack (unchanged in substance):
-// Gemini 2.5 Flash → Mistral Small → Cerebras gpt-oss-120b → Groq Llama 3.3.
+// ai/cascade.js — the free cloud model stack: Gemini 2.5 Flash → Mistral Small →
+// Cerebras gpt-oss-120b → Groq gpt-oss-120b.
 // Each provider streams tokens; runCascade falls through on failure.
 
 import { KEYS } from '../config.js';
@@ -83,12 +83,36 @@ const PROVIDERS = {
     stream: openAICompat({ label: 'Cerebras', url: 'https://api.cerebras.ai/v1/chat/completions', key: KEYS.cerebras, model: 'gpt-oss-120b', maxTokens: 3000 }),
   },
   groq: {
-    name: 'llama-3.3-70b (groq)',
+    name: 'gpt-oss-120b (groq)', // llama-3.3-70b-versatile was retired by Groq
     maxChars: 22000, // free tier: ~12K tokens per minute
     available: () => !!KEYS.groq,
-    stream: openAICompat({ label: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: KEYS.groq, model: 'llama-3.3-70b-versatile', maxTokens: 4096 }),
+    stream: openAICompat({ label: 'Groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: KEYS.groq, model: 'openai/gpt-oss-120b', maxTokens: 4096 }),
   },
 };
+
+// A provider that just failed is skipped for a while instead of being retried on every message:
+// a minute after a rate limit, six hours after "payment required" / "model not found" / bad key.
+const downUntil = {};
+const downWhy = {};
+const usable = key => PROVIDERS[key].available() && Date.now() >= (downUntil[key] || 0);
+
+function pickKeys(order) {
+  const ok = order.filter(usable);
+  return ok.length ? ok : order.filter(k => PROVIDERS[k].available()); // all resting: try them anyway
+}
+
+function markDown(key, err) {
+  const status = Number((/HTTP (\d{3})/.exec(err.message) || [])[1]);
+  downUntil[key] = Date.now() + ([401, 402, 403, 404].includes(status) ? 6 * 3600e3 : status === 429 ? 60e3 : 20e3);
+  downWhy[key] = status ? `HTTP ${status}${status === 429 ? ' rate limit or quota' : status === 402 ? ' payment required' : status === 404 ? ' model not found' : ''}` : 'error or timeout';
+}
+
+// For Mobius's self-report: which models are usable right now.
+export const providerStatus = () => ORDER.chat.map(k => {
+  const p = PROVIDERS[k];
+  if (!p.available()) return `${p.name}: not configured`;
+  return Date.now() < (downUntil[k] || 0) ? `${p.name}: resting after a failure (${downWhy[k]})` : `${p.name}: ready`;
+});
 
 // Order matters. Answers lead with Gemini. Quick utility calls (routing) lead with
 // the fast providers to keep Gemini's daily quota for answers and embeddings.
@@ -142,7 +166,7 @@ function fit(messages, system, maxChars) {
 // Yields token strings and { event } objects (model:, fallback:, error:).
 export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null } = {}) {
   if (only && !PROVIDERS[only]) { yield { event: 'error:unknown-model:' + only }; return; }
-  for (const key of only ? [only] : ORDER.chat) {
+  for (const key of only ? [only] : pickKeys(ORDER.chat)) {
     const p = PROVIDERS[key];
     if (!p.available()) {
       if (only) yield { event: 'error:not-configured:' + p.name };
@@ -159,6 +183,7 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
     } catch (e) {
       if (signal?.aborted) return;
       if (started) throw e; // half an answer already went out; don't graft a second model onto it
+      markDown(key, e);
       console.warn(`[cascade] ${p.name} failed: ${e.message} — trying next`);
       yield { event: 'fallback:' + p.name + ':' + e.message.slice(0, 80) };
       if (only) return;
@@ -171,7 +196,7 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
 // Each provider gets its own timeout; the first non-empty answer wins.
 export async function askModel(prompt, { order = ORDER.quick, timeoutMs = 25000, system = UTILITY_PROMPT } = {}) {
   let lastError;
-  for (const key of order) {
+  for (const key of pickKeys(order)) {
     const p = PROVIDERS[key];
     if (!p.available()) continue;
     try {
@@ -179,6 +204,7 @@ export async function askModel(prompt, { order = ORDER.quick, timeoutMs = 25000,
       for await (const token of p.stream(fit(normalise([{ role: 'user', content: prompt }]), system, p.maxChars), AbortSignal.timeout(timeoutMs), system)) out += token;
       if (out.trim()) return out.trim();
     } catch (e) {
+      markDown(key, e);
       lastError = e;
     }
   }

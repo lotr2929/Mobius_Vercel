@@ -3,7 +3,7 @@
 Personal AI chat with tiered memory (PCM) and web search. Rewritten 1 Oct 2026; the previous version is in `..\Mobius(old)` and in git history.
 
 ## Keep (the three fixed points)
-1. Free cloud models: Gemini 2.5 Flash → Mistral Small → Cerebras gpt-oss-120b → Groq Llama 3.3 (`backend/ai/cascade.js`)
+1. Free cloud models: Gemini 2.5 Flash → Mistral Small → Cerebras gpt-oss-120b → Groq gpt-oss-120b (`backend/ai/cascade.js`). A model that fails is skipped for a while (1 min after a rate limit, 6 h after 402/404/bad key). When one dies, check the provider's live model list: Groq retired llama-3.3-70b-versatile, and Cerebras began returning "payment required" in Oct 2026.
 2. Supabase as the memory store (shared "dlbs" project, `mobius_` tables)
 3. Simple chat UI (`frontend/index.html`, vanilla JS, unchanged by the rewrite)
 
@@ -42,6 +42,7 @@ Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`,
 backend/
   server.js        routes only (the /api contract the UI expects — keep stable)
   auth.js          passkey login + session gate
+  self.js          self-awareness: date/place, device, server, the Mobius manual (aboutSelf questions)
   version.js       the "Last updated" stamp
   chat.js          one chat turn
   config.js        env + constants (the only place env vars are read)
