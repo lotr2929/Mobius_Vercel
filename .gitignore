@@ -1,10 +1,10 @@
 node_modules/
-.env
-data/*.db
+.env*
+!.env.example
+data/
 _dev/
 *.log
-google-service-account.json
-
 .vercel
-.env*
 deploy.env
+google-service-account.json
+.tmp.driveupload/

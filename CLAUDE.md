@@ -1,44 +1,57 @@
 # Mobius — CLAUDE.md
 
-## What this is
-Mobius is a personal AI chat application. It is not Mobius+. It is a clean greenfield build.
+Personal AI chat with tiered memory (PCM) and web search. Rewritten 1 Oct 2026; the previous version is in `..\Mobius(old)` and in git history.
 
-**One purpose:** Give Boon a single AI to talk to that has perfect memory, can search the web, and has full recall of every document he uploads. Nothing else.
+## Keep (the three fixed points)
+1. Free cloud models: Gemini 2.5 Flash → Mistral Small → Cerebras gpt-oss-120b → Groq Llama 3.3 (`backend/ai/cascade.js`)
+2. Supabase as the memory store (shared "dlbs" project, `mobius_` tables)
+3. Simple chat UI (`frontend/index.html`, vanilla JS, unchanged by the rewrite)
 
-## Architecture
-- **Frontend:** Single-page chat UI. Mobile-first. Clean. No clutter.
-- **Backend:** Node.js server. Handles AI cascade, chat history, Tavily search, document store.
-- **AI cascade:** Gemini 2.5 Flash → Groq Llama 3.3 → Mistral Small
-- **Web search:** Tavily — triggered automatically when AI needs current information
-- **Chat history:** SQLite (`data/history.db`) — full conversation persistence
-- **Document store:** SQLite FTS5 (`data/docs.db`) — uploaded docs, full-text search
-- **No Hermes.** No relay. No meeting system. No PCM port from Mobius+.
+## How a message is handled (`backend/chat.js`)
+1. Load the last 12 messages verbatim (memory tier 1).
+2. `pcm/router.js` makes one cheap model call: standalone rewrite of the message, search queries, which projects it concerns, whether the archive is needed. Rule-based fallback if every model fails.
+3. Recall in parallel: profile, week digest, archive search, named document, web search (Tavily, on for every non-trivial message).
+4. `pcm/assemble.js` builds a budgeted context pack (≈30K chars; sections ranked, lowest-ranked cut first).
+5. Stream the answer from the cascade; save both messages; embed a few backlog rows in the background.
 
-## Core behaviours
-1. AI always has the full conversation history in context
-2. AI searches Tavily automatically when it detects a need for current information
-3. AI searches the document store when the question relates to uploaded content
-4. Responses stream to the UI token by token
-5. Chat history persists across sessions and browser refreshes
+Memory failures never stop the chat; each recall step degrades to "nothing found".
 
-## What this is NOT
-- Not a multi-agent system
-- Not a board/panel tool
-- Not a task runner
-- Not a code assistant
-- Just a chat interface with memory and search
+## The four memory tiers
+| Tier | Holds | Stored in | Refreshed by |
+|---|---|---|---|
+| 1 Immediate | last 12 messages verbatim + 7-day digest | `mobius_messages`, `mobius_memory` kind `week` | digest: `pcm/maintain.js` |
+| 2 Personal | profile of Boon | `mobius_memory` kind `profile` | weekly *proposal*; Boon approves |
+| 3 Current | one note per project active in the last 30 days | `mobius_memory` kind `project` | incremental, from new messages |
+| 4 Archive | every message and document | `mobius_messages`, `mobius_docs`, `mobius_docs_full` | live; embeddings filled in the background |
 
-## Stack
-- Node.js backend (server.js)
-- Vanilla JS frontend (no framework)
-- SQLite via better-sqlite3
-- Tailscale for remote access from phone/tablet
+Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`, `pcm_search_docs`). With Gemini's quota exhausted it degrades to keywords only.
 
-## Start
+## Profile approval (no UI yet)
+- `GET /api/pcm/profile` shows the active profile and any waiting proposal
+- `/api/pcm/profile/approve` and `/api/pcm/profile/reject` decide it
+- `POST /api/pcm/profile` with `{"content": "..."}` writes the profile directly
+
+## Layout
 ```
-start.bat        — starts backend on port 3005
-stop.bat         — stops it
+backend/
+  server.js        routes only (the /api contract the UI expects — keep stable)
+  chat.js          one chat turn
+  config.js        env + constants (the only place env vars are read)
+  db.js util.js web.js maintain-cli.mjs
+  ai/              cascade.js, prompt.js
+  pcm/             router, retrieve, assemble, maintain, memory, messages, embed
+  docs/            store, extract, drive
+frontend/          PWA (do not change without being asked)
+supabase/schema.sql   idempotent; run in the Supabase SQL Editor
 ```
 
-## Ports
-- 3005 — Mobius backend + UI
+## Run
+- `start.bat` / `stop.bat` — local server on port 3005
+- `npm run maintain` — memory jobs now, no time limit, drains the embedding backlog (`-- --drive` also syncs Drive)
+- `GET /api/pcm/status` — counts and last maintenance; `/api/pcm/maintain` runs the jobs
+- Vercel cron `/api/cron/daily` is time-boxed; the local server runs upkeep every 6 hours
+
+## Rules
+- Embeddings are Gemini only (`gemini-embedding-001`, 1024-dim). Never mix providers in one column.
+- `C:\_myProjects` is a junction to `D:\_myProjects`; `start.bat` uses the D: path on purpose — do not "fix" it.
+- Cerebras free tier has an 8K-token context; `fit()` in `cascade.js` trims prompts per provider.

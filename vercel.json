@@ -7,6 +7,6 @@
     { "src": "/(.*)", "dest": "backend/server.js" }
   ],
   "crons": [
-    { "path": "/api/cron/sync", "schedule": "0 6 * * *" }
+    { "path": "/api/cron/daily", "schedule": "0 6 * * *" }
   ]
 }
