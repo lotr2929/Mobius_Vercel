@@ -55,6 +55,10 @@ function loadDriveCredentials() {
 export const DRIVE_CREDENTIALS = loadDriveCredentials();
 
 // ── Memory (PCM) ─────────────────────────────────────────────────────────────
+// Whatever Mobius removes is kept in Supabase (mobius_trash) and, when it runs on the laptop,
+// also written here. Outside the repository on purpose: it holds personal documents.
+export const BACKUP_DIR = env.BACKUP_DIR || path.join(ROOT, '..', 'Backup');
+export const TRASH_DAYS = 180; // how long removed items stay restorable in Supabase
 export const RECENT_MESSAGES      = 20;  // tier 1: messages sent verbatim with every request (10 exchanges)
 export const WEEK_DAYS            = 7;   // tier 1: horizon of the rolling digest
 export const PROJECT_DORMANT_DAYS = 30;  // tier 3: a project untouched this long drops out of "current"

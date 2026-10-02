@@ -5,13 +5,13 @@
 //   correction  he corrects the assistant or states what is true ("On the contrary ...")
 //   preference  a standing rule for how he wants things done
 //   decision / fact  plans, commitments, lasting facts about his work or life
-// In 'auto' mode (config LEARN_MODE) an *explicit* definition, correction or preference is saved
+// In 'auto' mode (Settings) an *explicit* definition, correction or preference is saved
 // straight away; chat.js then tells Boon what was noted and how to undo it ("forget #14").
 // Everything else becomes a suggestion that waits for his say-so. It runs alongside the answer,
 // so it adds no waiting time.
-import { LEARN_MODE } from '../config.js';
 import { askModel } from '../ai/cascade.js';
 import { addNote } from './notes.js';
+import { getSettings } from './settings.js';
 import { clip, parseJson } from '../util.js';
 
 const AUTO_KINDS = new Set(['definition', 'correction', 'preference']);
@@ -20,7 +20,8 @@ const MAX_SUGGESTED = 2;
 
 // → [{ id, text, kind, status: 'active' | 'proposed' }]  (only notes that are new)
 export async function learnFromExchange({ query, previousAnswer = '', notes = [], dryRun = false }) {
-  if (LEARN_MODE === 'off' || String(query).trim().length < 25) return [];
+  const mode = (await getSettings()).learnMode; // set on the Settings page: auto | suggest | off
+  if (mode === 'off' || String(query).trim().length < 25) return [];
 
   const known = notes.slice(0, 40).map(n => `- ${clip(n.content, 140)}`).join('\n') || '(none)';
   const prompt = `You decide whether Boon's latest message to his AI assistant contains something the assistant should remember permanently.
@@ -59,7 +60,7 @@ If nothing qualifies reply {"notes":[]}.`;
     const text = String(it?.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const kind = String(it?.kind ?? 'fact').toLowerCase();
     if (text.length < 15) continue;
-    const goesActive = LEARN_MODE === 'auto' && it.explicit === true && AUTO_KINDS.has(kind) && auto < MAX_AUTO;
+    const goesActive = mode === 'auto' && it.explicit === true && AUTO_KINDS.has(kind) && auto < MAX_AUTO;
     if (!goesActive && suggested >= MAX_SUGGESTED) continue;
     if (dryRun) { saved.push({ text, kind, status: goesActive ? 'active' : 'proposed' }); goesActive ? auto++ : suggested++; continue; }
     const r = await addNote(text, { source: goesActive ? 'learned' : 'suggested', status: goesActive ? 'active' : 'proposed' });

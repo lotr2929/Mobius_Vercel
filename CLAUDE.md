@@ -31,7 +31,7 @@ Memory failures never stop the chat; each recall step degrades to "nothing found
 
 ## Notes: remembering what Boon asks, and finding what he would want (`pcm/notes.js`)
 - **Commands** are plain sentences at the start of a message, matched by rules (no model needed, so they work even when every model is down): `Remember that ...` / `Note: ...` / `Keep in mind ...` / `From now on ...` save a note at once; `Forget ...` or `Forget #14` removes one; `Show notes`; `Show suggestions`; `Save 14, 16` / `Save all`; `Drop 15` / `Drop all`.
-- **Learning as he talks** (`pcm/learn.js`, config `LEARN_MODE` = `auto` | `suggest` | `off`): the `learn`-role model reads each message alongside the assistant's previous reply and what is already saved. In `auto` mode an *explicit* definition of his own term, correction of the assistant, or standing preference is saved at once; the reply ends with a line saying what was noted and how to undo it (`forget #14`). Anything less certain becomes a suggestion. It runs in parallel with the answer (starts at the first token), so it adds no waiting time. Found necessary after the model guessed the meaning of his own term "Scriptura Fidelium" wrongly.
+- **Learning as he talks** (`pcm/learn.js`; mode chosen in Settings, default from config `LEARN_MODE`): the `learn`-role model reads each message alongside the assistant's previous reply and what is already saved. In `auto` mode an *explicit* definition of his own term, correction of the assistant, or standing preference is saved at once; the reply ends with a line saying what was noted and how to undo it (`forget #14`). Anything less certain becomes a suggestion. It runs in parallel with the answer (starts at the first token), so it adds no waiting time. Found necessary after the model guessed the meaning of his own term "Scriptura Fidelium" wrongly.
 - Active notes (table `mobius_notes`) are sent to the model with every message (all of them if they fit in 3,000 chars, else the most relevant plus the newest).
 - **Review job** (`harvestNotes` in `pcm/maintain.js`, part of the 6-hourly maintenance): a model reads new conversation, compares it with notes, profile and projects, and *suggests* up to 8 notes per batch. Suggestions from the review job stay `proposed` until Boon says "save"; at the start of a conversation Mobius mentions that some are waiting. First run read the whole history. Max 20 waiting at a time. Rejected or forgotten notes are not suggested again.
 - Not yet built: folding long-lived notes into the profile; semantic (embedding) selection when notes outgrow the prompt.
@@ -46,16 +46,24 @@ All state is in Supabase, so the phone and laptop (and the local server and Verc
 | Tier | Holds | Stored in | Refreshed by |
 |---|---|---|---|
 | 1 Immediate | last 20 messages verbatim + 7-day digest | `mobius_messages`, `mobius_memory` kind `week` | digest: `pcm/maintain.js` |
-| 2 Personal | profile of Boon | `mobius_memory` kind `profile` | weekly *proposal*; Boon approves |
+| 2 Personal | profile of Boon (max 3,000 chars; a longer one is condensed by a model) | `mobius_memory` kind `profile` | weekly update, used at once; Boon edits it in Settings |
 | 3 Current | one note per project active in the last 30 days | `mobius_memory` kind `project` | incremental, from new messages |
 | 4 Archive | every message and document | `mobius_messages`, `mobius_docs`, `mobius_docs_full` | live; embeddings filled in the background |
 
 Archive search is hybrid (vector + keyword, fused in SQL: `pcm_search_messages`, `pcm_search_docs`). With Gemini's quota exhausted it degrades to keywords only.
 
-## Profile and notes: the Memory page (`/profile.html`, linked as "Profile & notes" in the app header)
-- Edit and save the profile (limit 3,000 characters, enforced; saving archives the old version, last 5 kept and loadable from the page), read and use or dismiss the weekly proposal, load an earlier version.
-- Edit, add or forget notes; save or drop suggestions. Same operations as the chat commands.
-- API behind it: `GET/POST /api/pcm/profile`, `POST /api/pcm/profile/approve|reject`, `GET/POST /api/pcm/notes`, `PUT /api/pcm/notes/:id`, `POST /api/pcm/notes/:id/forget|save|drop`.
+## Settings page (`/settings.html`, gear icon after the refresh icon in the app)
+- **Profile:** edit and save (limit 3,000 chars; over the limit it is condensed by a `deep`-role model, never refused or chopped mid-sentence; the original stays under earlier versions). Mobius also updates it weekly from conversations and **uses the update straight away**, keeping the old version; a manual edit holds the automatic update off for a day.
+- **Notes and suggestions:** edit, add, forget; save or drop suggestions (same as the chat commands).
+- **Learning mode:** auto / suggest only / off (stored in `mobius_state` key `settings`; `pcm/settings.js`).
+- **Models:** read-only status. **Storage & housekeeping:** database use against the 500 MB free plan, last housekeeping report, run it now. **Backup:** everything removed, with Restore.
+- API: `GET/POST /api/pcm/profile`, `GET/POST /api/pcm/notes`, `PUT /api/pcm/notes/:id`, `POST /api/pcm/notes/:id/forget|save|drop`, `GET/POST /api/settings`, `POST /api/housekeeping/run`, `GET /api/backup`, `POST /api/backup/:id/restore`, `DELETE /api/backup/:id`.
+
+## Self-cleaning and backups
+- **Principle:** nothing Mobius removes is gone. Deleting a document, pruning an old version, retiring a note: each goes to `mobius_trash` (Supabase, the source of truth, restorable for 180 days) and, when Mobius runs on the laptop, is also written as a JSON file to `C:\_myProjects\_Mobius\Backup` (outside the repository: it holds personal documents; `BACKUP_DIR` overrides). Items trashed while running on Vercel are written to the folder the next time Mobius runs locally. If the backup cannot be made, the deletion does not happen.
+- **Housekeeping** (`pcm/housekeeping.js`, a step of every maintenance run): mirrors pending trash to the Backup folder; rebuilds documents that have text but no search chunks (reports, never deletes, chunks without text); lapses suggestions unreviewed for 60 days; trashes notes forgotten/rejected over 180 days ago; clears traces over 14 days; clears trash over 180 days (over 360 if never mirrored); measures storage.
+- **Drive:** a file removed from the Google Drive folder is removed here too (into the backup), unless more than 30% of files seem to have vanished at once, which is treated as a bad listing.
+- **Capacity:** the whole Supabase project is 195 MB of 500 MB (2 Oct 2026); Mobius's document chunks are about 61 MB for 8,100 chunks, so the 15,000-document PCM archive on the laptop drive does NOT fit and stays on the laptop. Google Drive is the next place to attach if Supabase fills.
 
 ## Login (passkeys)
 - On only when `SESSION_SECRET` is set (set on Vercel, not locally, so localhost stays open). Code: `backend/auth.js`, page: `frontend/login.html`, passkeys in `mobius_passkeys` (RLS on).
@@ -75,7 +83,7 @@ backend/
   config.js        env + constants (the only place env vars are read)
   db.js util.js web.js maintain-cli.mjs models-cli.mjs
   ai/              models.js (registry), cascade.js (runs them), audit.js (checks them), prompt.js
-  pcm/             router, retrieve, assemble, maintain, memory, messages, embed
+  pcm/             router, retrieve, assemble, maintain, memory, messages, embed, notes, learn, profile, settings, backup, housekeeping
   docs/            store, extract, drive
 frontend/          PWA (do not change without being asked)
 supabase/schema.sql   idempotent; run in the Supabase SQL Editor

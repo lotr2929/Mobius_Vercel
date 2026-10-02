@@ -10,7 +10,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
-import { PORT, FRONTEND_DIR, IS_VERCEL, START_TIME, CRON_SECRET, CRON_BUDGET_MS, KEYS } from './config.js';
+import { PORT, FRONTEND_DIR, IS_VERCEL, START_TIME, CRON_SECRET, CRON_BUDGET_MS, BACKUP_DIR, KEYS } from './config.js';
 import { authRouter, authGate, authEnabled } from './auth.js';
 import { lastUpdated } from './version.js';
 import { supabase } from './db.js';
@@ -20,7 +20,11 @@ import { chatTurn } from './chat.js';
 import { geoFromHeaders, memoryStats } from './self.js';
 import { startTrace, saveTrace, recentTraces, getTrace } from './trace.js';
 import { getMessages } from './pcm/messages.js';
-import { getActive, getProposed, put, promote, discard, history } from './pcm/memory.js';
+import { getActive, history, getState } from './pcm/memory.js';
+import { saveProfile, PROFILE_MAX } from './pcm/profile.js';
+import { getSettings, saveSettings } from './pcm/settings.js';
+import { listTrash, trashStats, restoreTrash, deleteTrash, canMirror } from './pcm/backup.js';
+import { housekeeping, storageReport } from './pcm/housekeeping.js';
 import { listNotes, addNote, updateNote, setStatus } from './pcm/notes.js';
 import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
@@ -126,8 +130,8 @@ app.get('/api/docs', async (req, res) => {
 });
 
 app.delete('/api/docs/:filename', async (req, res) => {
-  await deleteDoc(decodeURIComponent(req.params.filename));
-  res.json({ ok: true });
+  try { await deleteDoc(decodeURIComponent(req.params.filename)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); } // nothing is deleted if it could not be backed up first
 });
 
 // ── Google Drive ─────────────────────────────────────────────────────────────
@@ -185,31 +189,47 @@ app.all('/api/pcm/maintain', async (req, res) => {
   res.json(await runMaintenance({ budgetMs: IS_VERCEL ? CRON_BUDGET_MS : Infinity }));
 });
 
-// The personal profile (edited on the Memory page, /profile.html). Weekly proposals wait here for approval.
-const PROFILE_MAX = 3000; // what is sent to the model with every message
+// The personal profile (edited in Settings). Mobius updates it weekly and uses the update at once;
+// the previous version is kept. One over the size limit is condensed by a model, not refused.
 app.get('/api/pcm/profile', async (req, res) => {
-  const [active, proposed, versions] = await Promise.all([getActive('profile'), getProposed('profile'), history('profile')]);
+  const [active, versions, lastAuto, editedAt] = await Promise.all([getActive('profile'), history('profile'), getState('profile_last'), getState('profile_edited_at')]);
   res.json({
-    active: active?.content || null, activeAt: active?.updated_at || null,
-    proposed: proposed?.content || null, proposedAt: proposed?.created_at || null,
+    content: active?.content || '', updatedAt: active?.updated_at || null,
+    lastAutoUpdate: lastAuto || null, lastEditedByYou: editedAt || null,
     versions: versions.map(v => ({ content: v.content, at: v.created_at })),
     max: PROFILE_MAX,
   });
 });
 app.post('/api/pcm/profile', async (req, res) => { // save the profile: { "content": "..." }
-  const content = String(req.body?.content || '').trim();
-  if (!content) return res.status(400).json({ error: 'The profile cannot be empty' });
-  if (content.length > PROFILE_MAX) return res.status(400).json({ error: `Too long: ${content.length} of ${PROFILE_MAX} characters` });
-  try { await put('profile', 'main', { content }); res.json({ ok: true }); }
+  try { res.json({ ok: true, ...(await saveProfile(req.body?.content, { manual: true })) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ── Settings page ───
+app.get('/api/settings', async (req, res) => {
+  const [settings, hk, backup] = await Promise.all([getSettings(), getState('housekeeping'), trashStats()]);
+  res.json({
+    settings,
+    models: modelStatus(),
+    storage: hk?.report?.storage || (supabase ? await storageReport() : null),
+    housekeeping: hk ? { at: hk.at, report: hk.report } : null,
+    backup: { dir: BACKUP_DIR, writesToFolder: canMirror(), ...backup },
+  });
+});
+app.post('/api/settings', async (req, res) => {
+  try { res.json({ ok: true, settings: await saveSettings(req.body) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.all('/api/pcm/profile/approve', async (req, res) => {
-  try { res.json({ ok: !!(await promote('profile')) }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+app.post('/api/housekeeping/run', async (req, res) => res.json(await housekeeping()));
+
+app.get('/api/backup', async (req, res) => res.json({ items: await listTrash(100) }));
+app.post('/api/backup/:id/restore', async (req, res) => {
+  try { res.json({ ok: true, ...(await restoreTrash(Number(req.params.id))) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.all('/api/pcm/profile/reject', async (req, res) => {
-  try { await discard('profile'); res.json({ ok: true }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+app.delete('/api/backup/:id', async (req, res) => {
+  try { await deleteTrash(Number(req.params.id)); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // Notes (same things the chat commands do: "Remember ...", "Forget #14", "Save 14", "Drop 15").

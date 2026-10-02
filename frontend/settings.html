@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#2e5231">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<title>Mobius — Settings</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--bg:#e2dccd;--surface:#f5eedd;--surface2:#ede5d4;--border:#c9bfae;--border2:#8d7c64;--text:#1b1510;--muted:#443a2d;--dim:#8d7c64;--green:#2e5231;--green2:#4a7c4e;--amber:#a8741a;--red:#8d3a3a;--font:'Century Gothic','Avenir','Segoe UI','Verdana',sans-serif;}
+html{background:var(--bg);}
+body{max-width:780px;margin:0 auto;padding:12px 14px 70px;color:var(--text);font-family:var(--font);font-size:15px;line-height:1.55;}
+header{display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:6px;}
+header img{width:40px;height:40px;object-fit:contain;}
+header h1{font-size:22px;color:var(--green);letter-spacing:-0.4px;}
+header a{margin-left:auto;color:var(--green2);font-size:13px;}
+section{margin-top:26px;}
+h2{font-size:16px;color:var(--green);margin-bottom:2px;}
+p.hint{font-size:12px;color:var(--dim);margin-bottom:8px;}
+textarea,input[type=text]{width:100%;font-family:var(--font);font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:10px 12px;outline:none;}
+textarea:focus,input[type=text]:focus{border-color:var(--border2);}
+textarea{min-height:300px;resize:vertical;line-height:1.5;}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+.count{font-size:12px;color:var(--dim);margin-left:auto;}
+.count.over{color:var(--amber);font-weight:bold;}
+button{font-family:var(--font);font-size:13px;border:none;border-radius:3px;padding:8px 14px;cursor:pointer;background:var(--green);color:#fff;}
+button.plain{background:var(--surface2);color:var(--muted);border:1px solid var(--border);}
+button.warn{background:none;color:var(--red);border:1px solid var(--border);}
+button.small{padding:4px 9px;font-size:12px;}
+button:disabled{opacity:.45;cursor:default;}
+#status{position:sticky;top:0;z-index:5;min-height:22px;font-size:13px;padding:4px 0;background:var(--bg);}
+#status.ok{color:var(--green);} #status.err{color:var(--red);}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:10px 12px;margin-top:8px;}
+.note,.item{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);}
+.note:last-child,.item:last-child{border-bottom:none;}
+.id{color:var(--dim);font-size:12px;min-width:34px;padding-top:2px;}
+.text{flex:1;font-size:14px;word-break:break-word;}
+.text[contenteditable=true]{background:var(--surface2);outline:1px solid var(--border2);padding:2px 4px;}
+.sub{font-size:11px;color:var(--dim);}
+.empty{color:var(--dim);font-size:13px;padding:4px 0;}
+select{font-family:var(--font);font-size:13px;padding:7px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text);max-width:100%;}
+.bar{height:10px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;overflow:hidden;margin:6px 0;}
+.bar>div{height:100%;background:var(--green2);}
+.bar.high>div{background:var(--amber);} .bar.full>div{background:var(--red);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+td{padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+.ready{color:var(--green);} .rest{color:var(--amber);} .bad{color:var(--red);}
+ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
+</style>
+</head>
+<body>
+<header>
+  <img src="/logo.png" alt="" onerror="this.style.display='none'">
+  <h1>Settings</h1>
+  <a href="/">&larr; Back to Mobius</a>
+</header>
+<div id="status"></div>
+
+<!-- ───────────── Profile ───────────── -->
+<section>
+  <h2>Your profile</h2>
+  <p class="hint">Who you are, as Mobius should know you. This text goes to the AI with every message, so write only what you are happy for the AI providers to see. Mobius updates it weekly from your conversations and uses the update straight away; your earlier version is kept below. If you edit it, Mobius leaves it alone for a day.</p>
+  <div id="profileMeta" class="sub"></div>
+  <textarea id="profile" spellcheck="true"></textarea>
+  <div class="row">
+    <button id="save">Save profile</button>
+    <button id="revert" class="plain">Discard changes</button>
+    <span id="count" class="count"></span>
+  </div>
+  <div class="row">
+    <select id="versions"><option value="">Earlier versions…</option></select>
+    <button id="loadVersion" class="plain" disabled>Load into the editor</button>
+  </div>
+</section>
+
+<!-- ───────────── Notes ───────────── -->
+<section>
+  <h2>Notes Mobius keeps</h2>
+  <p class="hint">Things you asked it to remember, or definitions and preferences it noted from what you said. They go to the AI with every message. Click a note's text to edit it. In the chat you can also say "Remember that …", "Forget #14", "Show notes".</p>
+  <div id="notes" class="card"></div>
+  <div class="row">
+    <input type="text" id="newNote" placeholder="Add a note, e.g. I prefer short numbered answers" style="flex:1">
+    <button id="addNote">Add note</button>
+  </div>
+  <div id="suggestionBox" style="display:none">
+    <h2 style="margin-top:18px">Suggestions waiting for you</h2>
+    <p class="hint">Things Mobius noticed in your conversations that you may want remembered. Nothing is kept until you save it. Unreviewed suggestions lapse after two months.</p>
+    <div id="suggestions" class="card"></div>
+    <div class="row"><button id="saveAll" class="plain">Save all</button><button id="dropAll" class="warn">Drop all</button></div>
+  </div>
+</section>
+
+<!-- ───────────── Learning ───────────── -->
+<section>
+  <h2>Learning from your messages</h2>
+  <p class="hint">What Mobius does when you clearly define a term of your own, correct it, or state a preference, without being told to remember.</p>
+  <select id="learnMode">
+    <option value="auto">Automatic: save clear ones at once and tell me, suggest the rest</option>
+    <option value="suggest">Suggest only: nothing is saved until I say so</option>
+    <option value="off">Off: do not learn from my messages</option>
+  </select>
+</section>
+
+<!-- ───────────── Models ───────────── -->
+<section>
+  <h2>AI models</h2>
+  <p class="hint">Answers are tried on these in order. A model that fails is skipped for a while; the list is re-checked against what each provider offers every few hours.</p>
+  <div class="card"><table id="models"></table></div>
+</section>
+
+<!-- ───────────── Storage & housekeeping ───────────── -->
+<section>
+  <h2>Storage &amp; housekeeping</h2>
+  <p class="hint">Mobius keeps itself tidy: it rebuilds documents whose search data is missing, retires old suggestions, notes and logs, and checks how full the database is. Nothing is deleted outright; see Backup below.</p>
+  <div class="card">
+    <div id="storageText"></div>
+    <div id="storageBar" class="bar"><div style="width:0"></div></div>
+    <div id="storageTables" class="sub"></div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:10px 0">
+    <div id="hkWhen" class="sub"></div>
+    <ul id="hkLines" class="plainlist"></ul>
+    <div class="row"><button id="runHk" class="plain">Run housekeeping now</button></div>
+  </div>
+</section>
+
+<!-- ───────────── Backup ───────────── -->
+<section>
+  <h2>Backup</h2>
+  <p class="hint" id="backupInfo"></p>
+  <div id="trash" class="card"></div>
+</section>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let saved = '', max = 3000;
+
+function say(text, kind) { const s = $('status'); s.textContent = text || ''; s.className = kind || ''; if (text && kind === 'ok') setTimeout(() => { if (s.textContent === text) say(''); }, 5000); }
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { location.reload(); throw new Error('Signed out'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+  return d;
+}
+const when = iso => iso ? new Date(iso).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+const mb = b => (b / 1048576).toFixed(b > 10485760 ? 0 : 1) + ' MB';
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+function updateCount() {
+  const n = $('profile').value.trim().length;
+  $('count').textContent = n.toLocaleString() + ' / ' + max.toLocaleString() + ' characters' + (n > max ? ' (Mobius will condense it when you save)' : '');
+  $('count').className = 'count' + (n > max ? ' over' : '');
+  const dirty = $('profile').value.trim() !== saved.trim();
+  $('save').disabled = !dirty || n === 0;
+  $('revert').disabled = !dirty;
+  return dirty;
+}
+async function loadProfile() {
+  const d = await api('GET', '/api/pcm/profile');
+  max = d.max || 3000; saved = d.content || '';
+  $('profile').value = saved;
+  const parts = [];
+  if (d.lastAutoUpdate) parts.push('Last updated automatically ' + when(d.lastAutoUpdate));
+  if (d.lastEditedByYou) parts.push('last edited by you ' + when(d.lastEditedByYou));
+  $('profileMeta').textContent = parts.join(' · ');
+  const sel = $('versions'); sel.length = 1;
+  (d.versions || []).forEach((v, i) => sel.add(new Option(when(v.at) + ' — ' + v.content.replace(/\s+/g, ' ').slice(0, 50) + '…', i)));
+  window.__versions = d.versions || [];
+  $('loadVersion').disabled = true;
+  updateCount();
+}
+$('profile').addEventListener('input', updateCount);
+$('save').onclick = async () => {
+  $('save').disabled = true; say('Saving…');
+  try {
+    const r = await api('POST', '/api/pcm/profile', { content: $('profile').value });
+    await loadProfile();
+    say(r.shortened
+      ? `Saved. It was ${r.from.toLocaleString()} characters, so Mobius condensed it to ${r.text.length.toLocaleString()}${r.truncated ? ' (no AI was available, so it was cut at a line break — please check the end)' : ''}. Your original is under Earlier versions.`
+      : 'Profile saved. It is used from your next message.', 'ok');
+  } catch (e) { say(e.message, 'err'); updateCount(); }
+};
+$('revert').onclick = () => { $('profile').value = saved; updateCount(); say(''); };
+$('versions').onchange = () => { $('loadVersion').disabled = !$('versions').value; };
+$('loadVersion').onclick = () => { const v = window.__versions[Number($('versions').value)]; if (v) { $('profile').value = v.content; updateCount(); say('Earlier version loaded. Save to make it current.', 'ok'); } };
+window.addEventListener('beforeunload', e => { if (updateCount()) { e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (!$('save').disabled) $('save').click(); } });
+
+// ── Notes ────────────────────────────────────────────────────────────────────
+function noteRow(n, buttons) {
+  const row = el('div', 'note'), text = el('span', 'text', n.content);
+  row.append(el('span', 'id', '#' + n.id), text);
+  buttons.forEach(([label, cls, fn]) => { const b = el('button', 'small ' + (cls || ''), label); b.onclick = fn; row.append(b); });
+  return { row, text };
+}
+async function noteAction(id, action) { try { await api('POST', `/api/pcm/notes/${id}/${action}`); await loadNotes(); } catch (e) { say(e.message, 'err'); } }
+async function loadNotes() {
+  const d = await api('GET', '/api/pcm/notes');
+  const box = $('notes'); box.replaceChildren();
+  if (!d.active.length) box.append(el('div', 'empty', 'No notes yet.'));
+  d.active.forEach(n => {
+    const { row, text } = noteRow(n, [['Forget', 'warn', () => noteAction(n.id, 'forget')]]);
+    text.contentEditable = 'true';
+    text.onblur = async () => {
+      const v = text.textContent.trim(); if (v === n.content) return;
+      try { await api('PUT', '/api/pcm/notes/' + n.id, { content: v }); n.content = v; say('Note #' + n.id + ' updated.', 'ok'); } catch (e) { text.textContent = n.content; say(e.message, 'err'); }
+    };
+    text.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); text.blur(); } };
+    box.append(row);
+  });
+  $('suggestionBox').style.display = d.suggested.length ? 'block' : 'none';
+  const sbox = $('suggestions'); sbox.replaceChildren();
+  d.suggested.forEach(n => sbox.append(noteRow(n, [['Save', '', () => noteAction(n.id, 'save')], ['Drop', 'warn', () => noteAction(n.id, 'drop')]]).row));
+  window.__suggested = d.suggested;
+}
+$('addNote').onclick = async () => {
+  const v = $('newNote').value.trim(); if (!v) return;
+  try { await api('POST', '/api/pcm/notes', { content: v }); $('newNote').value = ''; say('Note added.', 'ok'); await loadNotes(); } catch (e) { say(e.message, 'err'); }
+};
+$('newNote').addEventListener('keydown', e => { if (e.key === 'Enter') $('addNote').click(); });
+$('saveAll').onclick = async () => { for (const n of window.__suggested || []) await api('POST', `/api/pcm/notes/${n.id}/save`).catch(() => {}); await loadNotes(); say('All suggestions saved.', 'ok'); };
+$('dropAll').onclick = async () => { for (const n of window.__suggested || []) await api('POST', `/api/pcm/notes/${n.id}/drop`).catch(() => {}); await loadNotes(); say('All suggestions dropped.', 'ok'); };
+
+// ── Settings, models, storage, housekeeping ──────────────────────────────────
+function hkLines(r) {
+  const out = [];
+  if (!r) return out;
+  if (r.backupFolder?.written) out.push(`Wrote ${r.backupFolder.written} item(s) to the Backup folder on the laptop.`);
+  if (r.documents?.rebuilt) out.push(`Rebuilt the search data for ${r.documents.rebuilt} document(s).`);
+  if (r.documents?.chunksWithoutText?.length) out.push(`${r.documents.chunksWithoutText.length} document(s) have search data but no stored full text: ${r.documents.chunksWithoutText.join(', ')}. Left alone.`);
+  if (r.notes?.expiredSuggestions) out.push(`${r.notes.expiredSuggestions} unreviewed suggestion(s) lapsed.`);
+  if (r.notes?.retired) out.push(`${r.notes.retired} old forgotten note(s) moved to the backup.`);
+  if (r.traces?.deleted) out.push(`${r.traces.deleted} old log entries cleared.`);
+  if (r.trash?.purged) out.push(`${r.trash.purged} old backup item(s) cleared.`);
+  Object.entries(r).forEach(([k, v]) => { if (v?.error) out.push(`Problem in ${k}: ${v.error}`); });
+  if (!out.length) out.push('Nothing needed tidying.');
+  return out;
+}
+async function loadSettings() {
+  const d = await api('GET', '/api/settings');
+  $('learnMode').value = d.settings.learnMode;
+
+  const t = $('models'); t.replaceChildren();
+  d.models.forEach(m => {
+    const tr = el('tr'), cls = m.state === 'ready' ? 'ready' : m.state.startsWith('resting') ? 'rest' : 'bad';
+    tr.append(el('td', '', m.name), el('td', 'sub', m.tags.join(', ')), el('td', cls, m.state));
+    t.append(tr);
+  });
+
+  const s = d.storage;
+  if (s) {
+    $('storageText').textContent = `${mb(s.databaseBytes)} used of ${mb(s.limitBytes)} on the free plan (${s.percent}%). This is the whole Supabase project, not just Mobius.`;
+    $('storageBar').className = 'bar' + (s.percent >= 90 ? ' full' : s.percent >= 75 ? ' high' : '');
+    $('storageBar').firstElementChild.style.width = Math.min(100, s.percent) + '%';
+    $('storageTables').textContent = 'Largest: ' + s.tables.map(x => `${x.name} ${mb(x.bytes)}`).join(' · ');
+  }
+  const h = d.housekeeping;
+  $('hkWhen').textContent = h ? 'Last run ' + when(h.at) : 'Has not run yet.';
+  $('hkLines').replaceChildren(...hkLines(h?.report).map(l => el('li', '', l)));
+
+  const b = d.backup;
+  $('backupInfo').textContent = `Whatever Mobius removes (a deleted document, an old version of your profile, a stale note) is kept here, ready to restore, for 180 days. ${b.writesToFolder ? 'This copy of Mobius also writes each item as a file to ' + b.dir + '.' : 'This copy of Mobius runs in the cloud; items are written to the Backup folder on your laptop the next time Mobius runs there' + (b.waitingForLaptop ? ' (' + b.waitingForLaptop + ' waiting)' : '') + '.'}`;
+}
+$('learnMode').onchange = async () => { try { await api('POST', '/api/settings', { learnMode: $('learnMode').value }); say('Saved.', 'ok'); } catch (e) { say(e.message, 'err'); } };
+$('runHk').onclick = async () => { $('runHk').disabled = true; say('Tidying…'); try { await api('POST', '/api/housekeeping/run'); await loadSettings(); say('Housekeeping done.', 'ok'); } catch (e) { say(e.message, 'err'); } $('runHk').disabled = false; };
+
+// ── Backup ───────────────────────────────────────────────────────────────────
+async function loadTrash() {
+  const d = await api('GET', '/api/backup');
+  const box = $('trash'); box.replaceChildren();
+  if (!d.items.length) box.append(el('div', 'empty', 'Nothing has been removed yet.'));
+  d.items.forEach(it => {
+    const row = el('div', 'item'), body = el('div', 'text');
+    body.append(el('div', '', it.label), el('div', 'sub', `${it.kind} · ${when(it.created_at)} · ${it.reason || ''}${it.restored_at ? ' · restored ' + when(it.restored_at) : ''}${it.mirrored ? ' · in Backup folder' : ''}`));
+    const restore = el('button', 'small plain', 'Restore');
+    restore.onclick = async () => { try { const r = await api('POST', `/api/backup/${it.id}/restore`); say(`Restored “${r.label}”.`, 'ok'); await Promise.all([loadTrash(), loadNotes(), updateCount() ? null : loadProfile()]); } catch (e) { say(e.message, 'err'); } };
+    const del = el('button', 'small warn', 'Delete for good');
+    del.onclick = async () => { if (!confirm('Delete “' + it.label + '” permanently? A file in the Backup folder, if one was written, stays there.')) return; try { await api('DELETE', '/api/backup/' + it.id); await loadTrash(); } catch (e) { say(e.message, 'err'); } };
+    row.append(body, restore, del);
+    box.append(row);
+  });
+}
+
+Promise.all([loadProfile(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
+</script>
+</body>
+</html>

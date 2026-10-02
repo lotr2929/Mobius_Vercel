@@ -4,7 +4,7 @@ import { google } from 'googleapis';
 import { Readable } from 'stream';
 import { DRIVE_CREDENTIALS, DRIVE_FOLDER_ID } from '../config.js';
 import { supabase } from '../db.js';
-import { saveDoc } from './store.js';
+import { saveDoc, deleteDoc } from './store.js';
 import { extractFromBuffer } from './extract.js';
 
 const SUPPORTED_MIME = new Set([
@@ -80,10 +80,25 @@ export async function uploadToDrive(buffer, filename, mimeType) {
   return res.data;
 }
 
+// A file that has left the Drive folder is removed here too, into the backup so it can be restored.
+// Guarded: if a large share of files seem to have vanished, the listing is more likely wrong than the folder.
+async function removeVanished(files) {
+  if (!files.length) return { skipped: 'Drive listing was empty' };
+  const present = new Set(files.map(f => f.path));
+  const { data } = await supabase.rpc('pcm_doc_sources');
+  const fromDrive = (data || []).filter(r => r.source === 'gdrive').map(r => r.filename);
+  const gone = fromDrive.filter(f => !present.has(f));
+  if (!gone.length) return { removed: 0 };
+  if (gone.length > Math.max(3, fromDrive.length * 0.3)) return { skipped: `${gone.length} of ${fromDrive.length} files look removed; not acting on that many at once` };
+  for (const f of gone) await deleteDoc(f, 'removed from the Google Drive folder');
+  return { removed: gone.length };
+}
+
 // New or changed files are re-read and re-chunked; unchanged ones are skipped.
 export async function syncDrive() {
   const drive = client();
   const files = await listFiles(drive, DRIVE_FOLDER_ID);
+  const gone = await removeVanished(files);
   let indexed = 0, skipped = 0;
   for (const file of files) {
     const { data: existing } = await supabase.from('mobius_docs').select('id')
@@ -94,7 +109,7 @@ export async function syncDrive() {
     await saveDoc(file.path, text, { source: 'gdrive', modifiedAt: file.modifiedTime });
     indexed++;
   }
-  return { indexed, skipped, total: files.length };
+  return { indexed, skipped, total: files.length, ...gone };
 }
 
 // Fill mobius_docs_full for files that were chunked before that table existed. Text only, no embedding.

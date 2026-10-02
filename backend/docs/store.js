@@ -2,6 +2,7 @@
 //   mobius_docs_full  one row per file, the whole text (returned when a file is named)
 //   mobius_docs       overlapping chunks for search; embedded later in the background
 import { supabase } from '../db.js';
+import { trash } from '../pcm/backup.js';
 
 const CHUNK_SIZE = 600;
 const CHUNK_OVERLAP = 100;
@@ -64,8 +65,15 @@ export async function listDocs() {
   }));
 }
 
-export async function deleteDoc(filename) {
+// Removing a document moves its whole text to the backup first (restorable from Settings).
+// If the backup cannot be made, nothing is deleted.
+export async function deleteDoc(filename, reason = 'deleted by Boon') {
   if (!supabase) return;
+  const { data: full } = await supabase.from('mobius_docs_full').select('content').eq('filename', filename).maybeSingle();
+  if (full?.content) {
+    const { data: first } = await supabase.from('mobius_docs').select('source, modified_at').eq('filename', filename).limit(1);
+    await trash('document', filename, { filename, content: full.content, source: first?.[0]?.source || 'upload', modified_at: first?.[0]?.modified_at || null }, reason);
+  }
   await supabase.from('mobius_docs').delete().eq('filename', filename);
   await supabase.from('mobius_docs_full').delete().eq('filename', filename);
 }

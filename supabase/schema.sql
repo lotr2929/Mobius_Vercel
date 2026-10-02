@@ -114,6 +114,35 @@ create table if not exists mobius_notes (
 create index if not exists mobius_notes_status on mobius_notes (status, created_at desc);
 alter table mobius_notes enable row level security;
 
+-- Trash: whatever Mobius removes (a deleted document, a pruned older version, a stale note) lands
+-- here first, with everything needed to restore it, and is mirrored to the laptop's Backup folder
+-- whenever Mobius runs there. Cleared out after 180 days.
+create table if not exists mobius_trash (
+  id          bigserial primary key,
+  created_at  timestamptz not null default now(),
+  kind        text not null,          -- 'document' | 'note' | 'memory'
+  label       text not null,
+  reason      text,
+  payload     jsonb not null,         -- everything needed to restore it
+  mirrored    boolean not null default false,   -- already written to the laptop Backup folder
+  restored_at timestamptz
+);
+create index if not exists mobius_trash_created on mobius_trash (created_at desc);
+alter table mobius_trash enable row level security;
+
+-- Sizes for the Settings page (the free plan allows 500 MB for the whole project).
+create or replace function pcm_storage ()
+returns table (name text, bytes bigint)
+language sql stable
+as $$
+  select * from (
+    select 'database'::text as name, pg_database_size(current_database())::bigint as bytes
+    union all
+    select tablename::text, pg_total_relation_size(quote_ident(tablename)::regclass)::bigint
+      from pg_tables where schemaname = 'public' and tablename like 'mobius%'
+  ) s order by bytes desc;
+$$;
+
 -- ── Memory functions ─────────────────────────────────────────────────────────
 
 -- Replace the row of this status for (kind, key); the old one is archived, and only the
@@ -133,13 +162,18 @@ begin
   values (p_kind, p_key, p_content, coalesce(p_keywords, '{}'), p_status)
   returning id into new_id;
 
-  delete from mobius_memory
-   where id in (
-     select id from mobius_memory
-      where kind = p_kind and key = p_key and status = 'archived'
-      order by created_at desc, id desc
-      offset 5
-   );
+  -- keep the five newest archived versions; older ones go to the trash, not oblivion
+  with doomed as (
+    select id, kind, key, content, created_at from mobius_memory
+     where kind = p_kind and key = p_key and status = 'archived'
+     order by created_at desc, id desc offset 5
+  ), moved as (
+    insert into mobius_trash (kind, label, reason, payload)
+    select 'memory', kind || ' / ' || key, 'older version pruned',
+           jsonb_build_object('kind', kind, 'key', key, 'content', content, 'created_at', created_at)
+      from doomed
+  )
+  delete from mobius_memory where id in (select id from doomed);
   return new_id;
 end;
 $$;
@@ -256,6 +290,14 @@ returns table (filename text, total bigint, embedded bigint)
 language sql stable
 as $$
   select filename, count(*), count(embedding) from mobius_docs group by filename;
+$$;
+
+-- Which files have chunks, and where they came from (used to spot files removed from Drive).
+create or replace function pcm_doc_sources ()
+returns table (filename text, source text)
+language sql stable
+as $$
+  select distinct filename, source from mobius_docs;
 $$;
 
 -- The old match_mobius_docs / match_mobius_messages functions and the mobius_topics table

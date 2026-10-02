@@ -7,7 +7,7 @@ import { PORT, IS_VERCEL, START_TIME, RECENT_MESSAGES, WEEK_DAYS, PROJECT_DORMAN
 import { supabase } from './db.js';
 import { modelStatus } from './ai/cascade.js';
 import { MODELS, orderFor, askKeywords } from './ai/models.js';
-import { listActive, getActive, getProposed, getState } from './pcm/memory.js';
+import { listActive, getActive, getState } from './pcm/memory.js';
 import { lastUpdated } from './version.js';
 import { nowIn, validTimeZone } from './util.js';
 
@@ -75,7 +75,7 @@ export async function memoryStats() {
   return {
     messages:  { total: await count('mobius_messages'), unembedded: await count('mobius_messages', q => q.is('embedding', null)) },
     docChunks: { total: await count('mobius_docs'),     unembedded: await count('mobius_docs',     q => q.is('embedding', null)) },
-    profile:   { active: !!(await getActive('profile')), proposed: !!(await getProposed('profile')) },
+    profile:   { active: !!(await getActive('profile')) },
     notes:     { active: await count('mobius_notes', q => q.eq('status', 'active')), suggested: await count('mobius_notes', q => q.eq('status', 'proposed')) },
     weekDigest: !!(await getActive('week')),
     projects:  (await listActive('project')).map(p => p.key),
@@ -98,7 +98,7 @@ You are one of several free cloud models. Each answer is tried on them in order 
 
 ## Memory (PCM, Persistent Contextual Memory), stored in Supabase
 1. Immediate: the last ${RECENT_MESSAGES} messages arrive verbatim, plus a rolling digest of the past ${WEEK_DAYS} days.
-2. Personal: a profile of who Boon is, carried in your system prompt. A weekly update is only proposed; Boon approves it.
+2. Personal: a profile of who Boon is, carried in your system prompt. It is updated weekly from his conversations and the update is used at once; Boon can edit it any time in Settings (the gear icon), and earlier versions are kept. A profile that is too long is condensed automatically.
 3. Current: one note per project active in the last ${PROJECT_DORMANT_DAYS} days.
 4. Archive: every message and every document, searched by meaning (Gemini embeddings) and by keyword together.
 Notes: Boon can tell you to remember things, and they are saved at once and sent to you with every message. He says "Remember that ...", "Note: ..." or "From now on ..." to save one, "Forget ..." (or "Forget #14") to remove one, and "Show notes" to list them. A review job also reads his conversations and suggests notes; these wait until he says "Show suggestions", then "Save 14, 16", "Save all" or "Drop 15". You also notice things yourself as the conversation goes: when Boon clearly defines a term of his own, corrects you, or states a standing preference, it is saved at once as a note and reported to him at the end of the reply with how to undo it ("forget #14"); anything less certain becomes a suggestion.
@@ -112,6 +112,9 @@ Memory is imperfect: summaries can be stale or wrong. If something Boon mentions
 
 ## Documents
 Uploaded files (PDF, DOCX, text, Markdown) and the Google Drive "Mobius" folder are stored whole and as searchable chunks. A file attached to a message is given to you in full.
+
+## Looking after itself
+Mobius tidies and updates itself in a maintenance run (every six hours on Boon's PC, daily in the cloud): it re-checks the model list, rebuilds documents whose search chunks are missing, retires old suggestions, notes and logs, and measures how full the database is. Nothing is deleted outright: removed documents, pruned older versions and old notes go to a backup (in Supabase, and as files in a Backup folder on Boon's laptop whenever Mobius runs there) and can be restored from Settings. Files removed from the Google Drive folder are removed here too, into the backup. Boon's large archive of older documents lives on a laptop drive and is not in Supabase.
 
 ## Limits
 Free-tier quotas (Gemini embeddings, Tavily searches, model rate limits) can run out; Mobius then falls back to keyword search or the next model. Your training data is out of date, so rely on the date above and on web results for anything recent. You do not know your own exact version beyond what is stated here.`;
@@ -127,7 +130,7 @@ export async function selfReport(client, geo, ctx) {
     `- The server that handled this request (Mobius's software runs here; it is not Boon's device): ${serverSummary()}`,
     `- App: last updated ${lastUpdated() || 'unknown'}`,
     `- Models right now: ${modelStatus().map(m => `${m.name}: ${m.state}`).join('; ')}`,
-    stats && `- Memory: ${stats.messages.total} messages (${stats.messages.unembedded} not yet embedded), ${stats.docChunks.total} document chunks (${stats.docChunks.unembedded} not yet embedded); personal profile ${stats.profile.active ? 'set' : 'not set'}${stats.profile.proposed ? ' (a new proposal is waiting for approval)' : ''}; ${stats.notes.active ?? 0} saved notes and ${stats.notes.suggested ?? 0} suggested notes waiting for review; week digest ${stats.weekDigest ? 'present' : 'not built yet'}; current projects: ${stats.projects.join('; ') || 'none'}; last maintenance run ${stats.lastMaintenance || 'never'}`,
+    stats && `- Memory: ${stats.messages.total} messages (${stats.messages.unembedded} not yet embedded), ${stats.docChunks.total} document chunks (${stats.docChunks.unembedded} not yet embedded); personal profile ${stats.profile.active ? 'set' : 'not set'}; ${stats.notes.active ?? 0} saved notes and ${stats.notes.suggested ?? 0} suggested notes waiting for review; week digest ${stats.weekDigest ? 'present' : 'not built yet'}; current projects: ${stats.projects.join('; ') || 'none'}; last maintenance run ${stats.lastMaintenance || 'never'}`,
   ];
   return `${MANUAL}\n\n${live.filter(Boolean).join('\n')}`;
 }

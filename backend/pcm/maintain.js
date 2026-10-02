@@ -4,14 +4,17 @@
 //   week      tier 1  rolling digest of the past seven days
 //   projects  tier 3  one note per current project, updated from new messages
 //   notes     suggestions of things worth remembering, found by reading the conversations
-//   profile   tier 2  weekly *proposal* for the personal profile; Boon approves it
+//   profile   tier 2  weekly update of the personal profile, used straight away (old version kept)
+//   housekeeping       tidies itself: backups to the laptop, rebuilds, retires old data (housekeeping.js)
 //   embed     tier 4  embed messages and document chunks saved without a vector
 import { supabase } from '../db.js';
 import { RECENT_MESSAGES, WEEK_DAYS, PROJECT_DORMANT_DAYS } from '../config.js';
 import { askModel } from '../ai/cascade.js';
 import { auditModels } from '../ai/audit.js';
 import { embedQuery, embedPatient } from './embed.js';
-import { getActive, getProposed, listActive, put, retireStale, getState, setState } from './memory.js';
+import { getActive, listActive, put, retireStale, getState, setState } from './memory.js';
+import { fitProfile } from './profile.js';
+import { housekeeping } from './housekeeping.js';
 import { listNotes, addNote } from './notes.js';
 import { clip, isoDaysAgo, parseJson } from '../util.js';
 
@@ -165,11 +168,12 @@ Reply with ONLY JSON: {"notes":["..."]}. If nothing qualifies, reply {"notes":[]
   return report;
 }
 
-// ── Tier 2: personal profile (proposal only — never self-applies) ────────────
-async function proposeProfile() {
-  if (await getProposed('profile')) return { skipped: 'a proposal is waiting for approval' };
+// ── Tier 2: personal profile (updated weekly and used straight away; you can edit it in Settings) ────
+async function refreshProfile() {
   const last = await getState('profile_last');
-  if (last && Date.now() - Date.parse(last) < 7 * 864e5) return { skipped: 'already proposed within the last week' };
+  if (last && Date.now() - Date.parse(last) < 7 * 864e5) return { skipped: 'updated within the last week' };
+  const edited = await getState('profile_edited_at');
+  if (edited && Date.now() - Date.parse(edited) < 864e5) return { skipped: 'you edited it within the last day' };
 
   const upto = (await getState('profile_upto')) || isoDaysAgo(30);
   const rows = await messagesAfter(upto, 'user');
@@ -190,10 +194,12 @@ Rewrite the profile, merging in anything new and durable.
 - Add only things he actually said about himself or his work: who he is, the areas and projects he works on, his interests, how he likes to be answered. Do not infer new health, family or money details, and do not guess at his personality; prefer his own wording to interpretation.
 Plain markdown bullets, at most 480 words (about 3,000 characters). Reply with ONLY the profile.`, { role: 'deep', timeoutMs: 40000 });
 
-  await put('profile', 'main', { content: clip(text, 3000), status: 'proposed' });
+  // Used straight away; the previous version stays under "earlier versions" in Settings.
+  const fit = await fitProfile(text);
+  await put('profile', 'main', { content: fit.text });
   await setState('profile_last', new Date().toISOString());
   await setState('profile_upto', newUpto);
-  return { proposed: true };
+  return { updated: true, shortened: fit.shortened };
 }
 
 // ── Tier 4: embedding backlog ────────────────────────────────────────────────
@@ -225,10 +231,11 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
   const left = () => budgetMs - (Date.now() - t0);
   const steps = [
     ['models',   async () => { const a = await auditModels(); return { retired: a.retired, newModels: a.candidates }; }],
+    ['housekeeping', () => housekeeping()],
     ['week',     () => refreshWeek()],
     ['projects', () => refreshProjects(left)],
     ['notes',    () => harvestNotes(left)],
-    ['profile',  () => proposeProfile()],
+    ['profile',  () => refreshProfile()],
     ['embed',    () => embedBacklog({ messages: cli ? 500 : 20, docs: cli ? 3000 : 30, patient: cli, left })],
   ];
   const report = {};
