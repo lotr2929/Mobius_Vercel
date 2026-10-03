@@ -51,12 +51,17 @@ const openAICompat = (label, url) => async function* (model, messages, signal, s
   yield* sse(r, o => o.choices?.[0]?.delta?.content);
 };
 
-async function* streamGemini(model, messages, signal, system) {
+async function* streamGemini(model, messages, signal, system, images = []) {
+  const contents = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+  // Images belong to the latest user turn.
+  if (images.length && contents.length) {
+    contents[contents.length - 1].parts.push(...images.map(i => ({ inlineData: { mimeType: i.mimeType, data: i.base64 } })));
+  }
   const r = await post(
     `https://generativelanguage.googleapis.com/v1beta/models/${model.id}:streamGenerateContent?alt=sse&key=${KEYS.gemini}`,
     {},
     {
-      contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+      contents,
       systemInstruction: { parts: [{ text: system }] },
       generationConfig: { maxOutputTokens: model.maxTokens },
     },
@@ -138,9 +143,13 @@ function fit(messages, system, maxChars) {
 // ── Streaming a chat answer ──────────────────────────────────────────────────
 // Yields token strings and { event } objects (model:, fallback:, error:).
 // `only` forces one model; `task` (a tag such as 'code') tries models strong at it first.
-export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null } = {}) {
+// `images` ([{ mimeType, base64 }]) go to the Gemini models only, which are the ones here that can see.
+export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [] } = {}) {
   if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
-  for (const key of only ? [only] : pickKeys(orderFor('chat', task))) {
+  const seeing = images.length > 0;
+  if (seeing && only && modelByKey(only).provider !== 'gemini') { yield { event: 'error:cannot-see-images:' + modelByKey(only).name }; return; }
+  const order = only ? [only] : pickKeys(orderFor('chat', task)).filter(k => !seeing || modelByKey(k).provider === 'gemini');
+  for (const key of order) {
     const m = modelByKey(key);
     if (!keyFor(m)) {
       if (only) yield { event: 'error:not-configured:' + m.name };
@@ -149,7 +158,7 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
     let started = false;
     try {
       yield { event: 'model:' + m.name };
-      for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(messages), system, m.maxChars), signal, system)) {
+      for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(messages), system, m.maxChars), signal, system, seeing ? images : [])) {
         started = true;
         yield token;
       }

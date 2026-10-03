@@ -219,6 +219,11 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     <span>Documents</span>
     <button onclick="toggleDocs()">&#x2715;</button>
   </div>
+  <div style="padding:10px 10px 0;">
+    <button onclick="openImagePicker()" style="width:100%;padding:10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--surface2);color:var(--text-muted);cursor:pointer;font-family:var(--font);font-size:12px;">
+      🖼 Add a photo or screenshot (up to 4)
+    </button>
+  </div>
   <div style="display:flex;gap:8px;padding:10px;">
     <button onclick="openLocalPicker()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:var(--radius);background:var(--surface2);color:var(--text-muted);cursor:pointer;font-family:var(--font);font-size:12px;">
       📁 Choose files from this device
@@ -438,15 +443,34 @@ function resetInput() {
 }
 
 // ── Image handling ─────────────────────────────────────────────────────────
-function handleImgFiles(files) {
+// Photos are shrunk here before sending: a phone photo can be 5-10 MB, but Vercel accepts a request of
+// about 4.5 MB in total. 1600 px on the long side keeps text in screenshots and scans readable.
+function shrinkImage(file, maxSide = 1600, quality = 0.85) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); // transparent PNGs would turn black as JPEG
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      const dataUrl = c.toDataURL('image/jpeg', quality);
+      resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg', dataUrl });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+async function handleImgFiles(files) {
   for (const f of files) {
     if (!f.type.startsWith('image/')) continue;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      attachedImgs.push({ base64: ev.target.result.split(',')[1], mimeType: f.type, dataUrl: ev.target.result });
-      renderImgPreviews();
-    };
-    reader.readAsDataURL(f);
+    if (attachedImgs.length >= 4) { alert('Up to 4 images per message.'); break; }
+    const im = await shrinkImage(f);
+    if (im) { attachedImgs.push(im); renderImgPreviews(); }
+    else alert('This browser could not read ' + (f.name || 'that image') + '.');
   }
 }
 document.addEventListener('paste', e => {
@@ -474,6 +498,12 @@ function toggleDocs() { docsOpen=!docsOpen; document.getElementById('docs-panel'
 function openLocalPicker() {
   if (docsOpen) toggleDocs();
   document.getElementById('docInput').click();
+}
+function openImagePicker() {
+  if (docsOpen) toggleDocs();
+  const el = document.getElementById('imgInput');
+  el.value = ''; // so choosing the same photo again still fires
+  el.click();
 }
 // Browses the Mobius Drive folder in-panel (via the existing service
 // account — no separate Google sign-in), instead of opening a dead-end
@@ -643,8 +673,9 @@ async function getClientInfo() {
 // ── Send ───────────────────────────────────────────────────────────────────
 async function handleSend() {
   const input = document.getElementById('qinput');
-  const q = input.value.trim();
-  if (!q || busy) return;
+  const typed = input.value.trim();
+  if ((!typed && !attachedImgs.length) || busy) return;
+  const q = typed || 'Describe this image and read any text in it.';
   busy = true;
   if (!queryHistory.length || queryHistory[queryHistory.length - 1] !== q) queryHistory.push(q);
   queryHistIdx = -1; queryHistDraft = '';

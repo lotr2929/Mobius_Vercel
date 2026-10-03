@@ -85,8 +85,15 @@ app.post('/api/debug/client', async (req, res) => {
 });
 
 // ── Chat (Server-Sent Events) ────────────────────────────────────────────────
+// Images arrive as base64 from the browser (already shrunk there). Keep a few valid ones only.
+const MAX_IMAGES = 4;
+const cleanImages = list => (Array.isArray(list) ? list : [])
+  .filter(i => i && typeof i.base64 === 'string' && /^image\/(jpeg|png|webp|gif|heic|heif)$/i.test(i.mimeType || ''))
+  .slice(0, MAX_IMAGES)
+  .map(i => ({ base64: i.base64, mimeType: i.mimeType.toLowerCase() }));
+
 app.post('/api/chat', async (req, res) => {
-  const { messages, query: q, docs, client } = req.body;
+  const { messages, query: q, docs, client, images } = req.body;
   const query = q || messages?.slice(-1)[0]?.content || '';
   if (!query) return res.status(400).json({ error: 'No query' });
 
@@ -99,7 +106,7 @@ app.post('/api/chat', async (req, res) => {
   res.on('close', () => { if (!res.writableEnded) controller.abort(); }); // client went away
 
   try {
-    for await (const item of chatTurn({ query, docs, client, geo: geoFromHeaders(req.headers), signal: controller.signal })) send(item);
+    for await (const item of chatTurn({ query, docs, images: cleanImages(images), client, geo: geoFromHeaders(req.headers), signal: controller.signal })) send(item);
   } catch (e) {
     console.error('[chat]', e.message);
     send({ error: e.message });

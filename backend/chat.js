@@ -51,7 +51,7 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 
 // Yields { event } and { token } objects for server.js to relay as SSE.
 // client = what the browser reported about the device; geo = approximate location from the request.
-export async function* chatTurn({ query, docs = [], client = null, geo = null, signal }) {
+export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, signal }) {
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
@@ -154,7 +154,7 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
     //    the answer, so it adds no waiting time and never runs for an answer that failed.
     let full = '', usedModel = '', learning = null;
     const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
-    for await (const chunk of runCascade(messages, { signal, system, only: forceProvider })) {
+    for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');
@@ -176,7 +176,7 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
     trace.set({ learned, model: usedModel, answer_chars: full.length, answer_head: full.slice(0, 600) }).mark('answered');
 
     // 6. remember — only a finished answer to a question that is still wanted
-    if (!signal?.aborted && full.trim()) await saveExchange({ query: userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
+    if (!signal?.aborted && full.trim()) await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
 
     if (useWeb) {
       const usage = await tavilyUsage();
