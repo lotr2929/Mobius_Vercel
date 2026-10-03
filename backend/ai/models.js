@@ -9,6 +9,7 @@
 //             releases on their own.
 //   tags      what it is good at, so work can be steered to the best-in-class model later
 //             (general, reasoning, code, fast, long-context, multilingual)
+//   vision    true if it accepts images (checked 3 Oct 2026: the Gemini models, qwen3.8-27b and ministral-14b; the gpt-oss models are text-only)
 //   maxChars  most prompt text we send it (free-tier context / tokens-per-minute limits)
 //   rank      position in each role, lower = tried first; omit a role to exclude the model from it
 //               chat   answering Boon
@@ -22,7 +23,7 @@
 // Flash versions give twice the quota of one. Run `npm run models -- --probe` to re-check.
 
 export const MODELS = [
-  { key: 'gemini',    name: 'gemini-3.8-flash',          provider: 'gemini',  id: 'gemini-3.8-flash',
+  { key: 'gemini',    name: 'gemini-3.8-flash',          provider: 'gemini',  id: 'gemini-3.8-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
     rank: { chat: 1, quick: 6, deep: 1, learn: 6 }, ask: ['flash'] },
 
@@ -30,19 +31,19 @@ export const MODELS = [
     tags: ['reasoning', 'general', 'code'], maxChars: 22000, maxTokens: 4096,
     rank: { chat: 2, quick: 3, deep: 5, learn: 1 }, ask: ['gpt-oss', 'groq', 'gpt'] },
 
-  { key: 'gemini37',  name: 'gemini-3.7-flash',          provider: 'gemini',  id: 'gemini-3.7-flash',
+  { key: 'gemini37',  name: 'gemini-3.7-flash',          provider: 'gemini',  id: 'gemini-3.7-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
     rank: { chat: 3, quick: 5, deep: 2, learn: 2 }, ask: ['flash-3.7'] },
 
-  { key: 'qwen',      name: 'qwen3.8-27b (groq)',        provider: 'groq',    id: 'qwen/qwen3.8-27b',
+  { key: 'qwen',      name: 'qwen3.8-27b (groq)',        provider: 'groq',    id: 'qwen/qwen3.8-27b', vision: true,
     tags: ['general', 'code', 'multilingual', 'fast'], maxChars: 22000, maxTokens: 4096,
     rank: { chat: 4, quick: 1, deep: 6, learn: 3 }, ask: ['qwen'] },
 
-  { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', id: 'ministral-14b-latest',
+  { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', id: 'ministral-14b-latest', vision: true,
     tags: ['general', 'fast'], maxChars: 90000, maxTokens: 4096,
     rank: { chat: 5, quick: 4, deep: 4, learn: 5 }, ask: ['mistral'] },
 
-  { key: 'lite',      name: 'gemini-3.1-flash-lite',     provider: 'gemini',  id: 'gemini-3.1-flash-lite',
+  { key: 'lite',      name: 'gemini-3.1-flash-lite',     provider: 'gemini',  id: 'gemini-3.1-flash-lite', vision: true,
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
     rank: { chat: 6, quick: 2, deep: 3, learn: 4 }, ask: ['flash-lite'] },
 

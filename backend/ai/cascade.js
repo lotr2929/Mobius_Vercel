@@ -43,10 +43,16 @@ async function* sse(r, pick) {
   }
 }
 
-const openAICompat = (label, url) => async function* (model, messages, signal, system) {
+const openAICompat = (label, url) => async function* (model, messages, signal, system, images = []) {
+  const msgs = messages.map(m => ({ ...m }));
+  // Images belong to the latest user turn, as OpenAI-style content parts.
+  if (images.length && msgs.length) {
+    const last = msgs[msgs.length - 1];
+    last.content = [{ type: 'text', text: last.content }, ...images.map(i => ({ type: 'image_url', image_url: { url: `data:${i.mimeType};base64,${i.base64}` } }))];
+  }
   const r = await post(url, { Authorization: 'Bearer ' + keyFor(model) }, {
     model: model.id, stream: true, max_tokens: model.maxTokens,
-    messages: [{ role: 'system', content: system }, ...messages],
+    messages: [{ role: 'system', content: system }, ...msgs],
   }, signal, label);
   yield* sse(r, o => o.choices?.[0]?.delta?.content);
 };
@@ -143,12 +149,12 @@ function fit(messages, system, maxChars) {
 // ── Streaming a chat answer ──────────────────────────────────────────────────
 // Yields token strings and { event } objects (model:, fallback:, error:).
 // `only` forces one model; `task` (a tag such as 'code') tries models strong at it first.
-// `images` ([{ mimeType, base64 }]) go to the Gemini models only, which are the ones here that can see.
+// `images` ([{ mimeType, base64 }]) go only to models marked `vision: true` in models.js.
 export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [] } = {}) {
   if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
   const seeing = images.length > 0;
-  if (seeing && only && modelByKey(only).provider !== 'gemini') { yield { event: 'error:cannot-see-images:' + modelByKey(only).name }; return; }
-  const order = only ? [only] : pickKeys(orderFor('chat', task)).filter(k => !seeing || modelByKey(k).provider === 'gemini');
+  if (seeing && only && !modelByKey(only).vision) { yield { event: 'error:cannot-see-images:' + modelByKey(only).name }; return; }
+  const order = only ? [only] : pickKeys(orderFor('chat', task)).filter(k => !seeing || modelByKey(k).vision);
   for (const key of order) {
     const m = modelByKey(key);
     if (!keyFor(m)) {
