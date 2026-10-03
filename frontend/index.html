@@ -88,6 +88,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .bubble-answer code{font-family:var(--font);font-style:italic;font-size:11px;background:var(--code-bg);color:#86efac;padding:1px 4px;border-radius:2px;}
 .bubble-answer pre{font-family:var(--font-mono);font-size:11px;background:var(--code-bg);color:#d4d4d4;padding:10px 12px;border-radius:2px;overflow-x:auto;margin:6px 0;}
 .bubble-answer pre code{font-family:var(--font-mono);font-style:normal;background:none;color:inherit;padding:0;}
+.bubble-answer li>p{margin:0;}
+.bubble-answer li>ul,.bubble-answer li>ol{margin:2px 0 4px 18px;}
+.bubble-answer blockquote{margin:6px 0;padding:2px 10px;border-left:3px solid var(--border2);color:var(--text-muted);}
+.bubble-answer a{color:var(--green);}
+/* Bible references: dashed underline; a click opens the passage */
+.scripture{border-bottom:1px dashed var(--green);cursor:pointer;}
+.scripture:hover,.scripture:focus{background:rgba(46,82,49,.13);outline:none;}
+.bubble-query .scripture{border-bottom-color:#f5f0e8;}
+.bubble-query .scripture:hover{background:rgba(245,240,232,.18);}
+.scripture-pop{position:fixed;z-index:60;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.28);padding:10px 12px;overflow-y:auto;font-size:13px;line-height:1.55;}
+.sp-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;position:sticky;top:-10px;background:var(--surface);padding:6px 0 4px;}
+.sp-head b{color:var(--green);font-size:14px;}
+.sp-tr{margin-left:auto;display:flex;gap:4px;}
+.sp-tr button{border:1px solid var(--border2);background:none;color:var(--text-dim);font:inherit;font-size:11px;padding:1px 9px;border-radius:10px;cursor:pointer;}
+.sp-tr button.on{background:var(--green);border-color:var(--green);color:#f5f0e8;}
+.sp-body div{margin-bottom:3px;}
+.sp-body div>b{color:var(--text-dim);font-weight:700;font-size:11px;}
+.sp-foot{font-size:10px;color:var(--text-dim);margin-top:6px;font-style:italic;}
 .bubble-answer a{color:var(--green-light);text-decoration:underline;}
 
 /* ── Input area ── */
@@ -243,6 +261,9 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 <!-- Hidden inputs -->
 <input type="file" id="imgInput" accept="image/*" multiple style="display:none" onchange="handleImgFiles(this.files)">
 
+<script src="/vendor/marked.min.js"></script>
+<script src="/scripture.js"></script>
+<script src="/render.js"></script>
 <script>
 'use strict';
 
@@ -296,45 +317,10 @@ setInterval(checkStatus, 30000); checkStatus();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkStatus(); }); // coming back to the app picks up other devices' messages
 
 // ── Markdown ───────────────────────────────────────────────────────────────
+// Parsed by marked and made safe in render.js, which also underlines Bible references (click for the passage).
 function md(text) {
   if (!text) return '';
-  const cbs = [];
-  text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) => {
-    const s = c.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    cbs.push('<pre><code>' + s + '</code></pre>');
-    return '\x00C' + (cbs.length-1) + '\x00';
-  });
-  const il = s => s
-    .replace(/`([^`]+)`/g,'<code>$1</code>')
-    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-    .replace(/\*([^\s*].+?)\*/g,'<em>$1</em>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
-  const lines = text.split('\n'), out = []; let ul=false,ol=false,tbl=[];
-  const cl = () => { if(ul){out.push('</ul>');ul=false;} if(ol){out.push('</ol>');ol=false;} };
-  const flushTbl = () => {
-    if (!tbl.length) return;
-    const rows = tbl.filter(r => !/^\|?\s*[-:]+[\s|:-]*$/.test(r.trim()));
-    out.push('<table>');
-    rows.forEach((r,i) => {
-      const cells = r.replace(/^\||\|$/g,'').split('|').map(c=>il(c.trim()));
-      const t = i===0?'th':'td';
-      out.push('<tr>'+cells.map(c=>`<${t}>${c}</${t}>`).join('')+'</tr>');
-    });
-    out.push('</table>'); tbl=[];
-  };
-  for (const ln of lines) {
-    if (/^\|.+\|/.test(ln.trim())) { cl(); tbl.push(ln); continue; } else flushTbl();
-    if (/^####\s/.test(ln)){cl();out.push('<h4>'+il(ln.slice(5))+'</h4>');continue;}
-    if (/^###\s/.test(ln)){cl();out.push('<h3>'+il(ln.slice(4))+'</h3>');continue;}
-    if (/^##\s/.test(ln)){cl();out.push('<h2>'+il(ln.slice(3))+'</h2>');continue;}
-    if (/^#\s/.test(ln)){cl();out.push('<h1>'+il(ln.slice(2))+'</h1>');continue;}
-    if (/^[-*]\s/.test(ln)){if(ol){out.push('</ol>');ol=false;}if(!ul){out.push('<ul>');ul=true;}out.push('<li>'+il(ln.slice(2))+'</li>');continue;}
-    if (/^\d+\.\s/.test(ln)){if(ul){out.push('</ul>');ul=false;}if(!ol){out.push('<ol>');ol=true;}out.push('<li>'+il(ln.replace(/^\d+\.\s/,''))+'</li>');continue;}
-    if (/^---+$/.test(ln.trim())){cl();out.push('<hr>');continue;}
-    cl(); if (!ln.trim()) { out.push(''); continue; } out.push('<p>'+il(ln)+'</p>');
-  }
-  flushTbl(); cl();
-  return out.join('').replace(/\x00C(\d+)\x00/g, (_,i) => cbs[i]);
+  return window.mdToHtml ? mdToHtml(text) : '<p>' + esc(text) + '</p>';
 }
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -362,6 +348,7 @@ function makeBubble(role, content, meta={}) {
       '</div>';
     wrap._ansId = ansId;
   }
+  if (role === 'user' && window.decorateScripture) decorateScripture(wrap.querySelector('.bubble-query'));
   return wrap;
 }
 

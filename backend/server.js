@@ -14,6 +14,7 @@ import fs from 'fs';
 import { PORT, FRONTEND_DIR, IS_VERCEL, START_TIME, CRON_SECRET, CRON_BUDGET_MS, BACKUP_DIR, KEYS } from './config.js';
 import { authRouter, authGate, authEnabled } from './auth.js';
 import { lastUpdated, appVersion } from './version.js';
+import { lookupJson } from './bible.js';
 import { supabase } from './db.js';
 import { availableNames, modelStatus } from './ai/cascade.js';
 import { auditModels, probeModels } from './ai/audit.js';
@@ -197,6 +198,12 @@ app.post('/api/drive/sync', (req, res) => {
 app.get('/api/drive/status', (req, res) => res.json({ running: syncRunning, keyExists: driveConfigured() }));
 
 // ── Linked folders (Settings → Linked folders) ──────────────────────────────
+// A Bible passage for the pop-up that opens when a reference in the chat is clicked.
+app.get('/api/bible', async (req, res) => {
+  try { res.json(await lookupJson(req.query.ref, req.query.t)); }
+  catch (e) { res.status(500).json({ error: String(e.message).slice(0, 200) }); }
+});
+
 app.get('/api/sources', async (req, res) => {
   try { res.json({ sources: await listSources(), serviceAccount: serviceAccountEmail(), driveReady: driveConfigured(), google: await gAccount.status(req) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
