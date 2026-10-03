@@ -6,7 +6,7 @@
 import crypto from 'crypto';
 import { google } from 'googleapis';
 import { supabase } from './db.js';
-import { SESSION_SECRET } from './config.js';
+import { SESSION_SECRET, DRIVE_CREDENTIALS } from './config.js';
 
 const T = 'mobius_google';
 export const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/drive.readonly'];
@@ -62,9 +62,30 @@ export async function status(req) {
   const r = await row();
   const c = await creds();
   return {
-    redirectUri: redirectUri(req), configured: !!c, clientIdHint: c ? c.id.slice(0, 14) + '…' : null,
+    redirectUri: redirectUri(req), project: DRIVE_CREDENTIALS?.project_id || null, // the Google project Mobius already has, so the set-up links go straight to it
+    configured: !!c, clientIdHint: c ? c.id.slice(0, 14) + '…' : null,
     connected: !!(r?.refresh_token && unseal(r.refresh_token)), email: r?.email || null, connectedAt: r?.connected_at || null, problem: r?.last_error || null,
   };
+}
+
+// The key file Google lets you download when you create the client (client_secret_….json). Taking the whole file
+// saves copying two long strings by hand, and lets Mobius check the file is the right kind before using it.
+export async function saveClientJson(req, text) {
+  let j;
+  try { j = JSON.parse(text); } catch { throw new Error('That is not the key file from Google. Choose the file named client_secret_….json that you downloaded.'); }
+  const type = Object.keys(j || {})[0];
+  if (!j?.web) {
+    throw new Error(j?.installed
+      ? 'That key is for a different kind of app (“Desktop”). In step 3 choose “Web application”, create the key again and download it.'
+      : 'That file does not contain a Google client key. It should come from the Clients page, from the “Download JSON” button' + (type ? ` (this one starts with “${type}”).` : '.'));
+  }
+  const c = j.web;
+  if (!c.client_id || !c.client_secret) throw new Error('That file has no client secret in it. Google shows the secret only when the key is created, so create a new key and download the file straight away.');
+  const uri = redirectUri(req);
+  if (!(c.redirect_uris || []).includes(uri)) {
+    throw new Error(`That key does not list Mobius’s return address. In Google open the key (Clients → Mobius), add ${uri} under “Authorised redirect URIs”, save, and use the file again (or download a new one).`);
+  }
+  await saveCredentials(c.client_id, c.client_secret);
 }
 
 export async function saveCredentials(clientId, clientSecret) {

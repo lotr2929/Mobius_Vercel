@@ -88,18 +88,11 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
       <button id="gDisconnect" class="warn" style="display:none">Disconnect</button>
       <button id="gEdit" class="plain small" style="display:none">Change set-up</button>
     </div>
-    <div id="gSetup" style="display:none;margin-top:10px">
-      <div class="sub" style="margin-bottom:4px"><b>One-off set-up</b> (about 10 minutes, free). Do this on the laptop:</div>
-      <ol class="sub" style="margin-left:18px;line-height:1.6">
-        <li>Go to <b>console.cloud.google.com</b>, create a project (call it Mobius), then under <i>APIs &amp; Services → Library</i> enable the <b>Google Drive API</b>.</li>
-        <li>Open <b>Google Auth Platform</b> (also called the OAuth consent screen). Choose <b>External</b>, name the app Mobius and use your own email address. Add the scope <b>…/auth/drive.readonly</b> (“See and download all your Google Drive files”).</li>
-        <li>On the <b>Audience</b> page press <b>Publish app</b>, so the status reads “In production”. If you skip this, Google makes you reconnect every 7 days. Google will then show an “unverified app” warning when you connect; it is your own app, so choose <i>Advanced → Go to Mobius</i>.</li>
-        <li>Under <b>Clients</b> create an OAuth client of type <b>Web application</b>. Add this as an <b>Authorised redirect URI</b>: <code id="gRedirect" style="word-break:break-all"></code> <button id="gCopyRedirect" class="plain small">Copy</button></li>
-        <li>Paste the <b>Client ID</b> and <b>Client secret</b> Google shows you:</li>
-      </ol>
-      <input type="text" id="gClientId" placeholder="Client ID (ends .apps.googleusercontent.com)" autocomplete="off">
-      <input type="password" id="gClientSecret" placeholder="Client secret" autocomplete="off" style="margin-top:6px">
-      <div class="row"><button id="gSave">Save</button><span class="sub" id="gHint"></span></div>
+    <div id="gSetup" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <div class="sub"><b id="gStepTitle"></b></div>
+      <div id="gStepBody" class="sub" style="margin:6px 0;line-height:1.6"></div>
+      <div id="gStepExtra"></div>
+      <div class="row" id="gStepButtons"></div>
     </div>
   </div>
   <div id="gBrowse" class="card" style="display:none"></div>
@@ -453,40 +446,86 @@ $('srcSync').onclick = async () => {
 };
 
 // ── Connect my Google account ────────────────────────────────────────────────
-let gStatus = null, gShowSetup = false, gTrail = [];
+// Normally one press. The first time only, Google needs this app registered (the part an app's developer usually does
+// once); the steps below take you through it one screen at a time and finish by signing you in.
+let gStatus = null, gStep = 0, gOpen = false, gTrail = [];
+const gLink = page => 'https://console.cloud.google.com/auth/' + page + '?project=' + encodeURIComponent(gStatus?.project || '');
+const GSTEPS = [
+  () => ({ title: 'Step 1 of 4 · Name the app', body: 'Open the Google page below. If it shows a “Get started” button, press it and fill in: App name “Mobius”, your own email address (for support and contact), Audience “External”, then agree and press Create. If you already see Branding, Audience and Clients in a menu on the left, this step is already done.', link: gLink('overview'), copies: [['App name', 'Mobius']] }),
+  () => ({ title: 'Step 2 of 4 · Publish the app', body: 'Open the page below and press “Publish app”, then confirm, so it says “In production”. This stops Google asking you to reconnect every 7 days. When you connect later, Google will call the app “unverified”; that is normal for your own app.', link: gLink('audience') }),
+  () => ({ title: 'Step 3 of 4 · Create the key', body: 'Open the page below, press “Create client”, choose “Web application”, call it Mobius, and under “Authorised redirect URIs” add the address below. Press Create, then press “Download JSON”.', link: gLink('clients'), copies: [['Return address', gStatus.redirectUri]] }),
+  () => ({ title: 'Step 4 of 4 · Give Mobius the key', body: 'Choose the file you just downloaded (its name starts with client_secret). Mobius then takes you to Google to say yes.', file: true }),
+];
 function renderGoogle(g) {
   if (!g) return;
   gStatus = g;
-  $('gRedirect').textContent = g.redirectUri;
-  $('gState').textContent = g.connected ? '· connected as ' + (g.email || 'your account') : g.configured ? '· not connected yet' : '· one-off set-up needed';
+  $('gState').textContent = g.connected ? '· connected as ' + (g.email || 'your account') : g.configured ? '· ready to connect' : '';
   $('gState').className = 'sub ' + (g.connected ? 'ready' : 'rest');
   $('gWhy').textContent = g.connected
     ? 'Mobius opens the Drive links you paste as you, read-only, so nothing has to be shared. To end this, press Disconnect, or remove Mobius at myaccount.google.com/permissions.'
-    : 'Connect once and Mobius can open any Drive folder you paste, as you and read-only, with no sharing or invitations. You approve it on Google’s own page, and you can disconnect at any time.' + (g.problem ? ' ' + g.problem : '');
+    : (g.problem ? g.problem + ' ' : '') + (g.configured
+      ? 'Press the button and approve on Google’s page. Mobius can then open any Drive folder you paste, read-only.'
+      : 'Press the button. The first time only, it takes you through a few short steps with Google; after that, connecting is one press.');
   $('gConnect').style.display = g.connected ? 'none' : '';
   $('gBrowseBtn').style.display = g.connected ? '' : 'none';
   $('gDisconnect').style.display = g.connected ? '' : 'none';
   $('gEdit').style.display = g.configured ? '' : 'none';
-  $('gSetup').style.display = (!g.configured || gShowSetup) ? 'block' : 'none';
-  $('gHint').textContent = g.configured ? 'Saving new details ends any current connection.' : '';
+  $('gEdit').textContent = 'Use a different key';
+  $('gSetup').style.display = gOpen && !g.connected ? 'block' : 'none';
+  if (gOpen && !g.connected) renderStep();
   if (!g.connected) $('gBrowse').style.display = 'none';
 }
+function openSetup(step) { gStep = step; gOpen = true; renderGoogle(gStatus); $('gSetup').scrollIntoView({ block: 'nearest' }); }
+function closeSetup() { gOpen = false; renderGoogle(gStatus); }
+function copyBtn(value) {
+  const b = el('button', 'small plain', 'Copy');
+  b.onclick = async () => { try { await navigator.clipboard.writeText(value); say('Copied.', 'ok'); } catch { say('Could not copy; select it and copy by hand.', 'err'); } };
+  return b;
+}
+function renderStep() {
+  const s = GSTEPS[gStep]();
+  $('gStepTitle').textContent = s.title;
+  $('gStepBody').textContent = s.body;
+  const extra = $('gStepExtra'); extra.replaceChildren();
+  (s.copies || []).forEach(([label, value]) => {
+    const row = el('div', 'row'); row.style.marginTop = '2px';
+    const code = el('code', '', value); code.style.cssText = 'font-size:13px;word-break:break-all';
+    row.append(el('span', 'sub', label + ':'), code, copyBtn(value)); extra.append(row);
+  });
+  const bar = $('gStepButtons'); bar.replaceChildren();
+  if (s.link) {
+    const a = el('a', '', 'Open the Google page ↗'); a.href = s.link; a.target = '_blank'; a.rel = 'noopener';
+    a.style.cssText = 'display:inline-block;padding:8px 14px;background:var(--green);color:#fff;border-radius:3px;font-size:13px;text-decoration:none';
+    bar.append(a);
+  }
+  if (s.file) {
+    const input = el('input'); input.type = 'file'; input.accept = '.json,application/json'; input.style.display = 'none';
+    input.onchange = () => { if (input.files[0]) useKeyFile(input.files[0]); input.value = ''; };
+    const pick = el('button', '', 'Choose the downloaded file'); pick.onclick = () => input.click();
+    bar.append(input, pick);
+  } else {
+    const next = el('button', 'plain', 'Done · next step'); next.onclick = () => { gStep++; renderStep(); }; bar.append(next);
+  }
+  if (gStep > 0) { const back = el('button', 'plain small', 'Back'); back.onclick = () => { gStep--; renderStep(); }; bar.append(back); }
+  const close = el('button', 'plain small', 'Close'); close.onclick = closeSetup; bar.append(close);
+}
+function useKeyFile(file) {
+  const r = new FileReader();
+  r.onload = async () => {
+    say('Checking the key…');
+    try {
+      await api('POST', '/api/google/client-file', { text: String(r.result) });
+      say('Key accepted. Taking you to Google…', 'ok');
+      setTimeout(() => { location.href = '/api/google/connect'; }, 700);
+    } catch (e) { say(e.message, 'err'); }
+  };
+  r.readAsText(file);
+}
 $('gConnect').onclick = () => {
-  if (!gStatus?.configured) { gShowSetup = true; renderGoogle(gStatus); say('Do the one-off set-up below first, then press Connect again.', 'err'); return; }
+  if (!gStatus?.configured) { openSetup(0); return; }
   location.href = '/api/google/connect';
 };
-$('gEdit').onclick = () => { gShowSetup = !gShowSetup; renderGoogle(gStatus); };
-$('gCopyRedirect').onclick = async () => { try { await navigator.clipboard.writeText($('gRedirect').textContent); say('Address copied.', 'ok'); } catch { say('Could not copy; select the address and copy it by hand.', 'err'); } };
-$('gSave').onclick = async () => {
-  $('gSave').disabled = true;
-  try {
-    await api('POST', '/api/google/credentials', { clientId: $('gClientId').value, clientSecret: $('gClientSecret').value });
-    $('gClientId').value = ''; $('gClientSecret').value = ''; gShowSetup = false;
-    await loadSources();
-    say('Saved. Now press “Connect Google account”.', 'ok');
-  } catch (e) { say(e.message, 'err'); }
-  $('gSave').disabled = false;
-};
+$('gEdit').onclick = () => openSetup(2);
 $('gDisconnect').onclick = async () => {
   if (!confirm('Disconnect your Google account?\n\nFolders Mobius has already read stay in Mobius, but links that needed your account will stop updating.')) return;
   try { await api('POST', '/api/google/disconnect'); await loadSources(); say('Disconnected.', 'ok'); } catch (e) { say(e.message, 'err'); }

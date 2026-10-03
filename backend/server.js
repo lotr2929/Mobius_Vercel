@@ -217,7 +217,11 @@ app.delete('/api/sources/:id', async (req, res) => { // ?docs=1 also removes the
 app.get('/api/google/status', async (req, res) => {
   try { res.json(await gAccount.status(req)); } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/google/credentials', async (req, res) => { // { clientId, clientSecret }: the OAuth client made once in Google Cloud Console
+app.post('/api/google/client-file', async (req, res) => { // { text }: the client_secret_….json Google lets you download
+  try { await gAccount.saveClientJson(req, String(req.body?.text || '')); res.json({ ok: true, status: await gAccount.status(req) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/google/credentials', async (req, res) => { // { clientId, clientSecret }: typed in by hand instead
   try { await gAccount.saveCredentials(req.body?.clientId, req.body?.clientSecret); res.json({ ok: true, status: await gAccount.status(req) }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
