@@ -121,7 +121,7 @@ export async function* chatTurn({ query, docs = [], client = null, geo = null, s
     const context = assembleContext([
       { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
       { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
-      { title: 'Notes Boon asked you to keep (first person means Boon)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
+      { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon; not evidence, and not conclusions to defend or to agree with)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
       { title: ATTACHED_TITLE, rank: 1, cap: 20000,
         text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
       { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
