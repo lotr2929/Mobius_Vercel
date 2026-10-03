@@ -462,12 +462,14 @@ $('srcSync').onclick = async () => {
 // Normally one press. The first time only, Google needs this app registered (the part an app's developer usually does
 // once); the steps below take you through it one screen at a time and finish by signing you in.
 let gStatus = null, gStep = 0, gOpen = false, gFixOpen = false, gTrail = [];
-const gLink = page => 'https://console.cloud.google.com/auth/' + page + '?project=' + encodeURIComponent(gStatus?.project || '');
+// Links carry no project number: Google Cloud opens the project you last chose, which is the one made in step 1.
+const gLink = page => 'https://console.cloud.google.com/' + page;
 const GSTEPS = [
-  () => ({ title: 'Step 1 of 4 · Name the app', body: 'Open the Google page below. If it shows a “Get started” button, press it and fill in: App name “Mobius”, your own email address (for support and contact), Audience “External”, then agree and press Create. If you already see Branding, Audience and Clients in a menu on the left, this step is already done.', link: gLink('overview'), copies: [['App name', 'Mobius']] }),
-  () => ({ title: 'Step 2 of 4 · Publish the app', body: 'Open the page below and press “Publish app”, then confirm, so it says “In production”. This stops Google asking you to reconnect every 7 days. When you connect later, Google will call the app “unverified”; that is normal for your own app.', link: gLink('audience') }),
-  () => ({ title: 'Step 3 of 4 · Create the key', body: 'Open the page below, press “Create client”, choose “Web application”, call it Mobius, and under “Authorised redirect URIs” add the address below. Press Create, then press “Download JSON”.', link: gLink('clients'), copies: [['Return address', gStatus.redirectUri]] }),
-  () => ({ title: 'Step 4 of 4 · Give Mobius the key', body: 'Choose the file you just downloaded (its name starts with client_secret). Mobius then takes you to Google to say yes.', file: true }),
+  () => ({ title: 'Step 1 of 5 · Make a project', body: 'Use the Google account that should own the key (your lotr2929 account is a good choice). Open the page below, name the project Mobius, press Create, and check that it is the project shown at the top of the page afterwards.', link: gLink('projectcreate'), copies: [['Project name', 'Mobius']] }),
+  () => ({ title: 'Step 2 of 5 · Name the app', body: 'Open the Google page below. If it shows a “Get started” button, press it and fill in: App name “Mobius”, your own email address (for support and contact), Audience “External”, then agree and press Create. If you already see Branding, Audience and Clients in a menu on the left, this step is already done.', link: gLink('auth/overview'), copies: [['App name', 'Mobius']] }),
+  () => ({ title: 'Step 3 of 5 · Publish the app', body: 'Open the page below and press “Publish app”, then confirm, so it says “In production”. This stops Google asking you to reconnect every 7 days. When you connect later, Google will call the app “unverified”; that is normal for your own app.', link: gLink('auth/audience') }),
+  () => ({ title: 'Step 4 of 5 · Create the key', body: 'Open the page below, press “Create client”, choose “Web application”, call it Mobius, and under “Authorised redirect URIs” add the address below. Press Create, then press “Download JSON”.', link: gLink('auth/clients'), copies: [['Return address', gStatus.redirectUri]] }),
+  () => ({ title: 'Step 5 of 5 · Give Mobius the key', body: 'Choose the file you just downloaded (its name starts with client_secret). Mobius then takes you to Google to say yes.', file: true }),
 ];
 function renderGoogle(g) {
   if (!g) return;
@@ -545,7 +547,7 @@ $('gConnect').onclick = () => {
   if (!gStatus?.configured) { openSetup(0); return; }
   location.href = '/api/google/connect';
 };
-$('gEdit').onclick = () => openSetup(2);
+$('gEdit').onclick = () => openSetup(0);
 $('gDisconnect').onclick = async () => {
   if (!confirm('Disconnect your Google account?\n\nFolders Mobius has already read stay in Mobius, but links that needed your account will stop updating.')) return;
   try { await api('POST', '/api/google/disconnect'); await loadSources(); say('Disconnected.', 'ok'); } catch (e) { say(e.message, 'err'); }

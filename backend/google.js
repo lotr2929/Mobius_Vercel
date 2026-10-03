@@ -44,12 +44,15 @@ async function patch(p) {
   const { error } = await supabase.from(T).upsert({ id: 1, ...p, updated_at: new Date().toISOString() });
   if (error) throw new Error('google: ' + error.message);
 }
+// Which Google key to use. A key saved in Settings comes first; the key the earlier version of Mobius registered (kept in
+// GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, or GOOGLE_OAUTH_*) is the fallback, so there is nothing to set up if it still works.
 async function creds() {
   const r = await row();
-  // The earlier version of Mobius registered a Google key and kept it in these variables, so it is reused as it is.
-  const id = process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || r?.client_id;
-  const secret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || unseal(r?.client_secret);
-  return id && secret ? { id, secret, r } : null;
+  const savedId = r?.client_id, savedSecret = unseal(r?.client_secret);
+  if (savedId && savedSecret) return { id: savedId, secret: savedSecret, r, from: 'set-up' };
+  const id = process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+  const secret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  return id && secret ? { id, secret, r, from: 'earlier version' } : null;
 }
 
 // Where the site lives, as the browser sees it. Google must be told this exact address in advance.
@@ -65,7 +68,7 @@ export async function status(req) {
   return {
     redirectUri: redirectUri(req), project: DRIVE_CREDENTIALS?.project_id || null, // the Google project Mobius already has, so the set-up links go straight to it
     configured: !!c, clientIdHint: c ? c.id.slice(0, 14) + '…' : null, clientProject: c ? c.id.split('-')[0] : null,
-    keyFrom: c ? (process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID ? 'earlier version' : 'set-up') : null,
+    keyFrom: c ? c.from : null,
     connected: !!(r?.refresh_token && unseal(r.refresh_token)), email: r?.email || null, connectedAt: r?.connected_at || null, problem: r?.last_error || null,
   };
 }
