@@ -18,8 +18,8 @@ header a{margin-left:auto;color:var(--green2);font-size:13px;}
 section{margin-top:26px;}
 h2{font-size:16px;color:var(--green);margin-bottom:2px;}
 p.hint{font-size:12px;color:var(--dim);margin-bottom:8px;}
-textarea,input[type=text]{width:100%;font-family:var(--font);font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:10px 12px;outline:none;}
-textarea:focus,input[type=text]:focus{border-color:var(--border2);}
+textarea,input[type=text],input[type=password]{width:100%;font-family:var(--font);font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:10px 12px;outline:none;}
+textarea:focus,input[type=text]:focus,input[type=password]:focus{border-color:var(--border2);}
 textarea{min-height:300px;resize:vertical;line-height:1.5;}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
 .count{font-size:12px;color:var(--dim);margin-left:auto;}
@@ -79,10 +79,37 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
 <section>
   <h2>Linked folders</h2>
   <p class="hint">Link folders from Google Drive so Mobius can read your documents and help with your work. Your files stay where they are; Mobius copies only the text. It reads gradually, newest files first, up to the limit you set for each folder. It understands PDF, Word, text, Markdown, CSV, JSON, Google Docs and Google Sheets, and skips anything over 25 MB.</p>
+  <div class="card" id="gCard">
+    <div><b>Your Google account</b> <span id="gState" class="sub"></span></div>
+    <p class="sub" id="gWhy" style="margin:4px 0 2px"></p>
+    <div class="row" style="margin-top:6px">
+      <button id="gConnect">Connect Google account</button>
+      <button id="gBrowseBtn" class="plain" style="display:none">Browse my Drive</button>
+      <button id="gDisconnect" class="warn" style="display:none">Disconnect</button>
+      <button id="gEdit" class="plain small" style="display:none">Change set-up</button>
+    </div>
+    <div id="gSetup" style="display:none;margin-top:10px">
+      <div class="sub" style="margin-bottom:4px"><b>One-off set-up</b> (about 10 minutes, free). Do this on the laptop:</div>
+      <ol class="sub" style="margin-left:18px;line-height:1.6">
+        <li>Go to <b>console.cloud.google.com</b>, create a project (call it Mobius), then under <i>APIs &amp; Services → Library</i> enable the <b>Google Drive API</b>.</li>
+        <li>Open <b>Google Auth Platform</b> (also called the OAuth consent screen). Choose <b>External</b>, name the app Mobius and use your own email address. Add the scope <b>…/auth/drive.readonly</b> (“See and download all your Google Drive files”).</li>
+        <li>On the <b>Audience</b> page press <b>Publish app</b>, so the status reads “In production”. If you skip this, Google makes you reconnect every 7 days. Google will then show an “unverified app” warning when you connect; it is your own app, so choose <i>Advanced → Go to Mobius</i>.</li>
+        <li>Under <b>Clients</b> create an OAuth client of type <b>Web application</b>. Add this as an <b>Authorised redirect URI</b>: <code id="gRedirect" style="word-break:break-all"></code> <button id="gCopyRedirect" class="plain small">Copy</button></li>
+        <li>Paste the <b>Client ID</b> and <b>Client secret</b> Google shows you:</li>
+      </ol>
+      <input type="text" id="gClientId" placeholder="Client ID (ends .apps.googleusercontent.com)" autocomplete="off">
+      <input type="password" id="gClientSecret" placeholder="Client secret" autocomplete="off" style="margin-top:6px">
+      <div class="row"><button id="gSave">Save</button><span class="sub" id="gHint"></span></div>
+    </div>
+  </div>
+  <div id="gBrowse" class="card" style="display:none"></div>
+
   <div class="card">
-    <div class="sub" style="margin-bottom:4px"><b>1.</b> In Google Drive, right-click the folder → Share → add this address as a <b>Viewer</b>:</div>
-    <div class="row" style="margin-top:0"><code id="saEmail" style="font-size:13px;word-break:break-all"></code><button id="copyEmail" class="plain small">Copy</button></div>
-    <div class="sub" style="margin:10px 0 4px"><b>2.</b> Copy the folder's link from the browser and paste it here:</div>
+    <div class="sub" style="margin-bottom:4px"><b>Paste a folder link</b> from Google Drive. With your account connected, Mobius opens it as you and nothing needs sharing.</div>
+    <details class="sub" style="margin:2px 0 8px"><summary style="cursor:pointer">Not connecting your account? Share the folder with Mobius instead</summary>
+      <div style="margin-top:6px">In Google Drive, right-click the folder → Share → add this address as a <b>Viewer</b> (or set the folder to “Anyone with the link”):</div>
+      <div class="row" style="margin-top:4px"><code id="saEmail" style="font-size:13px;word-break:break-all"></code><button id="copyEmail" class="plain small">Copy</button></div>
+    </details>
     <input type="text" id="srcUrl" placeholder="https://drive.google.com/drive/folders/…">
     <div class="row">
       <input type="text" id="srcLabel" placeholder="Name (optional)" style="flex:1;min-width:140px">
@@ -361,11 +388,12 @@ $('devAdd').onclick = async () => {
 $('devInput').addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') $('devAdd').click(); });
 
 // ── Linked folders ───────────────────────────────────────────────────────────
-const SRC_STATUS = { ok: ['Reading', 'ready'], pending: ['Waiting to be read', 'rest'], no_access: ['Cannot open: share it first', 'bad'], unsupported: ['Not readable yet', 'bad'], paused: ['Paused', 'rest'], error: ['Problem', 'bad'] };
+const SRC_STATUS = { ok: ['Reading', 'ready'], pending: ['Waiting to be read', 'rest'], no_access: ['Cannot open', 'bad'], unsupported: ['Not readable yet', 'bad'], paused: ['Paused', 'rest'], error: ['Problem', 'bad'] };
 const SRC_PROVIDER = { gdrive: 'Google Drive', onedrive: 'OneDrive / SharePoint', dropbox: 'Dropbox', box: 'Box', other: 'Other service' };
 async function loadSources() {
   const d = await api('GET', '/api/sources');
-  $('saEmail').textContent = d.serviceAccount || '(Google Drive is not set up on this deployment)';
+  renderGoogle(d.google);
+  $('saEmail').textContent = d.serviceAccount || '(not set up on this deployment)';
   $('copyEmail').disabled = !d.serviceAccount;
   const box = $('sources'); box.replaceChildren();
   if (!d.sources.length) box.append(el('div', 'empty', 'No folders linked yet.'));
@@ -423,6 +451,94 @@ $('srcSync').onclick = async () => {
   } catch (e) { say(e.message, 'err'); await loadSources().catch(() => {}); }
   $('srcSync').disabled = false;
 };
+
+// ── Connect my Google account ────────────────────────────────────────────────
+let gStatus = null, gShowSetup = false, gTrail = [];
+function renderGoogle(g) {
+  if (!g) return;
+  gStatus = g;
+  $('gRedirect').textContent = g.redirectUri;
+  $('gState').textContent = g.connected ? '· connected as ' + (g.email || 'your account') : g.configured ? '· not connected yet' : '· one-off set-up needed';
+  $('gState').className = 'sub ' + (g.connected ? 'ready' : 'rest');
+  $('gWhy').textContent = g.connected
+    ? 'Mobius opens the Drive links you paste as you, read-only, so nothing has to be shared. To end this, press Disconnect, or remove Mobius at myaccount.google.com/permissions.'
+    : 'Connect once and Mobius can open any Drive folder you paste, as you and read-only, with no sharing or invitations. You approve it on Google’s own page, and you can disconnect at any time.' + (g.problem ? ' ' + g.problem : '');
+  $('gConnect').style.display = g.connected ? 'none' : '';
+  $('gBrowseBtn').style.display = g.connected ? '' : 'none';
+  $('gDisconnect').style.display = g.connected ? '' : 'none';
+  $('gEdit').style.display = g.configured ? '' : 'none';
+  $('gSetup').style.display = (!g.configured || gShowSetup) ? 'block' : 'none';
+  $('gHint').textContent = g.configured ? 'Saving new details ends any current connection.' : '';
+  if (!g.connected) $('gBrowse').style.display = 'none';
+}
+$('gConnect').onclick = () => {
+  if (!gStatus?.configured) { gShowSetup = true; renderGoogle(gStatus); say('Do the one-off set-up below first, then press Connect again.', 'err'); return; }
+  location.href = '/api/google/connect';
+};
+$('gEdit').onclick = () => { gShowSetup = !gShowSetup; renderGoogle(gStatus); };
+$('gCopyRedirect').onclick = async () => { try { await navigator.clipboard.writeText($('gRedirect').textContent); say('Address copied.', 'ok'); } catch { say('Could not copy; select the address and copy it by hand.', 'err'); } };
+$('gSave').onclick = async () => {
+  $('gSave').disabled = true;
+  try {
+    await api('POST', '/api/google/credentials', { clientId: $('gClientId').value, clientSecret: $('gClientSecret').value });
+    $('gClientId').value = ''; $('gClientSecret').value = ''; gShowSetup = false;
+    await loadSources();
+    say('Saved. Now press “Connect Google account”.', 'ok');
+  } catch (e) { say(e.message, 'err'); }
+  $('gSave').disabled = false;
+};
+$('gDisconnect').onclick = async () => {
+  if (!confirm('Disconnect your Google account?\n\nFolders Mobius has already read stay in Mobius, but links that needed your account will stop updating.')) return;
+  try { await api('POST', '/api/google/disconnect'); await loadSources(); say('Disconnected.', 'ok'); } catch (e) { say(e.message, 'err'); }
+};
+$('gBrowseBtn').onclick = () => openBrowse('root', 'My Drive', true);
+
+// A simple folder picker over the connected account.
+async function openBrowse(id, name, reset) {
+  if (reset) gTrail = [];
+  const at = gTrail.findIndex(t => t.id === id);
+  if (at >= 0) gTrail = gTrail.slice(0, at + 1); else gTrail.push({ id, name });
+  const box = $('gBrowse'); box.style.display = 'block'; box.replaceChildren(el('div', 'empty', 'Loading…'));
+  try {
+    const d = await api('GET', '/api/google/folders?parent=' + encodeURIComponent(id));
+    box.replaceChildren();
+    const crumbs = el('div', 'sub');
+    gTrail.forEach((t, i) => {
+      const a = el('a', '', t.name); a.href = '#'; a.onclick = e => { e.preventDefault(); openBrowse(t.id, t.name); };
+      crumbs.append(a); if (i < gTrail.length - 1) crumbs.append(document.createTextNode(' › '));
+    });
+    if (id === 'root') {
+      crumbs.append(document.createTextNode('   ·   '));
+      const sh = el('a', '', 'Shared with me'); sh.href = '#'; sh.onclick = e => { e.preventDefault(); openBrowse('shared', 'Shared with me', true); };
+      crumbs.append(sh);
+    }
+    box.append(crumbs);
+    if (id !== 'root' && id !== 'shared') {
+      const here = el('div', 'row'); const b = el('button', 'small', 'Link this folder (' + name + ')'); b.onclick = () => linkFolder(id, name); here.append(b); box.append(here);
+    }
+    if (!d.folders.length) box.append(el('div', 'empty', 'No folders here.'));
+    d.folders.forEach(f => {
+      const row = el('div', 'item'); const a = el('a', 'text', f.name); a.href = '#'; a.style.color = 'var(--text)'; a.onclick = e => { e.preventDefault(); openBrowse(f.id, f.name); };
+      const b = el('button', 'small plain', 'Link'); b.onclick = () => linkFolder(f.id, f.name);
+      row.append(a, b); box.append(row);
+    });
+  } catch (e) { box.replaceChildren(el('div', 'empty', e.message)); await loadSources().catch(() => {}); }
+}
+async function linkFolder(id, name) {
+  say('Checking ' + name + '…');
+  try {
+    const r = await api('POST', '/api/sources', { url: 'https://drive.google.com/drive/folders/' + id, label: name, maxFiles: $('srcMax').value });
+    await loadSources();
+    say(r.source.status === 'ok' ? 'Linked “' + r.source.label + '”. ' + (r.source.detail || '') + ' Press “Read new files now” to start reading.' : r.source.detail, r.source.status === 'ok' ? 'ok' : 'err');
+  } catch (e) { say(e.message, 'err'); }
+}
+{ // the page Google sends you back to
+  const q = new URLSearchParams(location.search);
+  if (q.get('google')) {
+    say(q.get('google') === 'connected' ? 'Google account connected. Paste a folder link below, or press Browse my Drive.' : (q.get('msg') || 'Could not connect your Google account.'), q.get('google') === 'connected' ? 'ok' : 'err');
+    history.replaceState(null, '', '/settings.html');
+  }
+}
 
 Promise.all([loadProfile(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
 </script>

@@ -31,6 +31,7 @@ import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
 import { extractFromBuffer } from './docs/extract.js';
 import { driveConfigured, browse, importFile, uploadToDrive, syncDrive, backfillFull } from './docs/drive.js';
+import * as gAccount from './google.js';
 import { listSources, addSource, updateSource, checkSource, removeSource, syncSources, serviceAccountEmail } from './docs/sources.js';
 
 const app = express();
@@ -187,7 +188,7 @@ app.get('/api/drive/status', (req, res) => res.json({ running: syncRunning, keyE
 
 // ── Linked folders (Settings → Linked folders) ──────────────────────────────
 app.get('/api/sources', async (req, res) => {
-  try { res.json({ sources: await listSources(), serviceAccount: serviceAccountEmail(), driveReady: driveConfigured() }); }
+  try { res.json({ sources: await listSources(), serviceAccount: serviceAccountEmail(), driveReady: driveConfigured(), google: await gAccount.status(req) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/sources', async (req, res) => { // { url, label?, maxFiles? }
@@ -209,6 +210,33 @@ app.post('/api/sources/:id/check', async (req, res) => {
 });
 app.delete('/api/sources/:id', async (req, res) => { // ?docs=1 also removes the documents it brought in (to the backup)
   try { res.json({ ok: true, ...(await removeSource(Number(req.params.id), { withDocs: req.query.docs === '1' })) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ── Connect my Google account (Settings → Linked folders) ───────────────────
+app.get('/api/google/status', async (req, res) => {
+  try { res.json(await gAccount.status(req)); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/google/credentials', async (req, res) => { // { clientId, clientSecret }: the OAuth client made once in Google Cloud Console
+  try { await gAccount.saveCredentials(req.body?.clientId, req.body?.clientSecret); res.json({ ok: true, status: await gAccount.status(req) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get('/api/google/connect', async (req, res) => { // sends the browser to Google's own sign-in page
+  try { res.redirect(await gAccount.startAuth(req)); }
+  catch (e) { res.redirect('/settings.html?google=error&msg=' + encodeURIComponent(e.message)); }
+});
+app.get('/api/google/callback', async (req, res) => { // Google sends the browser back here
+  try {
+    if (req.query.error) throw new Error(req.query.error === 'access_denied' ? 'You did not approve the connection, so nothing was connected.' : 'Google said: ' + req.query.error);
+    await gAccount.finishAuth(req, String(req.query.code || ''), String(req.query.state || ''));
+    res.redirect('/settings.html?google=connected');
+  } catch (e) { res.redirect('/settings.html?google=error&msg=' + encodeURIComponent(e.message)); }
+});
+app.post('/api/google/disconnect', async (req, res) => {
+  try { await gAccount.disconnect(); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/google/folders', async (req, res) => { // for "Browse my Drive": ?parent=root | shared | <folder id>
+  try { res.json({ folders: await gAccount.listFolders(String(req.query.parent || 'root')) }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

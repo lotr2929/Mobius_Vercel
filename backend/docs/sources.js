@@ -1,5 +1,6 @@
 // docs/sources.js — cloud folders linked in Settings by pasting a share link.
-//   gdrive    read through the service account (the folder must be shared with its address) and indexed
+//   gdrive    read through Boon's connected Google account (no sharing needed) or, failing that, the service
+//             account (the folder must be shared with its address or set to "Anyone with the link"), and indexed
 //   others    (OneDrive, Dropbox, Box, anything else) are recorded with an explanation but not yet readable
 // A big Drive is handled by reading gradually, not by copying it: newest files first, at most max_files per
 // folder, files over 25 MB skipped, and indexing stops while the free database is nearly full.
@@ -8,6 +9,7 @@ import { DRIVE_CREDENTIALS } from '../config.js';
 import { client, extractText, SUPPORTED_MIME, driveConfigured } from './drive.js';
 import { saveDoc, deleteDoc } from './store.js';
 import { storageReport } from '../pcm/housekeeping.js';
+import { userDrive, noteFailure } from '../google.js';
 
 const T = 'mobius_sources';
 const FOLDER = 'application/vnd.google-apps.folder';
@@ -73,32 +75,54 @@ async function listTree(drive, rootId, resourceKey, { budgetMs = 30000, maxEntri
   return { files, skipped, truncated };
 }
 
-// Can Mobius open it? → { status, name?, isFolder?, seen?, detail }
-async function verifyDrive(id, resourceKey) {
-  if (!driveConfigured()) return { status: 'error', detail: 'Google Drive is not set up on this deployment (no service-account key).' };
-  const drive = client();
-  try {
-    const f = await drive.files.get({ fileId: id, fields: 'id, name, mimeType', supportsAllDrives: true }, keyHeaders(id, resourceKey));
-    const isFolder = f.data.mimeType === FOLDER;
-    if (!isFolder) {
-      return SUPPORTED_MIME.has(f.data.mimeType)
-        ? { status: 'ok', name: f.data.name, isFolder: false, seen: 1, detail: 'A single file.' }
-        : { status: 'unsupported', name: f.data.name, isFolder: false, detail: 'Mobius cannot read this type of file yet (it reads PDF, Word, text, Markdown, CSV, JSON, Google Docs and Google Sheets).' };
-    }
-    const tree = await listTree(drive, id, resourceKey, { budgetMs: 15000, maxEntries: 5000 });
-    const n = tree.files.length;
-    const skips = [tree.skipped.unsupported && `${tree.skipped.unsupported} of other types`, tree.skipped.tooBig && `${tree.skipped.tooBig} over 25 MB`].filter(Boolean);
-    return {
-      status: 'ok', name: f.data.name, isFolder: true, seen: n,
-      detail: `Opened. ${tree.truncated ? 'At least ' : ''}${n.toLocaleString()} readable file${n === 1 ? '' : 's'} found${skips.length ? ' (skipping ' + skips.join(' and ') + ')' : ''}.`,
-    };
-  } catch (e) {
-    const code = e.code || e.response?.status;
-    if (code === 400 || code === 403 || code === 404) {
-      return { status: 'no_access', detail: `Mobius cannot open this folder. In Google Drive, right-click it → Share → add ${serviceAccountEmail() || 'the Mobius service account'} as a Viewer, then press Check.` };
-    }
-    return { status: 'error', detail: 'Google Drive said: ' + String(e.message).slice(0, 160) };
+// The ways Mobius can open Drive, best first: Boon's own connected Google account (no sharing needed), then the
+// service account (works for folders shared with it, or set to "Anyone with the link").
+async function openers() {
+  const list = [];
+  const u = await userDrive();
+  if (u) list.push({ access: 'user', drive: u });
+  if (driveConfigured()) list.push({ access: 'service', drive: client() });
+  return list;
+}
+
+async function tryOpen(drive, id, resourceKey) {
+  const f = await drive.files.get({ fileId: id, fields: 'id, name, mimeType', supportsAllDrives: true }, keyHeaders(id, resourceKey));
+  const isFolder = f.data.mimeType === FOLDER;
+  if (!isFolder) {
+    return SUPPORTED_MIME.has(f.data.mimeType)
+      ? { status: 'ok', name: f.data.name, isFolder: false, seen: 1, detail: 'A single file.' }
+      : { status: 'unsupported', name: f.data.name, isFolder: false, detail: 'Mobius cannot read this type of file yet (it reads PDF, Word, text, Markdown, CSV, JSON, Google Docs and Google Sheets).' };
   }
+  const tree = await listTree(drive, id, resourceKey, { budgetMs: 15000, maxEntries: 5000 });
+  const n = tree.files.length;
+  const skips = [tree.skipped.unsupported && `${tree.skipped.unsupported} of other types`, tree.skipped.tooBig && `${tree.skipped.tooBig} over 25 MB`].filter(Boolean);
+  return {
+    status: 'ok', name: f.data.name, isFolder: true, seen: n,
+    detail: `Opened. ${tree.truncated ? 'At least ' : ''}${n.toLocaleString()} readable file${n === 1 ? '' : 's'} found${skips.length ? ' (skipping ' + skips.join(' and ') + ')' : ''}.`,
+  };
+}
+
+// Can Mobius open it? → { status, access, name?, isFolder?, seen?, detail }
+async function verifyDrive(id, resourceKey) {
+  const ways = await openers();
+  if (!ways.length) return { status: 'error', detail: 'Google Drive is not connected. Use “Connect your Google account” above.' };
+  let connected = false;
+  for (const w of ways) {
+    if (w.access === 'user') connected = true;
+    try { return { ...(await tryOpen(w.drive, id, resourceKey)), access: w.access }; }
+    catch (e) {
+      const code = e.code || e.response?.status;
+      if (w.access === 'user' && await noteFailure(e)) { connected = false; continue; }
+      if (code === 400 || code === 403 || code === 404) continue;
+      return { status: 'error', detail: 'Google Drive said: ' + String(e.message).slice(0, 160) };
+    }
+  }
+  return {
+    status: 'no_access',
+    detail: connected
+      ? 'Your Google account cannot open this link. Check that it is correct and that the folder still exists.'
+      : `Mobius cannot open this folder. Connect your Google account above, or share the folder with ${serviceAccountEmail() || 'the Mobius service account'} as a Viewer, then press Check.`,
+  };
 }
 
 // ── The list of linked folders ───────────────────────────────────────────────
@@ -121,7 +145,7 @@ export async function addSource({ url, label, maxFiles }) {
     row = {
       provider: 'gdrive', url: String(url).trim(), external_id: link.id, resource_key: link.resourceKey || null,
       label: (String(label || '').trim() || v.name || 'Google Drive folder').slice(0, 60).replace(/[\\/]+/g, '-'),
-      is_folder: v.isFolder !== false, max_files: max, status: v.status, detail: v.detail,
+      is_folder: v.isFolder !== false, max_files: max, status: v.status, detail: v.detail, access: v.access || 'service',
       files_seen: v.seen ?? null, last_checked: new Date().toISOString(),
     };
   } else {
@@ -149,7 +173,7 @@ export async function checkSource(id) {
   if (!src) throw new Error('That linked folder no longer exists.');
   if (src.provider !== 'gdrive') return src;
   const v = await verifyDrive(src.external_id, src.resource_key);
-  const patch = { status: v.status, detail: v.detail, files_seen: v.seen ?? src.files_seen, last_checked: new Date().toISOString() };
+  const patch = { status: v.status, detail: v.detail, files_seen: v.seen ?? src.files_seen, last_checked: new Date().toISOString(), ...(v.access ? { access: v.access } : {}) };
   const { data } = await supabase.from(T).update(patch).eq('id', id).select('*').single();
   return data;
 }
@@ -209,16 +233,19 @@ async function syncOne(drive, src, left) {
 // Reads every linked Google Drive folder, newest files first, within a time budget. Called by the daily
 // job and by the Settings button; whatever is left is picked up on the next run.
 export async function syncSources({ budgetMs = Infinity, drive: injected = null } = {}) {
-  if (!supabase || !driveConfigured()) return { skipped: 'Drive or database not configured' };
+  if (!supabase) return { skipped: 'No database connection' };
   const t0 = Date.now();
   const left = () => budgetMs - (Date.now() - t0);
   const { data: sources } = await supabase.from(T).select('*').eq('provider', 'gdrive').in('status', ['ok', 'pending', 'paused', 'error']).order('id');
-  const drive = injected || client();
+  const ways = injected ? null : await openers();
+  if (!injected && !ways.length) return { skipped: 'Google Drive is not connected' };
   const out = [];
   for (const src of sources || []) {
+    const drive = injected || (ways.find(w => w.access === src.access) || ways[0]).drive;
     if (left() < 8000) { out.push({ id: src.id, label: src.label, skipped: 'out of time; next run' }); continue; }
     try { out.push(await syncOne(drive, src, left)); }
     catch (e) {
+      if (src.access === 'user') await noteFailure(e);
       await supabase.from(T).update({ status: 'error', detail: 'Reading stopped: ' + String(e.message).slice(0, 160) }).eq('id', src.id);
       out.push({ id: src.id, label: src.label, error: e.message });
     }

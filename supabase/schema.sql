@@ -164,6 +164,24 @@ create table if not exists mobius_sources (
 );
 create index if not exists mobius_sources_status on mobius_sources (status, id);
 alter table mobius_sources enable row level security;
+alter table mobius_sources add column if not exists access text not null default 'service';  -- 'user' = Boon's Google account, 'service' = the service account
+
+-- The connected Google account (one row). Lets Mobius read Boon's Drive as himself, read-only, so folders
+-- need no sharing. The client secret and refresh token are sealed (AES-256-GCM keyed from SESSION_SECRET).
+create table if not exists mobius_google (
+  id             integer primary key default 1 check (id = 1),
+  client_id      text,
+  client_secret  text,
+  refresh_token  text,
+  email          text,
+  scope          text,
+  oauth_state    text,
+  oauth_state_at timestamptz,
+  connected_at   timestamptz,
+  last_error     text,
+  updated_at     timestamptz not null default now()
+);
+alter table mobius_google enable row level security;
 
 -- Sizes for the Settings page (the free plan allows 500 MB for the whole project).
 create or replace function pcm_storage ()

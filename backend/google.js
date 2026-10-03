@@ -1,0 +1,151 @@
+// google.js — "Connect my Google account": Mobius reads Boon's Google Drive as himself, read-only.
+// This replaces the invite step: no folder has to be shared with anyone, and links can simply be pasted.
+// The sign-in is Google's own page; Mobius only ever receives a long-lived token for drive.readonly.
+// The OAuth client (made once in Google Cloud Console) and the token are stored in mobius_google, sealed with
+// AES-256-GCM keyed from SESSION_SECRET. Nothing here is ever sent to the browser or to an AI model.
+import crypto from 'crypto';
+import { google } from 'googleapis';
+import { supabase } from './db.js';
+import { SESSION_SECRET } from './config.js';
+
+const T = 'mobius_google';
+export const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/drive.readonly'];
+const STATE_MS = 10 * 60 * 1000;
+
+// ── Sealing secrets at rest ──────────────────────────────────────────────────
+const sealKey = () => crypto.createHash('sha256').update('mobius-google|' + SESSION_SECRET).digest();
+export function seal(text) {
+  if (!text) return null;
+  if (!SESSION_SECRET) return 'plain:' + text; // a local copy without SESSION_SECRET cannot seal
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', sealKey(), iv);
+  const enc = Buffer.concat([c.update(text, 'utf8'), c.final()]);
+  return 'v1:' + Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64');
+}
+export function unseal(value) {
+  try {
+    if (!value) return null;
+    if (value.startsWith('plain:')) return value.slice(6);
+    if (!value.startsWith('v1:') || !SESSION_SECRET) return null;
+    const buf = Buffer.from(value.slice(3), 'base64');
+    const d = crypto.createDecipheriv('aes-256-gcm', sealKey(), buf.subarray(0, 12));
+    d.setAuthTag(buf.subarray(12, 28));
+    return Buffer.concat([d.update(buf.subarray(28)), d.final()]).toString('utf8');
+  } catch { return null; }
+}
+
+// ── Stored state ─────────────────────────────────────────────────────────────
+async function row() {
+  if (!supabase) return null;
+  const { data } = await supabase.from(T).select('*').eq('id', 1).maybeSingle();
+  return data;
+}
+async function patch(p) {
+  const { error } = await supabase.from(T).upsert({ id: 1, ...p, updated_at: new Date().toISOString() });
+  if (error) throw new Error('google: ' + error.message);
+}
+async function creds() {
+  const r = await row();
+  const id = process.env.GOOGLE_OAUTH_CLIENT_ID || r?.client_id;
+  const secret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || unseal(r?.client_secret);
+  return id && secret ? { id, secret, r } : null;
+}
+
+// Where the site lives, as the browser sees it. Google must be told this exact address in advance.
+export function redirectUri(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol).split(',')[0];
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0];
+  return `${proto}://${host}/api/google/callback`;
+}
+
+export async function status(req) {
+  const r = await row();
+  const c = await creds();
+  return {
+    redirectUri: redirectUri(req), configured: !!c, clientIdHint: c ? c.id.slice(0, 14) + '…' : null,
+    connected: !!(r?.refresh_token && unseal(r.refresh_token)), email: r?.email || null, connectedAt: r?.connected_at || null, problem: r?.last_error || null,
+  };
+}
+
+export async function saveCredentials(clientId, clientSecret) {
+  const id = String(clientId || '').trim(), secret = String(clientSecret || '').trim();
+  if (!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error('The Client ID should end with .apps.googleusercontent.com. Copy it exactly from Google.');
+  if (secret.length < 10) throw new Error('That Client secret looks too short. Copy it exactly from Google.');
+  // A token belongs to the client that issued it, so changing the client ends any earlier connection.
+  await patch({ client_id: id, client_secret: seal(secret), refresh_token: null, email: null, connected_at: null, last_error: null, oauth_state: null });
+}
+
+// ── Signing in ───────────────────────────────────────────────────────────────
+export async function startAuth(req) {
+  const c = await creds();
+  if (!c) throw new Error('Save the Client ID and Client secret first.');
+  const state = crypto.randomBytes(24).toString('hex');
+  await patch({ oauth_state: state, oauth_state_at: new Date().toISOString() });
+  const o = new google.auth.OAuth2(c.id, c.secret, redirectUri(req));
+  return o.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES, state });
+}
+
+export async function finishAuth(req, code, state) {
+  const c = await creds();
+  if (!c) throw new Error('The Google client is not set up.');
+  const r = c.r;
+  if (!r?.oauth_state || r.oauth_state !== state || Date.now() - Date.parse(r.oauth_state_at) > STATE_MS) {
+    throw new Error('That sign-in attempt was not recognised or has expired. Press Connect and try again.');
+  }
+  await patch({ oauth_state: null });
+  const o = new google.auth.OAuth2(c.id, c.secret, redirectUri(req));
+  const { tokens } = await o.getToken(code);
+  if (!tokens.refresh_token) throw new Error('Google did not return a lasting permission. Remove Mobius at myaccount.google.com/permissions, then press Connect again.');
+  let email = null;
+  try { email = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString('utf8')).email || null; } catch { /* the address is only for display */ }
+  await patch({ refresh_token: seal(tokens.refresh_token), email, scope: tokens.scope || SCOPES.join(' '), connected_at: new Date().toISOString(), last_error: null });
+  return { email };
+}
+
+export async function disconnect() {
+  const c = await creds();
+  const token = unseal(c?.r?.refresh_token);
+  if (c && token) { try { await new google.auth.OAuth2(c.id, c.secret).revokeToken(token); } catch { /* already revoked: fine */ } }
+  await patch({ refresh_token: null, email: null, connected_at: null, last_error: null, oauth_state: null });
+}
+
+// ── Using it ─────────────────────────────────────────────────────────────────
+// A Drive client acting as Boon, or null when no account is connected.
+export async function userDrive() {
+  const c = await creds();
+  const token = unseal(c?.r?.refresh_token);
+  if (!c || !token) return null;
+  const o = new google.auth.OAuth2(c.id, c.secret);
+  o.setCredentials({ refresh_token: token });
+  return google.drive({ version: 'v3', auth: o });
+}
+
+// Google ended the permission (revoked, expired, or the app was left in Testing): say so, stop using it.
+export async function noteFailure(err) {
+  const msg = String(err?.message || err);
+  if (/invalid_grant|invalid_client|unauthorized_client/i.test(msg)) {
+    await patch({ refresh_token: null, email: null, connected_at: null, last_error: 'Google ended the connection (the permission was removed or expired). Press Connect to sign in again.' });
+    return true;
+  }
+  return false;
+}
+
+// Folders for the "Browse my Drive" list. `parent` is 'root', 'shared' (shared with me) or a folder id.
+export async function listFolders(parent = 'root') {
+  const drive = await userDrive();
+  if (!drive) throw new Error('Connect your Google account first.');
+  if (!/^(root|shared|[A-Za-z0-9_-]{10,})$/.test(parent)) throw new Error('Not a folder.');
+  const q = parent === 'shared'
+    ? "sharedWithMe = true and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    : `'${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  try {
+    const out = [];
+    let pageToken;
+    do {
+      const r = await drive.files.list({ q, pageSize: 200, pageToken, orderBy: 'name', fields: 'nextPageToken, files(id, name)', supportsAllDrives: true, includeItemsFromAllDrives: true });
+      out.push(...(r.data.files || []));
+      pageToken = r.data.nextPageToken;
+    } while (pageToken && out.length < 1000);
+    return out;
+  } catch (e) { await noteFailure(e); throw e; }
+}
