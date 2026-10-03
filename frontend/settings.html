@@ -101,6 +101,12 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
       <div class="row" style="margin-top:2px"><code id="gFixUri" style="font-size:13px;word-break:break-all"></code><button id="gFixCopy" class="plain small">Copy</button></div>
       <div class="row"><a id="gFixLink" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;background:var(--green);color:#fff;border-radius:3px;font-size:13px;text-decoration:none">Open the key’s page ↗</a><button id="gFixClose" class="plain small">Close</button></div>
     </div>
+    <details id="gBlocked" class="sub" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+      <summary style="cursor:pointer">Google says “Access blocked” or “has not completed the verification process”?</summary>
+      <div style="margin-top:6px;line-height:1.6">Your Google key is still in <b>Testing</b> mode, which admits only listed testers. Open the Audience page below and press <b>Publish app</b> (then confirm), so it says “In production”. This is the better choice: with test users only, Google makes you reconnect every 7 days. Then press Connect again; when Google warns that the app is unverified, choose <b>Advanced → Go to … (unsafe) → Continue</b>. It is your own app.</div>
+      <div class="row"><a id="gAudienceLink" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;background:var(--green);color:#fff;border-radius:3px;font-size:13px;text-decoration:none">Open the Audience page ↗</a></div>
+      <div style="margin-top:6px">Quicker, but weekly: on the same page, under <b>Test users</b>, press <b>Add users</b>, add the Google address you are connecting, and Save.</div>
+    </details>
   </div>
   <div id="gBrowse" class="card" style="display:none"></div>
 
@@ -480,6 +486,8 @@ function renderGoogle(g) {
   $('gEdit').textContent = 'Use a different key';
   $('gFix').style.display = gFixOpen && !g.connected ? 'block' : 'none';
   $('gFixUri').textContent = g.redirectUri;
+  $('gBlocked').style.display = g.connected ? 'none' : '';
+  $('gAudienceLink').href = 'https://console.cloud.google.com/auth/audience' + (g.clientProject ? '?project=' + encodeURIComponent(g.clientProject) : '');
   $('gFixLink').href = 'https://console.cloud.google.com/auth/clients' + (g.clientProject ? '?project=' + encodeURIComponent(g.clientProject) : '');
   $('gSetup').style.display = gOpen && !g.connected ? 'block' : 'none';
   if (gOpen && !g.connected) renderStep();
