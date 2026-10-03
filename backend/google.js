@@ -46,8 +46,9 @@ async function patch(p) {
 }
 async function creds() {
   const r = await row();
-  const id = process.env.GOOGLE_OAUTH_CLIENT_ID || r?.client_id;
-  const secret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || unseal(r?.client_secret);
+  // The earlier version of Mobius registered a Google key and kept it in these variables, so it is reused as it is.
+  const id = process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || r?.client_id;
+  const secret = process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || unseal(r?.client_secret);
   return id && secret ? { id, secret, r } : null;
 }
 
@@ -63,7 +64,8 @@ export async function status(req) {
   const c = await creds();
   return {
     redirectUri: redirectUri(req), project: DRIVE_CREDENTIALS?.project_id || null, // the Google project Mobius already has, so the set-up links go straight to it
-    configured: !!c, clientIdHint: c ? c.id.slice(0, 14) + '…' : null,
+    configured: !!c, clientIdHint: c ? c.id.slice(0, 14) + '…' : null, clientProject: c ? c.id.split('-')[0] : null,
+    keyFrom: c ? (process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.GOOGLE_CLIENT_ID ? 'earlier version' : 'set-up') : null,
     connected: !!(r?.refresh_token && unseal(r.refresh_token)), email: r?.email || null, connectedAt: r?.connected_at || null, problem: r?.last_error || null,
   };
 }
@@ -97,13 +99,35 @@ export async function saveCredentials(clientId, clientSecret) {
 }
 
 // ── Signing in ───────────────────────────────────────────────────────────────
+// Google answers a request it will refuse with a redirect to its error page. Asking first means Mobius can say what is
+// wrong in its own words, instead of leaving the browser on Google's error screen.
+export async function preflight(url) {
+  try {
+    const r = await fetch(url, { redirect: 'manual' });
+    const loc = r.headers.get('location') || '';
+    if (!/signin\/oauth\/error/.test(loc)) return { ok: true };
+    let what = '';
+    try { what = Buffer.from(decodeURIComponent((loc.match(/authError=([^&]+)/) || [])[1] || ''), 'base64').toString('utf8'); } catch { /* unreadable: treated as a general error */ }
+    return { ok: false, kind: /redirect_uri_mismatch/.test(what) ? 'redirect' : /invalid_client|deleted_client/.test(what) ? 'client' : 'other' };
+  } catch { return { ok: true }; } // cannot tell from here: let Google decide
+}
+
+export class SetupError extends Error { constructor(message, fix) { super(message); this.fix = fix; } }
+
 export async function startAuth(req) {
   const c = await creds();
   if (!c) throw new Error('Save the Client ID and Client secret first.');
   const state = crypto.randomBytes(24).toString('hex');
   await patch({ oauth_state: state, oauth_state_at: new Date().toISOString() });
   const o = new google.auth.OAuth2(c.id, c.secret, redirectUri(req));
-  return o.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES, state });
+  const url = o.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES, state });
+  const p = await preflight(url);
+  if (!p.ok) {
+    if (p.kind === 'redirect') throw new SetupError('Google does not yet know this return address: ' + redirectUri(req), 'redirect');
+    if (p.kind === 'client') throw new SetupError('Google no longer recognises the saved key (it may have been deleted). Use “Use a different key” and download a new one.', 'client');
+    throw new SetupError('Google refused the sign-in request. Check the key and its consent screen in Google Cloud.', 'other');
+  }
+  return url;
 }
 
 export async function finishAuth(req, code, state) {

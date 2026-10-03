@@ -94,6 +94,12 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
       <div id="gStepExtra"></div>
       <div class="row" id="gStepButtons"></div>
     </div>
+    <div id="gFix" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <div class="sub"><b>One quick fix in Google (about a minute)</b></div>
+      <div class="sub" style="margin:6px 0;line-height:1.6">Mobius is using the Google key you made for the earlier version. Google just does not know this version’s return address yet. Open the key’s page, click the Mobius key, press <b>Add URI</b> under “Authorised redirect URIs”, paste the address below, and press <b>Save</b>. Then come back and press Connect again.</div>
+      <div class="row" style="margin-top:2px"><code id="gFixUri" style="font-size:13px;word-break:break-all"></code><button id="gFixCopy" class="plain small">Copy</button></div>
+      <div class="row"><a id="gFixLink" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;background:var(--green);color:#fff;border-radius:3px;font-size:13px;text-decoration:none">Open the key’s page ↗</a><button id="gFixClose" class="plain small">Close</button></div>
+    </div>
   </div>
   <div id="gBrowse" class="card" style="display:none"></div>
 
@@ -448,7 +454,7 @@ $('srcSync').onclick = async () => {
 // ── Connect my Google account ────────────────────────────────────────────────
 // Normally one press. The first time only, Google needs this app registered (the part an app's developer usually does
 // once); the steps below take you through it one screen at a time and finish by signing you in.
-let gStatus = null, gStep = 0, gOpen = false, gTrail = [];
+let gStatus = null, gStep = 0, gOpen = false, gFixOpen = false, gTrail = [];
 const gLink = page => 'https://console.cloud.google.com/auth/' + page + '?project=' + encodeURIComponent(gStatus?.project || '');
 const GSTEPS = [
   () => ({ title: 'Step 1 of 4 · Name the app', body: 'Open the Google page below. If it shows a “Get started” button, press it and fill in: App name “Mobius”, your own email address (for support and contact), Audience “External”, then agree and press Create. If you already see Branding, Audience and Clients in a menu on the left, this step is already done.', link: gLink('overview'), copies: [['App name', 'Mobius']] }),
@@ -464,18 +470,23 @@ function renderGoogle(g) {
   $('gWhy').textContent = g.connected
     ? 'Mobius opens the Drive links you paste as you, read-only, so nothing has to be shared. To end this, press Disconnect, or remove Mobius at myaccount.google.com/permissions.'
     : (g.problem ? g.problem + ' ' : '') + (g.configured
-      ? 'Press the button and approve on Google’s page. Mobius can then open any Drive folder you paste, read-only.'
+      ? (g.keyFrom === 'earlier version' ? 'Mobius will use the Google key you made for the earlier version, so there is nothing to set up. ' : '') + 'Press the button and approve on Google’s page. Mobius can then open any Drive folder you paste, read-only.'
       : 'Press the button. The first time only, it takes you through a few short steps with Google; after that, connecting is one press.');
   $('gConnect').style.display = g.connected ? 'none' : '';
   $('gBrowseBtn').style.display = g.connected ? '' : 'none';
   $('gDisconnect').style.display = g.connected ? '' : 'none';
   $('gEdit').style.display = g.configured ? '' : 'none';
   $('gEdit').textContent = 'Use a different key';
+  $('gFix').style.display = gFixOpen && !g.connected ? 'block' : 'none';
+  $('gFixUri').textContent = g.redirectUri;
+  $('gFixLink').href = 'https://console.cloud.google.com/auth/clients' + (g.clientProject ? '?project=' + encodeURIComponent(g.clientProject) : '');
   $('gSetup').style.display = gOpen && !g.connected ? 'block' : 'none';
   if (gOpen && !g.connected) renderStep();
   if (!g.connected) $('gBrowse').style.display = 'none';
 }
-function openSetup(step) { gStep = step; gOpen = true; renderGoogle(gStatus); $('gSetup').scrollIntoView({ block: 'nearest' }); }
+function openSetup(step) { gStep = step; gOpen = true; gFixOpen = false; renderGoogle(gStatus); $('gSetup').scrollIntoView({ block: 'nearest' }); }
+$('gFixClose').onclick = () => { gFixOpen = false; renderGoogle(gStatus); };
+$('gFixCopy').onclick = async () => { try { await navigator.clipboard.writeText($('gFixUri').textContent); say('Copied.', 'ok'); } catch { say('Could not copy; select it and copy by hand.', 'err'); } };
 function closeSetup() { gOpen = false; renderGoogle(gStatus); }
 function copyBtn(value) {
   const b = el('button', 'small plain', 'Copy');
@@ -574,6 +585,8 @@ async function linkFolder(id, name) {
 { // the page Google sends you back to
   const q = new URLSearchParams(location.search);
   if (q.get('google')) {
+    if (q.get('fix') === 'redirect') gFixOpen = true;
+    if (q.get('fix') === 'client') gOpen = true, gStep = 2;
     say(q.get('google') === 'connected' ? 'Google account connected. Paste a folder link below, or press Browse my Drive.' : (q.get('msg') || 'Could not connect your Google account.'), q.get('google') === 'connected' ? 'ok' : 'err');
     history.replaceState(null, '', '/settings.html');
   }

@@ -227,7 +227,7 @@ app.post('/api/google/credentials', async (req, res) => { // { clientId, clientS
 });
 app.get('/api/google/connect', async (req, res) => { // sends the browser to Google's own sign-in page
   try { res.redirect(await gAccount.startAuth(req)); }
-  catch (e) { res.redirect('/settings.html?google=error&msg=' + encodeURIComponent(e.message)); }
+  catch (e) { res.redirect('/settings.html?google=error&msg=' + encodeURIComponent(e.message) + (e.fix ? '&fix=' + e.fix : '')); }
 });
 app.get('/api/google/callback', async (req, res) => { // Google sends the browser back here
   try {
