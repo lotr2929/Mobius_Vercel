@@ -44,7 +44,7 @@ const IMAGE_MARK = /\[\d+ images? attached\]/;
 // ── Scripture: "show me Matthew 21:33-46", "those readings in full", "this Sunday's readings in full" ──
 const SHOW = /\b(?:show|read|display|print|give me|quote|pull up|bring up|look up|open|fetch|put up|let me (?:see|read)|can i (?:see|read)|text of|full text|in full|word for word)\b/i;
 const EXPLAIN = /\b(?:explain|compare|discuss|commentary|meaning|mean|interpret|reflect|reflection|sermon|summari[sz]e|why|how|what does|analy[sz]e|exegesis|context|background|difference|contrast)\b/i;
-const READINGS = /\b(?:lectionary|rcl)\b[^.?]{0,30}\b(?:readings?|gospel|passages?|lessons?)\b|\b(?:this|next|coming|today'?s|sunday'?s)\s+(?:sunday'?s?\s+)?(?:readings?|gospel|passages?|lessons?)\b|\breadings?\s+for\s+(?:this|next|the|sunday)\b/i;
+const READINGS = /\b(?:lectionary|rcl)\b[^.?]{0,30}\b(?:readings?|gospel|passages?|lessons?)\b|\b(?:this|next|coming|today'?s|sunday'?s)\s+(?:sunday'?s?\s+)?(?:readings?|gospel|passages?|lessons?)\b|\breadings?\s+for\s+(?:this|next|the|sunday)\b|\b(?:this|next)\s+week'?s?\s+(?:readings?|gospel|passages?|lessons?)\b|\b(?:gospel|epistle|psalm|first|second|old testament)\s+(?:reading|lesson)\b[^.?]{0,25}\b(?:this|next)\s+(?:sunday|week)\b/i;
 const transl = q => (/\bboth\b|\bcompare\b|side by side|WEB and KJV|KJV and WEB/i.test(q) ? 'both' : /\bKJV\b|king james/i.test(q) ? 'KJV' : /\bWEB\b|world english/i.test(q) ? 'WEB' : '');
 const lastAssistant = recent => [...recent].reverse().find(m => m.role === 'assistant')?.content || '';
 const WANTS_THEM = /\b(?:them|those|these|the readings|the passages|the verses|that passage|the lessons)\b|in full|full text/i;
@@ -54,9 +54,9 @@ export function bibleRules(query, recent = []) {
   const show = SHOW.test(q);
   let refs = refStrings(q, { chapterOnlyOk: show });
   if (!refs.length && show && WANTS_THEM.test(q)) refs = refStrings(lastAssistant(recent), {});
-  const readings = !refs.length && show && READINGS.test(q);
+  const readings = !refs.length && READINGS.test(q); // asked what they are: the references are listed; asked to show them: the text follows
   if (!refs.length && !readings) return null;
-  return { refs: [...new Set(refs)].slice(0, 8), translation: transl(q), show: show || readings, explain: EXPLAIN.test(q), readings };
+  return { refs: [...new Set(refs)].slice(0, 8), translation: transl(q), show, explain: EXPLAIN.test(q), readings };
 }
 
 // The model's version is kept only for references that really appear in the message or in the last answer.
@@ -66,10 +66,10 @@ function cleanBible(b, query, recent, fallback) {
   const allowed = new Set([...extractRefs(query, { chapterOnlyOk: true }), ...(WANTS_THEM.test(query) ? extractRefs(lastAssistant(recent), {}) : [])].map(r => r.label));
   const refs = (Array.isArray(b.refs) ? b.refs : []).flatMap(x => extractRefs(String(x), { chapterOnlyOk: true })).filter(r => allowed.has(r.label)).map(r => r.text).slice(0, 8);
   const merged = refs.length ? refs : (f?.refs || []);
-  const readings = !merged.length && ((b.readings === true && READINGS.test(query) && SHOW.test(query)) || !!f?.readings);
+  const readings = !merged.length && ((b.readings === true && READINGS.test(query)) || !!f?.readings);
   if (!merged.length && !readings) return null;
   const tr = String(b.translation || '');
-  return { refs: merged, translation: /both/i.test(tr) ? 'both' : /kjv|king/i.test(tr) ? 'KJV' : /web|world/i.test(tr) ? 'WEB' : (f?.translation || transl(query)), show: b.show === true || !!f?.show || readings, explain: b.explain === true || !!f?.explain, readings };
+  return { refs: merged, translation: /both/i.test(tr) ? 'both' : /kjv|king/i.test(tr) ? 'KJV' : /web|world/i.test(tr) ? 'WEB' : (f?.translation || transl(query)), show: SHOW.test(query) && (b.show === true || !!f?.show), explain: b.explain === true || !!f?.explain, readings };
 }
 
 function fallbackPlan(query, projects, hasFile, recentHasImage = false, recent = []) {

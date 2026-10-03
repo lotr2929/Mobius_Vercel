@@ -36,6 +36,10 @@ import { clip, safe } from './util.js';
 const ATTACHED_TITLE = "Attached document(s) — full text — CONFIRM RECEIPT: start your reply by explicitly listing these exact filenames as received before addressing the user's message";
 const NO_DOCS_NOTE = 'No documents were attached to this message, and no matching document was found by search either. Tell the user plainly that nothing was received with THIS message and ask them to re-attach.';
 const NOTHING = { messages: [], docs: [] };
+// "What are the readings this week?": the references as found and checked by readings.js, shown as they are
+const formatReadings = r => (r.refs.length
+  ? `**Readings for ${r.header}**\n\n${r.refs.map(x => `- ${x}`).join('\n')}\n\n*${r.note}* Click a reference to read it, or say “show them in full”.`
+  : `**Readings for ${r.header}**\n\n${r.note}`);
 
 // Does the message read as if Boon expects a file to arrive with it ("summarise the attached paper")?
 // Used only to warn the model when nothing came. It must NOT fire on the bare words "document" or
@@ -118,10 +122,15 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     let bibleResult = null;
     if (!memoryAction && plan.bible) {
       bibleResult = await safe(async () => {
-        let refs = plan.bible.refs, source = '';
-        if (!refs.length && plan.bible.readings) { const r = await findReadings(plan.standalone); refs = r.refs; source = r.note; }
+        let refs = plan.bible.refs, source = '', list = null;
+        if (!refs.length && plan.bible.readings) {
+          list = await findReadings(plan.standalone);
+          refs = list.refs;
+          source = `Readings for ${list.header}. ${list.note}`;
+          if (!plan.bible.show) return { text: '', found: 0, notes: [], refs, source, list };
+        }
         const out = await runBible({ refs, translation: plan.bible.translation });
-        return { ...out, refs, source };
+        return { ...out, refs, source, list };
       }, null);
     }
     const bibleShown = bibleResult?.text && plan.bible?.show ? bibleResult : null; // asked to see it: shown verbatim, before anything a model says
@@ -129,8 +138,10 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     if (bibleResult) trace.set({ bible: { refs: bibleResult.refs, found: bibleResult.found, notes: bibleResult.notes, source: bibleResult.source, shown: !!bibleShown, only: bibleOnly } });
     // A listing of files or chats is shown exactly as produced. Given to a model to "present", it once invented files that were not there.
     const driveDirect = !!driveResult && !driveResult.fileText && !driveResult.images?.length;
-    const directAnswer = driveDirect ? driveResult.text : (chatList ? `Your recent chats, newest first:\n\n${chatList}` : '');
-    const direct = !!(driveResult || chatList || bibleShown); // answered by the result itself: nothing else is searched, so nothing competes with it
+    const readingsAnswer = bibleResult?.list && !plan.bible.show ? formatReadings(bibleResult.list) : '';
+    const directAnswer = readingsAnswer || (driveDirect ? driveResult.text : (chatList ? `Your recent chats, newest first:\n\n${chatList}` : ''));
+    const directLabel = readingsAnswer ? 'Lectionary lookup' : driveDirect ? 'Drive lookup' : 'Chat list';
+    const direct = !!(driveResult || chatList || bibleShown || readingsAnswer); // answered by the result itself: nothing else is searched, so nothing competes with it
     trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
 
     // 3. recall, with the web search running alongside
@@ -235,8 +246,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       yield { token: full };
     }
     if (directAnswer && !bibleShown) {
-      yield { event: 'model:' + (driveDirect ? 'Drive lookup' : 'Chat list') };
-      usedModel = driveDirect ? 'drive lookup' : 'chat list';
+      yield { event: 'model:' + directLabel };
+      usedModel = directLabel.toLowerCase();
       full = directAnswer;
       yield { token: full };
     }

@@ -30,7 +30,7 @@
   const REF_SOURCE = (
     '(?<![A-Za-z0-9])(?<num>[1-3]|III|II|I|First|Second|Third)?\\.?\\s*(?<name>[A-Za-z]+(?:\\s+of\\s+(?:Songs|Solomon|John|the\\s+Apostles))?)\\.?\\s*(?<ch>\\d{1,3})' +
     '(?:\\s*:\\s*(?<v1>\\d{1,3})(?<s1>[a-c])?(?:\\s*' + DASH + '\\s*(?:(?<c2>\\d{1,3})\\s*:\\s*)?(?<v2>\\d{1,3})(?<s2>[a-c])?)?' +
-    '(?<more>(?:\\s*,\\s*\\d{1,3}[a-c]?(?:\\s*' + DASH + '\\s*\\d{1,3}[a-c]?)?(?!\\d)(?!\\s*:)(?!\\s*[A-Za-z]{2,}))*))?');
+    '(?<more>(?:\\s*[,;]\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?(?:\\s*' + DASH + '\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?)?(?!\\d)(?!\\s*:)(?!\\s*[A-Za-z]{2,}))*))?');
   const numKey = n => ({ i: '1', ii: '2', iii: '3', first: '1', second: '2', third: '3' }[String(n).toLowerCase()] || n);
 
   // → [{ book, ranges: [{ c1, v1, c2, v2 }], partial, chapterOnly, label, text, start, end }]
@@ -56,12 +56,15 @@
       else {
         const c2 = g.c2 ? +g.c2 : ch;
         ranges.push({ c1: ch, v1: +g.v1, c2, v2: g.v2 ? +g.v2 : (g.c2 ? Infinity : +g.v1) });
-        const parts = String(g.more || '').split(',').map(s => s.trim()).filter(Boolean);
+        const parts = String(g.more || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        let cur = c2; // the chapter in force; "; 2:1-4" moves to chapter 2
         for (const part of parts) {
-          const mm = part.match(/^(\d{1,3})([a-c])?(?:\s*[-\u2013\u2014]\s*(\d{1,3})([a-c])?)?$/);
+          const mm = part.match(/^(?:(\d{1,3})\s*:\s*)?(\d{1,3})([a-c])?(?:\s*[-\u2013\u2014]\s*(?:(\d{1,3})\s*:\s*)?(\d{1,3})([a-c])?)?$/);
           if (!mm) continue;
-          if (mm[2] || mm[4]) partial = true;
-          ranges.push({ c1: c2, v1: +mm[1], c2, v2: mm[3] ? +mm[3] : +mm[1] });
+          if (mm[3] || mm[6]) partial = true;
+          const cs = mm[1] ? +mm[1] : cur, ce = mm[4] ? +mm[4] : cs;
+          ranges.push({ c1: cs, v1: +mm[2], c2: ce, v2: mm[5] ? +mm[5] : +mm[2] });
+          cur = ce;
         }
       }
       const spec = ranges.map(r => (r.v2 === Infinity && r.v1 === 1 ? '' + r.c1 : r.c1 === r.c2
