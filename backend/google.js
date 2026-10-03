@@ -93,6 +93,12 @@ export async function saveClientJson(req, text) {
   await saveCredentials(c.client_id, c.client_secret);
 }
 
+// Who is connected, without needing a request (for the chat, which answers "which drives are linked?").
+export async function account() {
+  const r = await row();
+  return { connected: !!r?.refresh_token, email: r?.email || null, connectedAt: r?.connected_at || null, problem: r?.last_error || null };
+}
+
 export async function saveCredentials(clientId, clientSecret) {
   const id = String(clientId || '').trim(), secret = String(clientSecret || '').trim();
   if (!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error('The Client ID should end with .apps.googleusercontent.com. Copy it exactly from Google.');

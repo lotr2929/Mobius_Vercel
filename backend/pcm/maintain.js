@@ -2,6 +2,7 @@
 // (each remembers a cursor in mobius_state), so an interrupted run loses nothing.
 //   models    the model stack: is every registered model still offered? any new ones?
 //   week      tier 1  rolling digest of the past seven days
+//   chats     the message log cut into chats, each with a title and summary (so Boon can refer to "that chat")
 //   projects  tier 3  one note per current project, updated from new messages
 //   notes     suggestions of things worth remembering, found by reading the conversations
 //   profile   tier 2  weekly update of the personal profile, used straight away (old version kept)
@@ -16,6 +17,7 @@ import { getActive, listActive, put, retireStale, getState, setState } from './m
 import { fitProfile } from './profile.js';
 import { housekeeping } from './housekeeping.js';
 import { listNotes, addNote } from './notes.js';
+import { segmentChats, summariseChats } from './chats.js';
 import { clip, isoDaysAgo, parseJson } from '../util.js';
 
 const PAGE = 300;          // rows fetched per step
@@ -233,6 +235,7 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
     ['models',   async () => { const a = await auditModels(); return { retired: a.retired, newModels: a.candidates }; }],
     ['housekeeping', () => housekeeping()],
     ['week',     () => refreshWeek()],
+    ['chats',    async () => ({ ...(await segmentChats()), ...(await summariseChats({ limit: 3 })) })],
     ['projects', () => refreshProjects(left)],
     ['notes',    () => harvestNotes(left)],
     ['profile',  () => refreshProfile()],

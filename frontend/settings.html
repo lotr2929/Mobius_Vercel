@@ -76,18 +76,17 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
   </div>
 </section>
 
-<!-- ───────────── Linked folders ───────────── -->
+<!-- ───────────── Linked accounts ───────────── -->
 <section>
-  <h2>Linked folders</h2>
-  <p class="hint">Link folders from Google Drive so Mobius can read your documents and help with your work. Your files stay where they are; Mobius copies only the text. It reads gradually, newest files first, up to the limit you set for each folder. It understands PDF, Word, text, Markdown, CSV, JSON, Google Docs and Google Sheets, and skips anything over 25 MB.</p>
+  <h2>Linked accounts</h2>
+  <p class="hint">The cloud drives Mobius can see. Everything else is done in the chat: ask “what drives are linked?”, “list the files in the GPR folder”, “read the second one”, “summarise it”, or “link the GPR folder” to keep it indexed for searching. Mobius only reads; it never changes anything in your drives.</p>
   <div class="card" id="gCard">
-    <div><b>Your Google account</b> <span id="gState" class="sub"></span></div>
+    <div><b>Google Drive</b> <span id="gState" class="sub"></span></div>
     <p class="sub" id="gWhy" style="margin:4px 0 2px"></p>
     <div class="row" style="margin-top:6px">
       <button id="gConnect">Connect Google account</button>
-      <button id="gBrowseBtn" class="plain" style="display:none">Browse my Drive</button>
       <button id="gDisconnect" class="warn" style="display:none">Disconnect</button>
-      <button id="gEdit" class="plain small" style="display:none">Change set-up</button>
+      <button id="gEdit" class="plain small" style="display:none">Use a different key</button>
     </div>
     <div id="gSetup" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
       <div class="sub"><b id="gStepTitle"></b></div>
@@ -97,35 +96,19 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
     </div>
     <div id="gFix" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
       <div class="sub"><b>One quick fix in Google (about a minute)</b></div>
-      <div class="sub" style="margin:6px 0;line-height:1.6">Mobius is using the Google key you made for the earlier version. Google just does not know this version’s return address yet. Open the key’s page, click the Mobius key, press <b>Add URI</b> under “Authorised redirect URIs”, paste the address below, and press <b>Save</b>. Then come back and press Connect again.</div>
+      <div class="sub" style="margin:6px 0;line-height:1.6">Google does not know this version’s return address yet. Open the key’s page, click the Mobius key, press <b>Add URI</b> under “Authorised redirect URIs”, paste the address below, and press <b>Save</b>. Then come back and press Connect again.</div>
       <div class="row" style="margin-top:2px"><code id="gFixUri" style="font-size:13px;word-break:break-all"></code><button id="gFixCopy" class="plain small">Copy</button></div>
       <div class="row"><a id="gFixLink" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;background:var(--green);color:#fff;border-radius:3px;font-size:13px;text-decoration:none">Open the key’s page ↗</a><button id="gFixClose" class="plain small">Close</button></div>
     </div>
     <details id="gBlocked" class="sub" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
       <summary style="cursor:pointer">Google says “Access blocked” or “has not completed the verification process”?</summary>
-      <div style="margin-top:6px;line-height:1.6">Your Google key is still in <b>Testing</b> mode, which admits only listed testers. Open the Audience page below and press <b>Publish app</b> (then confirm), so it says “In production”. This is the better choice: with test users only, Google makes you reconnect every 7 days. Then press Connect again; when Google warns that the app is unverified, choose <b>Advanced → Go to … (unsafe) → Continue</b>. It is your own app.</div>
+      <div style="margin-top:6px;line-height:1.6">Your Google key is still in <b>Testing</b> mode, which admits only listed testers. Open the Audience page below and either add your Google address under <b>Test users</b> (it then works for 7 days at a time), or press <b>Publish app</b> so it says “In production” (this needs the logo removed and a contact address on the Branding page). Then press Connect again; when Google warns that the app is unverified, choose <b>Advanced → Go to … (unsafe) → Continue</b>. It is your own app.</div>
       <div class="row"><a id="gAudienceLink" target="_blank" rel="noopener" style="display:inline-block;padding:8px 14px;background:var(--green);color:#fff;border-radius:3px;font-size:13px;text-decoration:none">Open the Audience page ↗</a></div>
-      <div style="margin-top:6px">Quicker, but weekly: on the same page, under <b>Test users</b>, press <b>Add users</b>, add the Google address you are connecting, and Save.</div>
     </details>
   </div>
-  <div id="gBrowse" class="card" style="display:none"></div>
-
-  <div class="card">
-    <div class="sub" style="margin-bottom:4px"><b>Paste a folder link</b> from Google Drive. With your account connected, Mobius opens it as you and nothing needs sharing.</div>
-    <details class="sub" style="margin:2px 0 8px"><summary style="cursor:pointer">Not connecting your account? Share the folder with Mobius instead</summary>
-      <div style="margin-top:6px">In Google Drive, right-click the folder → Share → add this address as a <b>Viewer</b> (or set the folder to “Anyone with the link”):</div>
-      <div class="row" style="margin-top:4px"><code id="saEmail" style="font-size:13px;word-break:break-all"></code><button id="copyEmail" class="plain small">Copy</button></div>
-    </details>
-    <input type="text" id="srcUrl" placeholder="https://drive.google.com/drive/folders/…">
-    <div class="row">
-      <input type="text" id="srcLabel" placeholder="Name (optional)" style="flex:1;min-width:140px">
-      <label class="sub">Read up to <input type="number" id="srcMax" value="200" min="5" max="2000" style="width:76px;font-family:var(--font);font-size:13px;padding:6px;border:1px solid var(--border);border-radius:3px;background:var(--surface)"> files</label>
-      <button id="srcAdd">Link folder</button>
-    </div>
-  </div>
+  <div class="card"><b>Dropbox</b> <span class="sub">· not connected (not supported yet)</span></div>
+  <div class="card"><b>OneDrive</b> <span class="sub">· not connected (not supported yet)</span></div>
   <div id="sources" class="card"></div>
-  <div class="row"><button id="srcSync" class="plain">Read new files now</button><span class="sub">Also runs by itself once a day. A big folder takes several presses.</span></div>
-  <p class="hint" style="margin-top:10px">OneDrive, Dropbox, Box and other services: you can paste their links and Mobius will record them, but it cannot read them yet. Each needs its own one-off set-up. Anything read from a linked folder can be sent to the AI models when it is relevant, and the free tiers of some providers may use what they receive for training, so link only folders you are comfortable with.</p>
 </section>
 
 <!-- ───────────── Notes ───────────── -->
@@ -393,70 +376,26 @@ $('devAdd').onclick = async () => {
 };
 $('devInput').addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') $('devAdd').click(); });
 
-// ── Linked folders ───────────────────────────────────────────────────────────
-const SRC_STATUS = { ok: ['Reading', 'ready'], pending: ['Waiting to be read', 'rest'], no_access: ['Cannot open', 'bad'], unsupported: ['Not readable yet', 'bad'], paused: ['Paused', 'rest'], error: ['Problem', 'bad'] };
-const SRC_PROVIDER = { gdrive: 'Google Drive', onedrive: 'OneDrive / SharePoint', dropbox: 'Dropbox', box: 'Box', other: 'Other service' };
+// ── Linked accounts ──────────────────────────────────────────────────────────
+// Settings only shows what is linked; adding, browsing and reading are done by asking in the chat.
+const SRC_STATUS = { ok: ['reading', 'ready'], pending: ['waiting to be read', 'rest'], no_access: ['cannot open', 'bad'], unsupported: ['not readable yet', 'bad'], paused: ['paused', 'rest'], error: ['problem', 'bad'] };
 async function loadSources() {
   const d = await api('GET', '/api/sources');
   renderGoogle(d.google);
-  $('saEmail').textContent = d.serviceAccount || '(not set up on this deployment)';
-  $('copyEmail').disabled = !d.serviceAccount;
   const box = $('sources'); box.replaceChildren();
-  if (!d.sources.length) box.append(el('div', 'empty', 'No folders linked yet.'));
-  d.sources.forEach(s => {
+  const idx = d.sources.filter(s => s.provider === 'gdrive');
+  box.append(el('div', 'sub', idx.length ? 'Folders Mobius keeps indexed for searching (change them by asking in the chat):' : 'No folders are indexed yet. In the chat you can say, for example, “link the GPR folder”. The rest of your Drive can still be listed and read whenever you ask.'));
+  idx.forEach(s => {
     const row = el('div', 'item'), body = el('div', 'text');
     const [word, cls] = SRC_STATUS[s.status] || [s.status, ''];
     body.append(el('div', '', s.label));
     const line = el('div', 'sub');
-    line.append(el('span', cls, word), document.createTextNode(' · ' + (SRC_PROVIDER[s.provider] || s.provider) + ' · up to ' + s.max_files + ' files' + (s.last_synced ? ' · last read ' + when(s.last_synced) : s.last_checked ? ' · checked ' + when(s.last_checked) : '')));
+    line.append(el('span', cls, word), document.createTextNode(' · ' + (s.files_indexed ?? 0) + ' files read' + (s.files_seen ? ' of ' + s.files_seen + ' found' : '') + (s.last_synced ? ' · last read ' + when(s.last_synced) : '')));
     body.append(line);
-    if (s.detail) body.append(el('div', 'sub', s.detail));
-    row.append(body);
-    if (s.provider === 'gdrive') {
-      const check = el('button', 'small plain', 'Check');
-      check.onclick = async () => { check.disabled = true; say('Checking…'); try { const r = await api('POST', `/api/sources/${s.id}/check`); await loadSources(); say(r.source.status === 'ok' ? 'Opened fine. ' + (r.source.detail || '') : r.source.detail, r.source.status === 'ok' ? 'ok' : 'err'); } catch (e) { say(e.message, 'err'); check.disabled = false; } };
-      const lim = el('button', 'small plain', 'Limit');
-      lim.onclick = async () => {
-        const v = prompt('Read up to how many files from “' + s.label + '” (newest first)?', s.max_files);
-        if (v == null) return;
-        try { await api('PUT', '/api/sources/' + s.id, { maxFiles: v }); await loadSources(); say('Limit changed. Press “Read new files now” to apply it.', 'ok'); } catch (e) { say(e.message, 'err'); }
-      };
-      row.append(check, lim);
-    }
-    const rm = el('button', 'small warn', 'Unlink');
-    rm.onclick = async () => {
-      if (!confirm('Unlink “' + s.label + '”? Nothing in your cloud storage is touched.')) return;
-      const withDocs = s.files_indexed ? confirm('Also remove the ' + s.files_indexed + ' document(s) Mobius read from it?\n\nOK = remove them (they go to the Backup and can be restored)\nCancel = keep them in Mobius') : false;
-      try { const r = await api('DELETE', `/api/sources/${s.id}${withDocs ? '?docs=1' : ''}`); await loadSources(); say('Unlinked' + (r.removedDocs ? ' and removed ' + r.removedDocs + ' document(s) to the Backup.' : '.'), 'ok'); } catch (e) { say(e.message, 'err'); }
-    };
-    row.append(rm);
-    box.append(row);
+    if (s.detail && s.status !== 'ok') body.append(el('div', 'sub', s.detail));
+    row.append(body); box.append(row);
   });
 }
-$('copyEmail').onclick = async () => { try { await navigator.clipboard.writeText($('saEmail').textContent); say('Address copied.', 'ok'); } catch { say('Could not copy; select the address and copy it by hand.', 'err'); } };
-$('srcAdd').onclick = async () => {
-  const url = $('srcUrl').value.trim();
-  if (!url) { say('Paste a folder link first.', 'err'); return; }
-  $('srcAdd').disabled = true; say('Checking the link…');
-  try {
-    const r = await api('POST', '/api/sources', { url, label: $('srcLabel').value, maxFiles: $('srcMax').value });
-    $('srcUrl').value = ''; $('srcLabel').value = '';
-    await loadSources();
-    const s = r.source;
-    say(s.status === 'ok' ? 'Linked. ' + (s.detail || '') + ' Press “Read new files now” to start reading.' : s.detail, s.status === 'ok' ? 'ok' : 'err');
-  } catch (e) { say(e.message, 'err'); }
-  $('srcAdd').disabled = false;
-};
-$('srcUrl').addEventListener('keydown', e => { if (e.key === 'Enter') $('srcAdd').click(); });
-$('srcSync').onclick = async () => {
-  $('srcSync').disabled = true; say('Reading… this can take up to a minute.');
-  try {
-    const r = await api('POST', '/api/sources/sync');
-    await Promise.all([loadSources(), loadSettings()]);
-    say(r.ok ? 'Done for now. If a folder says “Not finished”, press the button again.' : r.message, r.ok ? 'ok' : 'err');
-  } catch (e) { say(e.message, 'err'); await loadSources().catch(() => {}); }
-  $('srcSync').disabled = false;
-};
 
 // ── Connect my Google account ────────────────────────────────────────────────
 // Normally one press. The first time only, Google needs this app registered (the part an app's developer usually does
@@ -478,12 +417,11 @@ function renderGoogle(g) {
   $('gState').textContent = g.connected ? '· connected as ' + (g.email || 'your account') : g.configured ? '· ready to connect' : '';
   $('gState').className = 'sub ' + (g.connected ? 'ready' : 'rest');
   $('gWhy').textContent = g.connected
-    ? 'Mobius opens the Drive links you paste as you, read-only, so nothing has to be shared. To end this, press Disconnect, or remove Mobius at myaccount.google.com/permissions.'
+    ? 'Connected. Ask Mobius about your Drive in the chat. It can list and read your files but never change them. To end this, press Disconnect, or remove Mobius at myaccount.google.com/permissions.'
     : (g.problem ? g.problem + ' ' : '') + (g.configured
-      ? (g.keyFrom === 'earlier version' ? 'Mobius will use the Google key you made for the earlier version, so there is nothing to set up. ' : '') + 'Press the button and approve on Google’s page. Mobius can then open any Drive folder you paste, read-only.'
+      ? (g.keyFrom === 'earlier version' ? 'Mobius will use the Google key you made for the earlier version, so there is nothing to set up. ' : '') + 'Press the button and approve on Google’s page. After that, everything is done in the chat.'
       : 'Press the button. The first time only, it takes you through a few short steps with Google; after that, connecting is one press.');
   $('gConnect').style.display = g.connected ? 'none' : '';
-  $('gBrowseBtn').style.display = g.connected ? '' : 'none';
   $('gDisconnect').style.display = g.connected ? '' : 'none';
   $('gEdit').style.display = g.configured ? '' : 'none';
   $('gEdit').textContent = 'Use a different key';
@@ -494,7 +432,6 @@ function renderGoogle(g) {
   $('gFixLink').href = 'https://console.cloud.google.com/auth/clients' + (g.clientProject ? '?project=' + encodeURIComponent(g.clientProject) : '');
   $('gSetup').style.display = gOpen && !g.connected ? 'block' : 'none';
   if (gOpen && !g.connected) renderStep();
-  if (!g.connected) $('gBrowse').style.display = 'none';
 }
 function openSetup(step) { gStep = step; gOpen = true; gFixOpen = false; renderGoogle(gStatus); $('gSetup').scrollIntoView({ block: 'nearest' }); }
 $('gFixClose').onclick = () => { gFixOpen = false; renderGoogle(gStatus); };
@@ -553,53 +490,13 @@ $('gDisconnect').onclick = async () => {
   if (!confirm('Disconnect your Google account?\n\nFolders Mobius has already read stay in Mobius, but links that needed your account will stop updating.')) return;
   try { await api('POST', '/api/google/disconnect'); await loadSources(); say('Disconnected.', 'ok'); } catch (e) { say(e.message, 'err'); }
 };
-$('gBrowseBtn').onclick = () => openBrowse('root', 'My Drive', true);
 
-// A simple folder picker over the connected account.
-async function openBrowse(id, name, reset) {
-  if (reset) gTrail = [];
-  const at = gTrail.findIndex(t => t.id === id);
-  if (at >= 0) gTrail = gTrail.slice(0, at + 1); else gTrail.push({ id, name });
-  const box = $('gBrowse'); box.style.display = 'block'; box.replaceChildren(el('div', 'empty', 'Loading…'));
-  try {
-    const d = await api('GET', '/api/google/folders?parent=' + encodeURIComponent(id));
-    box.replaceChildren();
-    const crumbs = el('div', 'sub');
-    gTrail.forEach((t, i) => {
-      const a = el('a', '', t.name); a.href = '#'; a.onclick = e => { e.preventDefault(); openBrowse(t.id, t.name); };
-      crumbs.append(a); if (i < gTrail.length - 1) crumbs.append(document.createTextNode(' › '));
-    });
-    if (id === 'root') {
-      crumbs.append(document.createTextNode('   ·   '));
-      const sh = el('a', '', 'Shared with me'); sh.href = '#'; sh.onclick = e => { e.preventDefault(); openBrowse('shared', 'Shared with me', true); };
-      crumbs.append(sh);
-    }
-    box.append(crumbs);
-    if (id !== 'root' && id !== 'shared') {
-      const here = el('div', 'row'); const b = el('button', 'small', 'Link this folder (' + name + ')'); b.onclick = () => linkFolder(id, name); here.append(b); box.append(here);
-    }
-    if (!d.folders.length) box.append(el('div', 'empty', 'No folders here.'));
-    d.folders.forEach(f => {
-      const row = el('div', 'item'); const a = el('a', 'text', f.name); a.href = '#'; a.style.color = 'var(--text)'; a.onclick = e => { e.preventDefault(); openBrowse(f.id, f.name); };
-      const b = el('button', 'small plain', 'Link'); b.onclick = () => linkFolder(f.id, f.name);
-      row.append(a, b); box.append(row);
-    });
-  } catch (e) { box.replaceChildren(el('div', 'empty', e.message)); await loadSources().catch(() => {}); }
-}
-async function linkFolder(id, name) {
-  say('Checking ' + name + '…');
-  try {
-    const r = await api('POST', '/api/sources', { url: 'https://drive.google.com/drive/folders/' + id, label: name, maxFiles: $('srcMax').value });
-    await loadSources();
-    say(r.source.status === 'ok' ? 'Linked “' + r.source.label + '”. ' + (r.source.detail || '') + ' Press “Read new files now” to start reading.' : r.source.detail, r.source.status === 'ok' ? 'ok' : 'err');
-  } catch (e) { say(e.message, 'err'); }
-}
 { // the page Google sends you back to
   const q = new URLSearchParams(location.search);
   if (q.get('google')) {
     if (q.get('fix') === 'redirect') gFixOpen = true;
     if (q.get('fix') === 'client') gOpen = true, gStep = 2;
-    say(q.get('google') === 'connected' ? 'Google account connected. Paste a folder link below, or press Browse my Drive.' : (q.get('msg') || 'Could not connect your Google account.'), q.get('google') === 'connected' ? 'ok' : 'err');
+    say(q.get('google') === 'connected' ? 'Google account connected. You can now ask Mobius about your Drive in the chat, for example “what drives are linked?” or “list the files in the GPR folder”.' : (q.get('msg') || 'Could not connect your Google account.'), q.get('google') === 'connected' ? 'ok' : 'err');
     history.replaceState(null, '', '/settings.html');
   }
 }

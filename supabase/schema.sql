@@ -183,6 +183,43 @@ create table if not exists mobius_google (
 );
 alter table mobius_google enable row level security;
 
+-- Conversations: the message log cut into chats (a new chat begins after 20 minutes of silence), each with a title and
+-- summary, so that Boon can refer to "that chat" and Mobius can find and read it.
+create table if not exists mobius_chats (
+  id               bigserial primary key,
+  started_at       timestamptz not null,
+  ended_at         timestamptz not null,
+  first_message_id bigint,
+  last_message_id  bigint,
+  message_count    integer not null default 0,
+  title            text,
+  summary          text,
+  summary_msgs     integer not null default 0,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+create index if not exists mobius_chats_started on mobius_chats (started_at desc);
+alter table mobius_chats enable row level security;
+alter table mobius_messages add column if not exists chat_id bigint;
+create index if not exists mobius_messages_chat on mobius_messages (chat_id);
+
+-- Pictures sent in chat. The (shrunk) image itself is kept in the private Storage bucket "mobius-attachments", so a later
+-- "the man in the previous image" can be answered by looking at it again.
+create table if not exists mobius_attachments (
+  id         bigserial primary key,
+  message_id bigint,
+  kind       text not null default 'image',
+  path       text not null,
+  mime       text,
+  bytes      integer,
+  caption    text,
+  created_at timestamptz not null default now()
+);
+create index if not exists mobius_attachments_message on mobius_attachments (message_id);
+create index if not exists mobius_attachments_created on mobius_attachments (created_at desc);
+alter table mobius_attachments enable row level security;
+insert into storage.buckets (id, name, public) values ('mobius-attachments', 'mobius-attachments', false) on conflict (id) do nothing;
+
 -- Sizes for the Settings page (the free plan allows 500 MB for the whole project).
 create or replace function pcm_storage ()
 returns table (name text, bytes bigint)

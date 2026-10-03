@@ -23,6 +23,9 @@ import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
 import { liveDriveSearch } from './docs/live.js';
+import { runWorkspace, describeState } from './workspace.js';
+import { earlierImages, saveImages } from './pcm/attachments.js';
+import { findChats, ensureSummaries, loadChatText, listChats, describeChat } from './pcm/chats.js';
 import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
@@ -98,26 +101,49 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     }).mark('loaded');
     const plan = memoryAction
       ? { standalone: userQuery, queries: [userQuery], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false, needsWeb: false }
-      : await analyse(userQuery, recent, projects, ctx);
+      : await analyse(userQuery, recent, projects, ctx, await safe(describeState, ''));
     trace.set({ plan }).mark('analysed');
 
+    // Requests about his cloud drives ("what drives are linked?", "list the files in the GPR folder", "read the second one")
+    // are carried out here; the model is handed the result to present.
+    const driveResult = !memoryAction && plan.drive ? await safe(() => runWorkspace(plan.drive), null) : null;
+    const chatList = !memoryAction && plan.listChats ? await safe(async () => (await listChats(12)).map(describeChat).join('\n'), '') : '';
+    // A question about a picture sent earlier gets that picture back, not just the earlier description of it.
+    const earlier = !images.length && !driveResult?.images?.length && !memoryAction && plan.refersToImage ? await safe(() => earlierImages(plan.imageHint), null) : null;
+    const sendImages = images.length ? images : (driveResult?.images?.length ? driveResult.images : (earlier?.images || []));
+    const direct = !!(driveResult || chatList); // answered by the result itself: nothing else is searched, so nothing competes with it
+    trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
+
     // 3. recall, with the web search running alongside
-    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf; // none for greetings, questions about Mobius, or answers already in hand
+    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct; // none for greetings, questions about Mobius, or answers already in hand
     if (useWeb) yield { event: 'searching web...' };
 
     const [web, profile, week, archive, namedFile, selfText, live] = await Promise.all([
       useWeb ? tavilySearch(plan.standalone) : null,
       safe(getProfile, ''),
       safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
-      plan.needsArchive
+      plan.needsArchive && !direct
         ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays }), NOTHING)
         : NOTHING,
-      attached.length ? null : safe(() => findNamedDoc(plan.standalone), null),
+      attached.length || direct ? null : safe(() => findNamedDoc(plan.standalone), null),
       plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
       // Boon's linked Drive folders, searched now rather than stored (only when the message is about his documents or work)
-      plan.aboutSelf || memoryAction ? null : safe(() => Promise.race([liveDriveSearch(plan.standalone, plan), new Promise(r => setTimeout(() => r(null), 10000))]), null),
+      plan.aboutSelf || memoryAction || direct ? null : safe(() => Promise.race([liveDriveSearch(plan.standalone, plan), new Promise(r => setTimeout(() => r(null), 10000))]), null),
     ]);
     const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
+
+    // "In our chat about X ...", "the previous chat": find that conversation and read it back.
+    const hitIds = archive.messages.map(m => m.id);
+    const earlierChats = plan.refersToChat && !memoryAction
+      ? await safe(async () => {
+        let found = await findChats({ keywords: plan.chatHint?.keywords || plan.queries.join(' '), sinceDays: plan.chatHint?.sinceDays ?? plan.sinceDays, untilDays: plan.chatHint?.untilDays ?? null, previous: !!plan.chatHint?.previous, hitMessageIds: hitIds, limit: 2 });
+        found = await ensureSummaries(found, { max: 1 });
+        const texts = [];
+        for (const c of found) texts.push(await loadChatText(c, { query: plan.standalone, budget: found.length > 1 ? 3300 : 6500, focusIds: hitIds }));
+        trace.set({ earlierChats: found.map(c => ({ id: c.id, title: c.title, started: c.started_at })) });
+        return texts.join('\n\n---\n\n');
+      }, '')
+      : '';
 
     const seen = new Set(recent.map(m => m.id));
     const past = archive.messages.filter(m => !seen.has(m.id));
@@ -130,25 +156,34 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
     const noDocs = !attached.length && !namedText && !chunks.length && expectsFile(userQuery);
-    const noImage = !images.length && expectsImage(userQuery);
+    const noImage = !sendImages.length && expectsImage(userQuery);
     trace.set({ images: images.length, noImageWarning: noImage });
-    const context = assembleContext([
-      { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
+    // Order matters twice over: it is the order the model reads them in, and a model with a small window has the MIDDLE of
+    // this text cut out. So what this very message needs (the drive result, the file, the earlier chat) comes first and
+    // the standing background (notes, week, documentation) after it.
+    const selfPart = { title: 'About Mobius and this device (your own documentation)', rank: plan.aboutSelf ? 1 : 3, cap: 8000, text: selfText };
+    const parts = [
       { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
-      { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon; not evidence, and not conclusions to defend or to agree with)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
+      { title: 'Result of the cloud-drive request just carried out for Boon: this IS the answer, so present it as it stands, keeping the numbers so he can answer by number (Mobius can only read his Drive, never change it)', rank: 1, cap: 7000, text: driveResult?.text || '' },
+      { title: 'Boon\'s earlier chats, newest first: this IS the answer to his request to see them, so present the list as it stands, with the dates and titles', rank: 1, cap: 5000, text: chatList },
+      { title: `File opened from Boon's Drive: ${driveResult?.fileName || ''}`, rank: 1, cap: 20000, text: driveResult?.fileText || '' },
+      { title: 'Earlier conversation(s) Boon is referring to (name the chat by its date and title when you answer; if it does not hold what he asks, say so)', rank: 2, cap: 7000, text: earlierChats },
+      { title: 'Picture(s) sent earlier, attached to this message again (look at them afresh; the earlier description is only a hint)', rank: 1, cap: 900, text: earlier?.note || '' },
       { title: ATTACHED_TITLE, rank: 1, cap: 20000,
         text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
       { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
       { title: 'Note', rank: 1, cap: 400, text: noDocs ? NO_DOCS_NOTE : '' },
       { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
+      { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
+      { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
+      { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon; not evidence, and not conclusions to defend or to agree with)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
       { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
       { title: 'Past week', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
-      { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
-      { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
       { title: 'Web search results', rank: 6, cap: 2600, text: web },
-    ]);
+    ];
+    const context = assembleContext(plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart]);
 
     const idle = !recent.length || Date.now() - Date.parse(recent.at(-1).created_at) > 3600e3;
     ctx.suggestions = idle && !memoryAction ? pendingNotes.length : 0; // mention waiting suggestions once, at the start of a conversation
@@ -170,11 +205,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     //    the answer, so it adds no waiting time and never runs for an answer that failed.
     let full = '', usedModel = '', learning = null;
     const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
-    for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images })) {
+    for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');
-          if (!memoryAction) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
+          if (!memoryAction && !direct) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
         }
         full += chunk;
         yield { token: chunk };
@@ -192,7 +227,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     trace.set({ learned, model: usedModel, answer_chars: full.length, answer_head: full.slice(0, 600) }).mark('answered');
 
     // 6. remember — only a finished answer to a question that is still wanted
-    if (!signal?.aborted && full.trim()) await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
+    if (!signal?.aborted && full.trim()) {
+      const saved = await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
+      // keep the pictures so a later "the man in the previous image" can be answered by looking again
+      if (images.length && saved?.userId) await saveImages(images, saved.userId, full).catch(e => console.warn('[chat] pictures not kept:', e.message));
+    }
 
     if (useWeb) {
       const usage = await tavilyUsage();

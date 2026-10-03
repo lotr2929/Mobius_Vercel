@@ -27,11 +27,12 @@ export function settled(messages) {
 // holds a question without an answer. Two devices can be mid-conversation at once: because each
 // pair is written in one go, pairs never interleave.
 export async function saveExchange({ query, docs = [], answer, model = null }) {
-  if (!supabase || !query || !answer) return;
+  if (!supabase || !query || !answer) return null;
   const t = Date.now();
-  const { error } = await supabase.from('mobius_messages').insert([
+  const { data, error } = await supabase.from('mobius_messages').insert([
     { role: 'user', content: query, docs: docs.length ? docs : null, created_at: new Date(t).toISOString() },
     { role: 'assistant', content: answer, ai_provider: model, created_at: new Date(t + 1).toISOString() },
-  ]);
-  if (error) console.warn('[pcm] saveExchange:', error.message);
+  ]).select('id, role');
+  if (error) { console.warn('[pcm] saveExchange:', error.message); return null; }
+  return { userId: data?.find(r => r.role === 'user')?.id || null, assistantId: data?.find(r => r.role === 'assistant')?.id || null };
 }
