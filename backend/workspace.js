@@ -42,6 +42,12 @@ export async function describeState() {
   return parts.join('. ');
 }
 
+// Which drive a result came from: "Google Drive: boonlayong@gmail.com"
+async function driveLabel() {
+  const a = await googleAccount().catch(() => null);
+  return `Google Drive: ${a?.email || 'your account'}`;
+}
+
 // ── Reaching Drive ───────────────────────────────────────────────────────────
 const friendly = (e, what = 'Google Drive') => {
   const msg = String(e?.message || e);
@@ -64,7 +70,7 @@ async function pathOf(drive, id, cache) {
     names.unshift(r.data.name);
     cur = r.data.parents?.[0];
   }
-  const path = names.length ? names.join(' / ') : 'My Drive';
+  const path = names.length ? names.join('/') : 'My Drive';
   cache.set(id, names);
   return path;
 }
@@ -137,14 +143,15 @@ async function actList(drive, intent, state) {
     items.push(...(res.data.files || []));
     pageToken = res.data.nextPageToken;
   } while (pageToken && items.length < 400);
-  const numbered = items.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: f.mimeType === FOLDER, size: f.size, modified: f.modifiedTime, path: f.mimeType === FOLDER ? `${folder.path} / ${f.name}` : undefined }));
+  const numbered = items.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: f.mimeType === FOLDER, size: f.size, modified: f.modifiedTime, path: f.mimeType === FOLDER ? `${folder.path}/${f.name}` : undefined }));
   await saveState({ folder: { id: folder.id, name: folder.name, path: folder.path }, items: numbered.slice(0, MAX_KEPT), pending: null });
   const nf = numbered.filter(i => i.folder).length;
-  const head = `Contents of "${folder.name}" (${folder.path}): ${items.length} item${items.length === 1 ? '' : 's'}${items.length ? ` (${nf} folder${nf === 1 ? '' : 's'}, ${items.length - nf} file${items.length - nf === 1 ? '' : 's'})` : ''}.`;
-  if (!items.length) return { text: head + ' The folder is empty.' };
+  const who = await driveLabel();
+  const head = `**${who}**  \n**Folder:** ${folder.path} — ${items.length} item${items.length === 1 ? '' : 's'}${items.length ? ` (${nf} folder${nf === 1 ? '' : 's'}, ${items.length - nf} file${items.length - nf === 1 ? '' : 's'})` : ''}`;
+  if (!items.length) return { text: head + '\n\nThe folder is empty.' };
   const line = i => `${i.n}. ${i.folder ? '[folder] ' : ''}${i.name}${i.folder ? '' : ` — ${kind(i.mime)}${size(i.size) ? ', ' + size(i.size) : ''}${i.modified ? ', changed ' + perthDate(i.modified) : ''}`}`;
   const shown = numbered.slice(0, MAX_LIST);
-  return { text: [head, ...shown.map(line), items.length > shown.length ? `…and ${items.length - shown.length} more not shown (ask for a particular name, or for the rest).` : ''].filter(Boolean).join('\n') };
+  return { text: head + '\n\n' + [...shown.map(line), items.length > shown.length ? `\n…and ${items.length - shown.length} more not shown (ask for a particular name, or for the rest).` : ''].filter(Boolean).join('\n') };
 }
 
 async function actFind(drive, intent, state) {
@@ -158,7 +165,7 @@ async function actFind(drive, intent, state) {
   for (const id of [...new Set(files.map(f => f.parents?.[0]).filter(Boolean))].slice(0, 12)) parents.set(id, (await drive.files.get({ fileId: id, fields: 'name', supportsAllDrives: true }).catch(() => null))?.data?.name || '?');
   const numbered = files.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: false, size: f.size, modified: f.modifiedTime, parent: parents.get(f.parents?.[0]) }));
   await saveState({ items: numbered, pending: null });
-  return { text: [`Files in your Drive matching "${words.join(' ')}" (${files.length}${files.length === 20 ? ' or more' : ''}):`, ...numbered.map(i => `${i.n}. ${i.name} — ${kind(i.mime)}${size(i.size) ? ', ' + size(i.size) : ''}, in "${i.parent || '?'}", changed ${perthDate(i.modified)}`)].join('\n') };
+  return { text: [`**${await driveLabel()}**  \n**Search:** "${words.join(' ')}" — ${files.length}${files.length === 20 ? ' or more' : ''} file${files.length === 1 ? '' : 's'}\n`, ...numbered.map(i => `${i.n}. ${i.name} — ${kind(i.mime)}${size(i.size) ? ', ' + size(i.size) : ''}, in "${i.parent || '?'}", changed ${perthDate(i.modified)}`)].join('\n') };
 }
 
 async function actOpen(drive, intent, state) {
@@ -197,7 +204,7 @@ async function actOpen(drive, intent, state) {
   if (!text || !text.trim()) return { text: `"${file.name}" opened but has no readable text (it may be a scan or an image-only PDF).` };
   const cut = text.length > TEXT_CHARS;
   return {
-    text: `Opened "${file.name}" (${kind(mime)}${size(file.size) ? ', ' + size(file.size) : ''}, changed ${perthDate(file.modified)}). ${cut ? `It has ${text.length.toLocaleString()} characters; the first ${TEXT_CHARS.toLocaleString()} are given below. Say so if the rest is needed.` : 'The whole text is given below.'}`,
+    text: `Opened "${file.name}" from ${await driveLabel()} (${kind(mime)}${size(file.size) ? ', ' + size(file.size) : ''}, changed ${perthDate(file.modified)}). ${cut ? `It has ${text.length.toLocaleString()} characters; the first ${TEXT_CHARS.toLocaleString()} are given below. Say so if the rest is needed.` : 'The whole text is given below.'}`,
     fileText: text.slice(0, TEXT_CHARS), fileName: file.name,
   };
 }
