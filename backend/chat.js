@@ -109,7 +109,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // Requests about his cloud drives ("what drives are linked?", "list the files in the GPR folder", "read the second one")
     // are carried out here; the model is handed the result to present.
     const driveResult = !memoryAction && plan.drive ? await safe(() => runWorkspace(plan.drive), null) : null;
-    const chatList = !memoryAction && plan.listChats ? await safe(async () => (await listChats(12)).map(describeChat).join('\n'), '') : '';
+    const chatList = !memoryAction && plan.listChats ? await safe(async () => (await listChats(12)).map((c, i) => `${i + 1}. ${describeChat(c)}`).join('\n'), '') : '';
     // A question about a picture sent earlier gets that picture back, not just the earlier description of it.
     const earlier = !images.length && !driveResult?.images?.length && !memoryAction && plan.refersToImage ? await safe(() => earlierImages(plan.imageHint), null) : null;
     const sendImages = images.length ? images : (driveResult?.images?.length ? driveResult.images : (earlier?.images || []));
@@ -127,6 +127,9 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const bibleShown = bibleResult?.text && plan.bible?.show ? bibleResult : null; // asked to see it: shown verbatim, before anything a model says
     const bibleOnly = !!bibleShown && !plan.bible.explain;                         // no explanation asked for: no model is needed at all
     if (bibleResult) trace.set({ bible: { refs: bibleResult.refs, found: bibleResult.found, notes: bibleResult.notes, source: bibleResult.source, shown: !!bibleShown, only: bibleOnly } });
+    // A listing of files or chats is shown exactly as produced. Given to a model to "present", it once invented files that were not there.
+    const driveDirect = !!driveResult && !driveResult.fileText && !driveResult.images?.length;
+    const directAnswer = driveDirect ? driveResult.text : (chatList ? `Your recent chats, newest first:\n\n${chatList}` : '');
     const direct = !!(driveResult || chatList || bibleShown); // answered by the result itself: nothing else is searched, so nothing competes with it
     trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
 
@@ -231,7 +234,13 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       full = shownText + (bibleOnly ? '' : '\n\n---\n\n');
       yield { token: full };
     }
-    if (!bibleOnly) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages })) {
+    if (directAnswer && !bibleShown) {
+      yield { event: 'model:' + (driveDirect ? 'Drive lookup' : 'Chat list') };
+      usedModel = driveDirect ? 'drive lookup' : 'chat list';
+      full = directAnswer;
+      yield { token: full };
+    }
+    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');

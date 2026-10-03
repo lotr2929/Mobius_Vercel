@@ -19,6 +19,7 @@ const TEXT_CHARS = 20000;  // of a file given to the model in one go
 const IMAGE_BYTES = 3.5 * 1024 * 1024;
 
 const esc = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const nameQuery = text => String(text).split(/\s+/).filter(Boolean).slice(0, 6).map(w => `name contains '${esc(w)}'`).join(' and ');
 const perthDate = iso => iso ? new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Perth', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)) : '';
 const size = b => { const n = Number(b || 0); return !n ? '' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; };
 const kind = m => m === FOLDER ? 'folder' : m === 'application/pdf' ? 'PDF' : /wordprocessingml|msword/.test(m) ? 'Word' : /spreadsheet|excel|csv/.test(m) ? 'spreadsheet' : /presentation|powerpoint/.test(m) ? 'slides'
@@ -49,13 +50,14 @@ const friendly = (e, what = 'Google Drive') => {
   if (/rate|quota|429/i.test(msg)) return `${what} is limiting requests just now. Try again in a minute.`;
   return `${what} said: ${msg.slice(0, 200)}`;
 };
-async function driveOrNull() { const d = await userDrive().catch(() => null); if (d) d.__user = true; return d; }
+async function driveOrNull() { return userDrive().catch(() => null); }
 const NOT_CONNECTED = 'No cloud drive is connected, so there is nothing to look in. Connect your Google account in Settings → Google account (one-off), then ask again.';
 
 async function pathOf(drive, id, cache) {
   if (id === 'root') return 'My Drive';
   const names = []; let cur = id;
   for (let hops = 0; cur && hops < 8; hops++) {
+    if (cur === 'root') { names.unshift('My Drive'); cur = null; break; }
     if (cache.has(cur)) { names.unshift(...cache.get(cur)); cur = null; break; }
     const r = await drive.files.get({ fileId: cur, fields: 'id, name, parents', supportsAllDrives: true }).catch(() => null);
     if (!r) break;
@@ -84,11 +86,11 @@ async function resolveFolder(drive, intent, state) {
   const terms = target.replace(/\b(folder|directory|the|my)\b/gi, ' ').trim();
   if (!terms) return { folder: state?.folder || { id: 'root', name: 'My Drive', path: 'My Drive' } };
   const inside = state?.folder?.id && state.folder.id !== 'root'
-    ? await drive.files.list({ q: `'${state.folder.id}' in parents and mimeType = '${FOLDER}' and name contains '${esc(terms)}' and trashed = false`, pageSize: 10, fields: 'files(id, name)', supportsAllDrives: true, includeItemsFromAllDrives: true }).then(r => r.data.files || []).catch(() => [])
+    ? await drive.files.list({ q: `'${state.folder.id}' in parents and mimeType = '${FOLDER}' and ${nameQuery(terms)} and trashed = false`, pageSize: 10, fields: 'files(id, name)', supportsAllDrives: true, includeItemsFromAllDrives: true }).then(r => r.data.files || []).catch(() => [])
     : [];
   let found = inside.map(f => ({ id: f.id, name: f.name }));
   if (!found.length) {
-    const all = await drive.files.list({ q: `mimeType = '${FOLDER}' and name contains '${esc(terms)}' and trashed = false`, pageSize: 30, fields: 'files(id, name, parents)', supportsAllDrives: true, includeItemsFromAllDrives: true });
+    const all = await drive.files.list({ q: `mimeType = '${FOLDER}' and ${nameQuery(terms)} and trashed = false`, pageSize: 30, fields: 'files(id, name, parents)', supportsAllDrives: true, includeItemsFromAllDrives: true });
     found = (all.data.files || []).map(f => ({ id: f.id, name: f.name }));
   }
   if (!found.length) return { none: `I could not find a folder called "${terms}" in your Drive` };
@@ -109,7 +111,7 @@ async function actAccounts() {
     lines.push(`1. Google Drive: ${acct.email}. Connected${acct.connectedAt ? ' on ' + perthDate(acct.connectedAt) : ''}; read-only (Mobius can read and list files but cannot change, create or delete anything).`);
     const idx = sources.filter(s => s.provider === 'gdrive' && s.status !== 'unsupported');
     if (idx.length) { lines.push('   Folders Mobius keeps indexed for searching:'); for (const s of idx) lines.push(`   - ${s.label}: ${s.files_indexed ?? 0} files read${s.files_seen ? ' of ' + s.files_seen + ' found' : ''}${s.last_synced ? ', last read ' + perthDate(s.last_synced) : ''}${s.status !== 'ok' ? ' (' + s.status + ')' : ''}`); }
-    else lines.push('   No folders are indexed yet. Boon can say, for example, "link the GPR folder" to index one; the rest of the Drive can still be listed and read on request.');
+    else lines.push('   No folders are indexed yet. You can say, for example, “link the GPR folder” to index one; the rest of the Drive can still be listed and read whenever you ask.');
   } else {
     lines.push('1. Google Drive: not connected' + (acct?.problem ? ` (${acct.problem})` : '') + '. It can be connected in Settings → Google account.');
   }
@@ -123,7 +125,7 @@ async function actList(drive, intent, state) {
   if (r.notFolder) return actOpen(drive, { ...intent, ref: r.notFolder.n }, state);
   if (r.ambiguous) {
     await saveState({ pending: r.ambiguous });
-    return { text: `More than one folder matches "${intent.target}". Which one does Boon mean? He can answer with a number.\n${r.ambiguous.map(f => `${f.n}. ${f.path}`).join('\n')}${r.more ? `\n(${r.more} more matches not shown)` : ''}` };
+    return { text: `More than one folder matches "${intent.target}". Which one do you mean? Answer with a number.\n${r.ambiguous.map(f => `${f.n}. ${f.path}`).join('\n')}${r.more ? `\n(${r.more} more matches not shown)` : ''}` };
   }
   const folder = r.folder;
   const cache = new Map();
@@ -142,12 +144,12 @@ async function actList(drive, intent, state) {
   if (!items.length) return { text: head + ' The folder is empty.' };
   const line = i => `${i.n}. ${i.folder ? '[folder] ' : ''}${i.name}${i.folder ? '' : ` — ${kind(i.mime)}${size(i.size) ? ', ' + size(i.size) : ''}${i.modified ? ', changed ' + perthDate(i.modified) : ''}`}`;
   const shown = numbered.slice(0, MAX_LIST);
-  return { text: [head, ...shown.map(line), items.length > shown.length ? `…and ${items.length - shown.length} more not shown (Boon can ask for a particular name, or for the rest).` : ''].filter(Boolean).join('\n') };
+  return { text: [head, ...shown.map(line), items.length > shown.length ? `…and ${items.length - shown.length} more not shown (ask for a particular name, or for the rest).` : ''].filter(Boolean).join('\n') };
 }
 
 async function actFind(drive, intent, state) {
   const words = termsOf(intent.query || intent.target || '').slice(0, 4);
-  if (!words.length) return { text: 'Could not search: there was nothing to search for. Ask Boon what words the file should contain or be named after.' };
+  if (!words.length) return { text: 'I could not search, because there was nothing to search for. Tell me what words the file should contain or be named after.' };
   const q = `${words.map(w => `(name contains '${esc(w)}' or fullText contains '${esc(w)}')`).join(' and ')} and trashed = false and mimeType != '${FOLDER}'`;
   const r = await drive.files.list({ q, pageSize: 20, fields: 'files(id, name, mimeType, size, modifiedTime, parents)', supportsAllDrives: true, includeItemsFromAllDrives: true });
   const files = r.data.files || [];
@@ -168,7 +170,7 @@ async function actOpen(drive, intent, state) {
     const terms = target.replace(/\b(file|document|the|my)\b/gi, ' ').trim();
     const inFolder = state?.folder?.id ? `'${state.folder.id}' in parents and ` : '';
     for (const scope of inFolder ? [inFolder, ''] : ['']) {
-      const r = await drive.files.list({ q: `${scope}name contains '${esc(terms)}' and trashed = false and mimeType != '${FOLDER}'`, pageSize: 10, fields: 'files(id, name, mimeType, size, modifiedTime, parents)', supportsAllDrives: true, includeItemsFromAllDrives: true });
+      const r = await drive.files.list({ q: `${scope}${nameQuery(terms)} and trashed = false and mimeType != '${FOLDER}'`, pageSize: 10, fields: 'files(id, name, mimeType, size, modifiedTime, parents)', supportsAllDrives: true, includeItemsFromAllDrives: true });
       const hits = r.data.files || [];
       const exact = hits.filter(f => f.name.toLowerCase() === terms.toLowerCase());
       const pick = exact.length ? exact : hits;
@@ -176,11 +178,11 @@ async function actOpen(drive, intent, state) {
       if (pick.length > 1) {
         const numbered = pick.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: false, size: f.size, modified: f.modifiedTime }));
         await saveState({ pending: numbered.map(f => ({ ...f, path: f.name })), items: numbered });
-        return { text: `More than one file matches "${terms}". Which one does Boon mean? He can answer with a number.\n${numbered.map(f => `${f.n}. ${f.name} — ${kind(f.mime)}, changed ${perthDate(f.modified)}`).join('\n')}` };
+        return { text: `More than one file matches "${terms}". Which one do you mean? Answer with a number.\n${numbered.map(f => `${f.n}. ${f.name} — ${kind(f.mime)}, changed ${perthDate(f.modified)}`).join('\n')}` };
       }
     }
   }
-  if (!file) return { text: Number.isInteger(ref) ? `Could not open it: there is no item number ${ref} in the list I last showed.` : 'Could not tell which file Boon means. Ask him for its name, or to list a folder first so he can pick by number.' };
+  if (!file) return { text: Number.isInteger(ref) ? `Could not open it: there is no item number ${ref} in the list I last showed.` : 'I could not tell which file you mean. Give me its name, or list a folder first and pick one by number.' };
   if (file.folder) return actList(drive, { ...intent, ref: file.n, target: '' }, state);
 
   const mime = file.mime || file.mimeType;
@@ -205,14 +207,14 @@ async function actLink(drive, intent, state) {
   if (r.none) return { text: `Could not link it: ${r.none}.` };
   if (r.ambiguous) { await saveState({ pending: r.ambiguous }); return { text: `More than one folder matches "${intent.target}". Which one should be linked? Answer with a number.\n${r.ambiguous.map(f => `${f.n}. ${f.path}`).join('\n')}` }; }
   const f = r.folder;
-  if (f.id === 'root') return { text: 'Linking the whole of My Drive is not offered, because it would fill the free storage. Ask Boon to pick a folder.' };
+  if (f.id === 'root') return { text: 'Linking the whole of My Drive is not offered, because it would fill the free storage. Please name a folder instead.' };
   try {
     const src = await addSource({ url: `https://drive.google.com/drive/folders/${f.id}`, label: f.name, maxFiles: intent.maxFiles || 200 });
     if (src.status !== 'ok') return { text: `Linked "${f.name}" but it could not be opened: ${src.detail}` };
     const rep = await syncSources({ budgetMs: 25000 });
     const mine = Array.isArray(rep) ? rep.find(x => x.id === src.id) : null;
     const after = (await listSources()).find(s => s.id === src.id);
-    return { text: `Linked "${f.name}" (${f.path}) for indexing. ${src.detail} ${mine ? `First pass: ${mine.indexed} file(s) read now.` : ''} ${after?.detail || ''} A large folder is read in stages; saying "update the index" continues it. It is now also searched live when Boon asks about his documents.` };
+    return { text: `Linked "${f.name}" (${f.path}) for indexing. ${src.detail} ${mine ? `First pass: ${mine.indexed} file(s) read now.` : ''} ${after?.detail || ''} A large folder is read in stages; saying “update the index” continues it. It is now also searched live when you ask about your documents.` };
   } catch (e) { return { text: `Could not link "${f.name}": ${e.message}` }; }
 }
 
@@ -220,15 +222,15 @@ async function actUnlink(intent) {
   const sources = await listSources();
   const t = String(intent.target || '').toLowerCase().replace(/\b(folder|the|my)\b/g, '').trim();
   const hit = sources.filter(s => t && (s.label.toLowerCase().includes(t) || t.includes(s.label.toLowerCase())));
-  if (hit.length !== 1) return { text: hit.length ? `More than one indexed folder matches "${t}": ${hit.map(s => s.label).join(', ')}. Ask Boon which.` : `No indexed folder is called "${t}". The folders currently indexed: ${sources.map(s => s.label).join(', ') || 'none'}.` };
+  if (hit.length !== 1) return { text: hit.length ? `More than one indexed folder matches "${t}": ${hit.map(s => s.label).join(', ')}. Which do you mean?` : `No indexed folder is called "${t}". The folders currently indexed: ${sources.map(s => s.label).join(', ') || 'none'}.` };
   const r = await removeSource(hit[0].id, { withDocs: !!intent.withDocs });
-  return { text: `Stopped indexing "${hit[0].label}"${intent.withDocs ? ` and moved its ${r.removedDocs} stored document(s) to the Backup` : '. The text already read stays in Mobius unless Boon asks for it to be removed'}. Nothing in his Drive was touched.` };
+  return { text: `Stopped indexing "${hit[0].label}"${intent.withDocs ? ` and moved its ${r.removedDocs} stored document(s) to the Backup` : '. The text already read stays in Mobius unless you ask for it to be removed'}. Nothing in your Drive was touched.` };
 }
 
 async function actSync() {
   const rep = await syncSources({ budgetMs: 40000 });
   if (!Array.isArray(rep)) return { text: `Nothing was read: ${rep?.skipped || 'no result'}.` };
-  if (!rep.length) return { text: 'No folders are indexed yet, so there is nothing to update. Boon can say "link the … folder" first.' };
+  if (!rep.length) return { text: 'No folders are indexed yet, so there is nothing to update. You can say “link the … folder” first.' };
   return { text: 'Index updated:\n' + rep.map(x => x.error ? `- ${x.label}: problem — ${x.error}` : x.skipped ? `- ${x.label}: ${x.skipped}` : `- ${x.label}: ${x.indexed} new or changed file(s) read, ${x.unchanged} already up to date${x.paused ? ' (paused: the free database is nearly full)' : ''}`).join('\n') };
 }
 
