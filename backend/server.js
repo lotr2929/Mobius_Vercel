@@ -10,9 +10,10 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { PORT, FRONTEND_DIR, IS_VERCEL, START_TIME, CRON_SECRET, CRON_BUDGET_MS, BACKUP_DIR, KEYS } from './config.js';
 import { authRouter, authGate, authEnabled } from './auth.js';
-import { lastUpdated } from './version.js';
+import { lastUpdated, appVersion } from './version.js';
 import { supabase } from './db.js';
 import { availableNames, modelStatus } from './ai/cascade.js';
 import { auditModels, probeModels } from './ai/audit.js';
@@ -44,6 +45,15 @@ app.use(express.json({ limit: '20mb' }));
 app.use(authRouter);
 app.use(authGate);
 
+// The Settings page carries its own version stamp, filled in here as it is served, so what you see is what was sent.
+app.get('/settings.html', (req, res, next) => {
+  try {
+    const html = fs.readFileSync(path.join(FRONTEND_DIR, 'settings.html'), 'utf8')
+      .replace(/__MOBIUS_VERSION__/g, appVersion() || '').replace(/__MOBIUS_UPDATED__/g, lastUpdated() || '');
+    res.set('Cache-Control', 'no-store').type('html').send(html);
+  } catch { next(); }
+});
+
 app.use(express.static(FRONTEND_DIR));
 
 // ── Status & history ─────────────────────────────────────────────────────────
@@ -52,7 +62,7 @@ app.get('/api/status', async (req, res) => {
   const names = availableNames();
   const latest = (await getMessages(1))[0]?.created_at || null;
   res.json({
-    ok: true, startTime: START_TIME, supabase: !!supabase, updated: lastUpdated(), latest,
+    ok: true, startTime: START_TIME, supabase: !!supabase, updated: lastUpdated(), version: appVersion(), latest,
     cascade: names.length > 3 ? [...names.slice(0, 3), `+${names.length - 3} more`] : names,
   });
 });

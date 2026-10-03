@@ -37,3 +37,11 @@ export function lastUpdated() {
   const t = Math.max(...WATCH.map(w => newestMtime(path.join(ROOT, w))));
   return t ? perthStamp(new Date(t)) : null;
 }
+
+// → "v36": the version number deploy.bat bumps in frontend/sw.js on every deploy, so it moves with each release.
+export function appVersion() {
+  try {
+    const m = fs.readFileSync(path.join(ROOT, 'frontend', 'sw.js'), 'utf8').match(/CACHE\s*=\s*'mobius-v(\d+)'/);
+    return m ? 'v' + m[1] : null;
+  } catch { return null; }
+}

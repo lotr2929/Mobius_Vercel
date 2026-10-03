@@ -14,6 +14,7 @@ body{max-width:780px;margin:0 auto;padding:12px 14px 70px;color:var(--text);font
 header{display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:6px;}
 header img{width:40px;height:40px;object-fit:contain;}
 header h1{font-size:22px;color:var(--green);letter-spacing:-0.4px;}
+header h1 .ver{font-size:11px;font-weight:normal;color:var(--dim);letter-spacing:0;margin-left:8px;}
 header a{margin-left:auto;color:var(--green2);font-size:13px;}
 section{margin-top:26px;}
 h2{font-size:16px;color:var(--green);margin-bottom:2px;}
@@ -53,7 +54,7 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
 <body>
 <header>
   <img src="/logo.png" alt="" onerror="this.style.display='none'">
-  <h1>Settings</h1>
+  <h1>Settings <span id="ver" class="ver" data-v="__MOBIUS_VERSION__" data-u="__MOBIUS_UPDATED__"></span></h1>
   <a href="/">&larr; Back to Mobius</a>
 </header>
 <div id="status"></div>
@@ -591,6 +592,20 @@ async function linkFolder(id, name) {
     history.replaceState(null, '', '/settings.html');
   }
 }
+
+// Version tag: what this page was sent as, checked against what the server is running now.
+(async () => {
+  const tag = $('ver');
+  const baked = tag.dataset.v.startsWith('__') ? '' : tag.dataset.v;     // filled in by the server as the page is sent
+  const bakedU = tag.dataset.u.startsWith('__') ? '' : tag.dataset.u;
+  const show = (v, u) => { tag.textContent = [v, u && 'updated ' + u].filter(Boolean).join(' · '); };
+  show(baked, bakedU);
+  try {
+    const d = await fetch('/api/status', { cache: 'no-store' }).then(r => r.json());
+    if (!baked) show(d.version, d.updated);
+    else if (d.version && d.version !== baked) { tag.textContent += ' · a newer version (' + d.version + ') is ready: close and reopen this page'; tag.style.color = 'var(--amber)'; }
+  } catch { /* offline: the stamp on the page is all there is */ }
+})();
 
 Promise.all([loadProfile(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
 </script>
