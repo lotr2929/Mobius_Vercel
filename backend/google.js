@@ -114,20 +114,41 @@ export async function preflight(url) {
 
 export class SetupError extends Error { constructor(message, fix) { super(message); this.fix = fix; } }
 
+// Google only sends the browser back to an address it was told about in advance. Mobius's own address is tried first;
+// the address the earlier version registered (GOOGLE_REDIRECT_URI) is the second choice, so a sign-in works the moment
+// either one is known to Google. The choice, and the page to come back to, travel inside the one-time state value.
+const originOf = req => redirectUri(req).replace(/\/api\/google\/callback$/, '');
+function redirectCandidates(req) {
+  const list = [redirectUri(req)];
+  const earlier = process.env.GOOGLE_REDIRECT_URI;
+  try { if (earlier && new URL(earlier).protocol === 'https:' && !list.includes(earlier)) list.push(earlier); } catch { /* not an address: ignored */ }
+  return list;
+}
+// The path part of the earlier address, so the server can answer there too.
+export function earlierCallbackPath() { try { return new URL(process.env.GOOGLE_REDIRECT_URI).pathname; } catch { return null; } }
+const readState = state => { try { return JSON.parse(Buffer.from(String(state).split('.')[1], 'base64url').toString('utf8')); } catch { return null; } };
+
 export async function startAuth(req) {
   const c = await creds();
   if (!c) throw new Error('Save the Client ID and Client secret first.');
-  const state = crypto.randomBytes(24).toString('hex');
-  await patch({ oauth_state: state, oauth_state_at: new Date().toISOString() });
-  const o = new google.auth.OAuth2(c.id, c.secret, redirectUri(req));
-  const url = o.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES, state });
-  const p = await preflight(url);
-  if (!p.ok) {
-    if (p.kind === 'redirect') throw new SetupError('Google does not yet know this return address: ' + redirectUri(req), 'redirect');
-    if (p.kind === 'client') throw new SetupError('Google no longer recognises the saved key (it may have been deleted). Use “Use a different key” and download a new one.', 'client');
-    throw new SetupError('Google refused the sign-in request. Check the key and its consent screen in Google Cloud.', 'other');
+  let first = null;
+  for (const uri of redirectCandidates(req)) {
+    const state = crypto.randomBytes(24).toString('hex') + '.' + Buffer.from(JSON.stringify({ o: originOf(req), r: uri })).toString('base64url');
+    const o = new google.auth.OAuth2(c.id, c.secret, uri);
+    const url = o.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES, state });
+    const p = await preflight(url);
+    if (p.ok) { await patch({ oauth_state: state, oauth_state_at: new Date().toISOString() }); return url; }
+    first = first || p;
   }
-  return url;
+  if (first.kind === 'redirect') throw new SetupError('Google does not yet know this return address: ' + redirectUri(req), 'redirect');
+  if (first.kind === 'client') throw new SetupError('Google no longer recognises the saved key (it may have been deleted). Use “Use a different key” and download a new one.', 'client');
+  throw new SetupError('Google refused the sign-in request. Check the key and its consent screen in Google Cloud.', 'other');
+}
+
+// The page to send the browser back to, but only if the state is the one Mobius issued (never a made-up address).
+export async function originForState(state) {
+  const r = await row();
+  return r?.oauth_state && r.oauth_state === state ? (readState(state)?.o || null) : null;
 }
 
 export async function finishAuth(req, code, state) {
@@ -138,7 +159,7 @@ export async function finishAuth(req, code, state) {
     throw new Error('That sign-in attempt was not recognised or has expired. Press Connect and try again.');
   }
   await patch({ oauth_state: null });
-  const o = new google.auth.OAuth2(c.id, c.secret, redirectUri(req));
+  const o = new google.auth.OAuth2(c.id, c.secret, readState(state)?.r || redirectUri(req));
   const { tokens } = await o.getToken(code);
   if (!tokens.refresh_token) throw new Error('Google did not return a lasting permission. Remove Mobius at myaccount.google.com/permissions, then press Connect again.');
   let email = null;

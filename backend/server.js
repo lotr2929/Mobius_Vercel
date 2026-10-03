@@ -239,13 +239,20 @@ app.get('/api/google/connect', async (req, res) => { // sends the browser to Goo
   try { res.redirect(await gAccount.startAuth(req)); }
   catch (e) { res.redirect('/settings.html?google=error&msg=' + encodeURIComponent(e.message) + (e.fix ? '&fix=' + e.fix : '')); }
 });
-app.get('/api/google/callback', async (req, res) => { // Google sends the browser back here
+// Google sends the browser back here, at Mobius's own address or at the address the earlier version registered
+// (which may be on another host, so the page to return to comes from the one-time state, never from the request).
+const googleCallback = async (req, res) => {
+  const state = String(req.query.state || '');
+  const home = (await gAccount.originForState(state).catch(() => null)) || '';
   try {
     if (req.query.error) throw new Error(req.query.error === 'access_denied' ? 'You did not approve the connection, so nothing was connected.' : 'Google said: ' + req.query.error);
-    await gAccount.finishAuth(req, String(req.query.code || ''), String(req.query.state || ''));
-    res.redirect('/settings.html?google=connected');
-  } catch (e) { res.redirect('/settings.html?google=error&msg=' + encodeURIComponent(e.message)); }
-});
+    await gAccount.finishAuth(req, String(req.query.code || ''), state);
+    res.redirect(home + '/settings.html?google=connected');
+  } catch (e) { res.redirect(home + '/settings.html?google=error&msg=' + encodeURIComponent(e.message)); }
+};
+app.get('/api/google/callback', googleCallback);
+const earlierPath = gAccount.earlierCallbackPath();
+if (earlierPath && earlierPath !== '/api/google/callback') app.get(earlierPath, googleCallback);
 app.post('/api/google/disconnect', async (req, res) => {
   try { await gAccount.disconnect(); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
