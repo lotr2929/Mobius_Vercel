@@ -3,6 +3,7 @@
 // working if every model is unavailable.
 import { askModel } from '../ai/cascade.js';
 import { parseJson, nowIn } from '../util.js';
+import { extractRefs, refStrings } from '../bible.js';
 
 // Greetings and acknowledgements: no memory lookup, no web search.
 const TRIVIAL = /^(hi|hey|hello|yo|sup|thanks|thank you|ta|cheers|ok|okay|k|cool|nice|great|got it|noted|ack|good morning|good night|bye|goodbye|yes|no|yep|nope|sure)[\s!.?]*$/;
@@ -40,7 +41,38 @@ export function driveRules(query, hasFile = false) {
 }
 
 const IMAGE_MARK = /\[\d+ images? attached\]/;
-function fallbackPlan(query, projects, hasFile, recentHasImage = false) {
+// ── Scripture: "show me Matthew 21:33-46", "those readings in full", "this Sunday's readings in full" ──
+const SHOW = /\b(?:show|read|display|print|give me|quote|pull up|bring up|look up|open|fetch|put up|let me (?:see|read)|can i (?:see|read)|text of|full text|in full|word for word)\b/i;
+const EXPLAIN = /\b(?:explain|compare|discuss|commentary|meaning|mean|interpret|reflect|reflection|sermon|summari[sz]e|why|how|what does|analy[sz]e|exegesis|context|background|difference|contrast)\b/i;
+const READINGS = /\b(?:lectionary|rcl)\b[^.?]{0,30}\b(?:readings?|gospel|passages?|lessons?)\b|\b(?:this|next|coming|today'?s|sunday'?s)\s+(?:sunday'?s?\s+)?(?:readings?|gospel|passages?|lessons?)\b|\breadings?\s+for\s+(?:this|next|the|sunday)\b/i;
+const transl = q => (/\bboth\b|\bcompare\b|side by side|WEB and KJV|KJV and WEB/i.test(q) ? 'both' : /\bKJV\b|king james/i.test(q) ? 'KJV' : /\bWEB\b|world english/i.test(q) ? 'WEB' : '');
+const lastAssistant = recent => [...recent].reverse().find(m => m.role === 'assistant')?.content || '';
+const WANTS_THEM = /\b(?:them|those|these|the readings|the passages|the verses|that passage|the lessons)\b|in full|full text/i;
+
+export function bibleRules(query, recent = []) {
+  const q = String(query || '');
+  const show = SHOW.test(q);
+  let refs = refStrings(q, { chapterOnlyOk: show });
+  if (!refs.length && show && WANTS_THEM.test(q)) refs = refStrings(lastAssistant(recent), {});
+  const readings = !refs.length && show && READINGS.test(q);
+  if (!refs.length && !readings) return null;
+  return { refs: [...new Set(refs)].slice(0, 8), translation: transl(q), show: show || readings, explain: EXPLAIN.test(q), readings };
+}
+
+// The model's version is kept only for references that really appear in the message or in the last answer.
+function cleanBible(b, query, recent, fallback) {
+  const f = fallback.bible;
+  if (!b || typeof b !== 'object') return f;
+  const allowed = new Set([...extractRefs(query, { chapterOnlyOk: true }), ...(WANTS_THEM.test(query) ? extractRefs(lastAssistant(recent), {}) : [])].map(r => r.label));
+  const refs = (Array.isArray(b.refs) ? b.refs : []).flatMap(x => extractRefs(String(x), { chapterOnlyOk: true })).filter(r => allowed.has(r.label)).map(r => r.text).slice(0, 8);
+  const merged = refs.length ? refs : (f?.refs || []);
+  const readings = !merged.length && ((b.readings === true && READINGS.test(query) && SHOW.test(query)) || !!f?.readings);
+  if (!merged.length && !readings) return null;
+  const tr = String(b.translation || '');
+  return { refs: merged, translation: /both/i.test(tr) ? 'both' : /kjv|king/i.test(tr) ? 'KJV' : /web|world/i.test(tr) ? 'WEB' : (f?.translation || transl(query)), show: b.show === true || !!f?.show || readings, explain: b.explain === true || !!f?.explain, readings };
+}
+
+function fallbackPlan(query, projects, hasFile, recentHasImage = false, recent = []) {
   const q = query.toLowerCase();
   const hit = projects
     .filter(p => q.includes(p.key.toLowerCase()) || (p.keywords || []).some(k => k.length > 3 && q.includes(k.toLowerCase())))
@@ -49,7 +81,7 @@ function fallbackPlan(query, projects, hasFile, recentHasImage = false) {
     standalone: query, queries: [query.slice(0, 160)], projects: hit.slice(0, 2), needsArchive: true, sinceDays: null, aboutSelf: ABOUT_SELF.test(query), needsWeb: true,
     refersToImage: IMAGE_REF.test(query) && recentHasImage, imageHint: '',
     refersToChat: CHAT_REF.test(query), chatHint: { keywords: query.slice(0, 120), sinceDays: null, untilDays: null, previous: /\b(?:previous|last|earlier)\s+(?:chat|conversation|discussion)\b/i.test(query) },
-    listChats: LIST_CHATS.test(query), drive: driveRules(query, hasFile),
+    listChats: LIST_CHATS.test(query), drive: driveRules(query, hasFile), bible: bibleRules(query, recent),
   };
 }
 
@@ -66,7 +98,7 @@ function cleanDrive(d, query, hasState, fallback) {
   };
 }
 
-function accept(j, query, projects, fallback, hasState) {
+function accept(j, query, projects, fallback, hasState, recent = []) {
   const standalone = typeof j.standalone === 'string' && j.standalone.trim() ? j.standalone.trim().slice(0, 500) : query;
   const queries = (Array.isArray(j.queries) ? j.queries : [])
     .filter(q => typeof q === 'string' && q.trim()).map(q => q.trim().slice(0, 160)).slice(0, 2);
@@ -89,6 +121,7 @@ function accept(j, query, projects, fallback, hasState) {
     chatHint: { keywords: typeof ch.keywords === 'string' && ch.keywords.trim() ? ch.keywords.trim().slice(0, 160) : queries.join(' ') || standalone, sinceDays: int(ch.sinceDays), untilDays: int(ch.untilDays), previous: ch.previous === true || fallback.chatHint.previous },
     listChats: (typeof j.listChats === 'boolean' ? j.listChats : false) || fallback.listChats,
     drive: cleanDrive(j.drive, query, hasState, fallback),
+    bible: cleanBible(j.bible, query, recent, fallback),
   };
 }
 
@@ -99,8 +132,8 @@ export async function analyse(query, recent, projects, ctx = {}, workspace = '')
   const hasState = /current folder|last file|numbered list|asked which/.test(workspace);
   const hasFile = /last file opened/.test(workspace);
   const recentHasImage = recent.some(m => IMAGE_MARK.test(m.content || ''));
-  const fallback = fallbackPlan(query, projects, hasFile, recentHasImage);
-  if (isTrivial(query)) return { standalone: query, queries: [query], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false, needsWeb: false, refersToImage: false, imageHint: '', refersToChat: false, chatHint: { keywords: '', sinceDays: null, untilDays: null, previous: false }, listChats: false, drive: null };
+  const fallback = fallbackPlan(query, projects, hasFile, recentHasImage, recent);
+  if (isTrivial(query)) return { standalone: query, queries: [query], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false, needsWeb: false, refersToImage: false, imageHint: '', refersToChat: false, chatHint: { keywords: '', sinceDays: null, untilDays: null, previous: false }, listChats: false, drive: null, bible: null };
 
   const known = projects.length
     ? projects.map(p => `- ${p.key}${p.keywords?.length ? ` (${p.keywords.slice(0, 8).join(', ')})` : ''}`).join('\n')
@@ -133,7 +166,8 @@ Reply with ONLY a JSON object, no commentary:
   "refersToChat": true or false,
   "chatHint": {"keywords": "words likely to appear in that chat", "sinceDays": integer or null, "untilDays": integer or null, "previous": true or false},
   "listChats": true or false,
-  "drive": null or {"action": "accounts" or "list" or "find" or "open" or "link" or "unlink" or "sync", "target": "folder or file name as Boon said it, or empty", "ref": null or a number or "last", "query": "words to search for, for find", "account": "google, dropbox, onedrive or empty", "withDocs": true or false}
+  "drive": null or {"action": "accounts" or "list" or "find" or "open" or "link" or "unlink" or "sync", "target": "folder or file name as Boon said it, or empty", "ref": null or a number or "last", "query": "words to search for, for find", "account": "google, dropbox, onedrive or empty", "withDocs": true or false},
+  "bible": null or {"refs": ["Matthew 21:33-46"], "translation": "WEB" or "KJV" or "both" or "", "show": true or false, "explain": true or false, "readings": true or false}
 }
 
 needsWeb is false when the answer comes from information already given (the date, time or location above), from Boon's own memory, or from the conversation: for example "what time is it", "what do you know about me", "summarise what we discussed". It is true for facts about the world, current events, or anything that could be looked up.
@@ -148,11 +182,13 @@ refersToImage is true when the message asks about a picture, photo or screenshot
 refersToChat is true when the message points at an earlier conversation that is not in the recent conversation above ("in our chat about the GPR paper", "last Tuesday we discussed...", "the previous chat", "go back to where we talked about..."). chatHint.previous is true for "the previous / last chat". chatHint.sinceDays and untilDays turn a time expression into days ago (for "last week": sinceDays 14, untilDays 7; for "yesterday": sinceDays 2, untilDays 0), otherwise null.
 listChats is true when Boon asks to see a list of his earlier chats or conversations.
 
-drive is for requests about Boon's cloud storage, answered by looking in it. "accounts": which drives, accounts or cloud storage are linked. "list": show the contents of a folder ("list the files in the GPR folder", "what's in my Drive", "open the Papers folder", "go into the third one"; target is the folder name, empty for "this folder", ref is a number when he picks from a numbered list). "find": look for files by name or subject across the Drive. "open": read, open, summarise, quote or check a particular file ("read the second one", "summarise draft_v3.pdf", "summarise it" when a file was just opened gives ref "last"). "link": keep a folder indexed for searching; "unlink": stop that; "sync": update the index. Use null for everything else, including general questions that merely mention documents, and for requests about files Boon attaches to the message itself.`;
+drive is for requests about Boon's cloud storage, answered by looking in it. "accounts": which drives, accounts or cloud storage are linked. "list": show the contents of a folder ("list the files in the GPR folder", "what's in my Drive", "open the Papers folder", "go into the third one"; target is the folder name, empty for "this folder", ref is a number when he picks from a numbered list). "find": look for files by name or subject across the Drive. "open": read, open, summarise, quote or check a particular file ("read the second one", "summarise draft_v3.pdf", "summarise it" when a file was just opened gives ref "last"). "link": keep a folder indexed for searching; "unlink": stop that; "sync": update the index. bible is for scripture. refs are Bible references Boon wrote (copied exactly), or, when he says "them", "those readings" or "in full", the references listed in the recent conversation. show is true when he wants the passage text displayed ("show me", "read", "give me", "in full"); explain is true when he also asks for explanation, comparison or comment. readings is true when he asks to see this or next Sunday's lectionary readings (RCL) in full but names no references. A message that merely mentions a reference in discussion has refs and show false. Use null when there is no scripture reference and no request for readings.
+
+Use null for drive for everything else, including general questions that merely mention documents, and for requests about files Boon attaches to the message itself.`;
 
   try {
     const raw = await askModel(prompt, { role: 'quick', timeoutMs: 10000 });
-    return accept(parseJson(raw), query, projects, fallback, hasState);
+    return accept(parseJson(raw), query, projects, fallback, hasState, recent);
   } catch (e) {
     console.warn('[pcm] router fell back to rules:', e.message);
     return fallback;

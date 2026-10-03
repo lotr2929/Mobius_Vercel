@@ -26,6 +26,8 @@ import { liveDriveSearch } from './docs/live.js';
 import { runWorkspace, describeState } from './workspace.js';
 import { earlierImages, saveImages } from './pcm/attachments.js';
 import { findChats, ensureSummaries, loadChatText, listChats, describeChat } from './pcm/chats.js';
+import { runBible } from './bible.js';
+import { findReadings } from './readings.js';
 import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
@@ -111,7 +113,21 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // A question about a picture sent earlier gets that picture back, not just the earlier description of it.
     const earlier = !images.length && !driveResult?.images?.length && !memoryAction && plan.refersToImage ? await safe(() => earlierImages(plan.imageHint), null) : null;
     const sendImages = images.length ? images : (driveResult?.images?.length ? driveResult.images : (earlier?.images || []));
-    const direct = !!(driveResult || chatList); // answered by the result itself: nothing else is searched, so nothing competes with it
+    // Scripture: the words come from the stored WEB and KJV, exactly as stored, never from a model's memory. Without references
+    // ("this Sunday's readings in full") the references are found by web search first.
+    let bibleResult = null;
+    if (!memoryAction && plan.bible) {
+      bibleResult = await safe(async () => {
+        let refs = plan.bible.refs, source = '';
+        if (!refs.length && plan.bible.readings) { const r = await findReadings(plan.standalone); refs = r.refs; source = r.note; }
+        const out = await runBible({ refs, translation: plan.bible.translation });
+        return { ...out, refs, source };
+      }, null);
+    }
+    const bibleShown = bibleResult?.text && plan.bible?.show ? bibleResult : null; // asked to see it: shown verbatim, before anything a model says
+    const bibleOnly = !!bibleShown && !plan.bible.explain;                         // no explanation asked for: no model is needed at all
+    if (bibleResult) trace.set({ bible: { refs: bibleResult.refs, found: bibleResult.found, notes: bibleResult.notes, source: bibleResult.source, shown: !!bibleShown, only: bibleOnly } });
+    const direct = !!(driveResult || chatList || bibleShown); // answered by the result itself: nothing else is searched, so nothing competes with it
     trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
 
     // 3. recall, with the web search running alongside
@@ -166,6 +182,9 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
       { title: 'Result of the cloud-drive request just carried out for Boon: this IS the answer, so present it as it stands, keeping the numbers so he can answer by number (Mobius can only read his Drive, never change it)', rank: 1, cap: 7000, text: driveResult?.text || '' },
       { title: 'Boon\'s earlier chats, newest first: this IS the answer to his request to see them, so present the list as it stands, with the dates and titles', rank: 1, cap: 5000, text: chatList },
+      { title: 'Scripture lookup note', rank: 1, cap: 900, text: [bibleResult?.source, ...(bibleResult?.notes || [])].filter(Boolean).join('\n') },
+      { title: 'Scripture text just shown to Boon in full, word for word from the stored translation. Do NOT repeat it. Comment only on what he asked; quote a few words from it only when needed, exactly as written', rank: 1, cap: 14000, text: bibleShown && !bibleOnly ? bibleShown.text : '' },
+      { title: 'Scripture text for the references in this message: the exact words of the stored translation. Quote scripture only from this, never from memory', rank: 2, cap: 7000, text: bibleResult?.text && !bibleShown ? bibleResult.text : '' },
       { title: `File opened from Boon's Drive: ${driveResult?.fileName || ''}`, rank: 1, cap: 20000, text: driveResult?.fileText || '' },
       { title: 'Earlier conversation(s) Boon is referring to (name the chat by its date and title when you answer; if it does not hold what he asks, say so)', rank: 2, cap: 7000, text: earlierChats },
       { title: 'Picture(s) sent earlier, attached to this message again (look at them afresh; the earlier description is only a hint)', rank: 1, cap: 900, text: earlier?.note || '' },
@@ -205,7 +224,14 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     //    the answer, so it adds no waiting time and never runs for an answer that failed.
     let full = '', usedModel = '', learning = null;
     const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
-    for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages })) {
+    if (bibleShown) {
+      const shownText = (bibleShown.source ? `*${bibleShown.source}*\n\n` : '') + bibleShown.text + (bibleShown.notes.length ? '\n\n' + bibleShown.notes.map(n => `*${n}*`).join('\n') : '');
+      yield { event: 'model:Scripture lookup' };
+      usedModel = 'scripture lookup';
+      full = shownText + (bibleOnly ? '' : '\n\n---\n\n');
+      yield { token: full };
+    }
+    if (!bibleOnly) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');

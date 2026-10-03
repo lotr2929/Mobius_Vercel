@@ -220,6 +220,18 @@ create index if not exists mobius_attachments_created on mobius_attachments (cre
 alter table mobius_attachments enable row level security;
 insert into storage.buckets (id, name, public) values ('mobius-attachments', 'mobius-attachments', false) on conflict (id) do nothing;
 
+-- Public-domain Bible texts, one row per verse, looked up by reference (backend/bible.js). Loaded once from the scrollmapper
+-- bible_databases KJV.csv and the TehShrike world-english-bible JSON files (31,102 KJV and 31,098 WEB verses).
+create table if not exists mobius_bible (
+  translation text     not null,   -- 'WEB' or 'KJV'
+  book        smallint not null,   -- 1 (Genesis) to 66 (Revelation)
+  chapter     smallint not null,
+  verse       smallint not null,
+  text        text     not null,
+  primary key (translation, book, chapter, verse)
+);
+alter table mobius_bible enable row level security;
+
 -- Sizes for the Settings page (the free plan allows 500 MB for the whole project).
 create or replace function pcm_storage ()
 returns table (name text, bytes bigint)
