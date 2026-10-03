@@ -154,7 +154,8 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
   if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
   const seeing = images.length > 0;
   if (seeing && only && !modelByKey(only).vision) { yield { event: 'error:cannot-see-images:' + modelByKey(only).name }; return; }
-  const order = only ? [only] : pickKeys(orderFor('chat', task)).filter(k => !seeing || modelByKey(k).vision);
+  // With an image attached the request is channelled to the models that can see, in their own order ('vision').
+  const order = only ? [only] : pickKeys(orderFor(seeing ? 'vision' : 'chat', task)).filter(k => !seeing || modelByKey(k).vision);
   for (const key of order) {
     const m = modelByKey(key);
     if (!keyFor(m)) {
@@ -164,7 +165,9 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
     let started = false;
     try {
       yield { event: 'model:' + m.name };
-      for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(messages), system, m.maxChars), signal, system, seeing ? images : [])) {
+      // Groq's free tokens-per-minute allowance is small, and an image takes part of it: send less text with it.
+      const room = seeing && m.provider === 'groq' ? Math.max(8000, m.maxChars - 8000) : m.maxChars;
+      for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(messages), system, room), signal, system, seeing ? images : [])) {
         started = true;
         yield token;
       }

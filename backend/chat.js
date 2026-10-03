@@ -39,6 +39,15 @@ const EXPECTS_FILE = /\b(?:attached|uploaded|uploading|attaching|enclosed)\b|\b(
 const DENIES_FILE = /\b(?:no|without|didn'?t|did not|never|not)\b[^.]{0,20}\b(?:attach\w*|upload\w*|files?|documents?)\b|\bthere(?:'s| is) no\b/i;
 export const expectsFile = q => EXPECTS_FILE.test(q) && !DENIES_FILE.test(q);
 
+// The same check for pictures: "what is in this photo?" with no image attached must not be answered by guessing
+// (a model asked about an image it cannot see will happily invent one).
+const NO_IMAGE_NOTE = 'No image was attached to this message. If Boon means an image he sent earlier in this conversation, answer from what was said about it then. Otherwise tell him plainly that nothing was received with THIS message and ask him to attach it (attach panel, "Add a photo or screenshot"). Do not describe or guess at any image.';
+// Deliberately narrow: "created in the image of God" or "the big picture" must not trip it (an earlier, looser
+// document check once did exactly that). It looks for "this/these/attached/uploaded <image>" or a request to read one.
+const EXPECTS_IMAGE = /\b(?:this|these|attached|uploaded)\s+(?:\w+\s+)?(?:images?|photos?|pictures?|screenshots?|scans?|selfies?|pics?)\b(?!\s+of\b)|\b(?:read|describe|look at|analy[sz]e|transcribe|identify|what(?:'s| is) in)\s+(?:the |this |my |that )?(?:image|photo|picture|screenshot|scan|handwriting)\b(?!\s+of\b)|\b(?:in|on|from) (?:this|the attached) (?:image|photo|picture|screenshot|scan)\b/i;
+const DENIES_IMAGE = /\b(?:no|without|didn'?t|did not|never|not)\b[^.]{0,20}\b(?:image|photo|picture|screenshot|attach\w*|upload\w*)\b|\bthere(?:'s| is) no\b/i;
+export const expectsImage = q => EXPECTS_IMAGE.test(q) && !DENIES_IMAGE.test(q);
+
 const fmtProjects = ps => ps.map(p => `${p.key}:\n${p.content}`).join('\n\n');
 const fmtChunks   = ds => ds.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
 const fmtPast = ms => [...ms]
@@ -118,6 +127,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
     const noDocs = !attached.length && !namedText && !chunks.length && expectsFile(userQuery);
+    const noImage = !images.length && expectsImage(userQuery);
+    trace.set({ images: images.length, noImageWarning: noImage });
     const context = assembleContext([
       { title: 'About Mobius and this device (your own documentation)', rank: 1, cap: 8000, text: selfText },
       { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
@@ -126,6 +137,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
         text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
       { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
       { title: 'Note', rank: 1, cap: 400, text: noDocs ? NO_DOCS_NOTE : '' },
+      { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
       { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
       { title: 'Past week', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },

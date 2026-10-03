@@ -16,6 +16,7 @@
 //               quick  small utility calls (routing): fast first
 //               deep   big summarising jobs: large context first
 //               learn  deciding what is worth remembering from a message: sound judgement, quick
+//               vision when an image is attached: only models that can see it, in this order
 //   ask       extra words that work after "Ask:" to force this model
 //
 // Free-tier reality (checked 2 Oct 2026): Gemini Pro models, Mistral Small/Medium/Magistral and
@@ -25,7 +26,7 @@
 export const MODELS = [
   { key: 'gemini',    name: 'gemini-3.8-flash',          provider: 'gemini',  id: 'gemini-3.8-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 1, quick: 6, deep: 1, learn: 6 }, ask: ['flash'] },
+    rank: { chat: 1, quick: 6, deep: 1, learn: 6, vision: 5 }, ask: ['flash'] },
 
   { key: 'gptoss',    name: 'gpt-oss-120b (groq)',       provider: 'groq',    id: 'openai/gpt-oss-120b',
     tags: ['reasoning', 'general', 'code'], maxChars: 22000, maxTokens: 4096,
@@ -33,19 +34,29 @@ export const MODELS = [
 
   { key: 'gemini37',  name: 'gemini-3.7-flash',          provider: 'gemini',  id: 'gemini-3.7-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 3, quick: 5, deep: 2, learn: 2 }, ask: ['flash-3.7'] },
+    rank: { chat: 3, quick: 5, deep: 2, learn: 2, vision: 1 }, ask: ['flash-3.7'] },
 
   { key: 'qwen',      name: 'qwen3.8-27b (groq)',        provider: 'groq',    id: 'qwen/qwen3.8-27b', vision: true,
     tags: ['general', 'code', 'multilingual', 'fast'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 4, quick: 1, deep: 6, learn: 3 }, ask: ['qwen'] },
+    rank: { chat: 4, quick: 1, deep: 6, learn: 3, vision: 2 }, ask: ['qwen'] },
 
   { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', id: 'ministral-14b-latest', vision: true,
     tags: ['general', 'fast'], maxChars: 90000, maxTokens: 4096,
-    rank: { chat: 5, quick: 4, deep: 4, learn: 5 }, ask: ['mistral'] },
+    rank: { chat: 5, quick: 4, deep: 4, learn: 5, vision: 4 }, ask: ['mistral'] },
 
   { key: 'lite',      name: 'gemini-3.1-flash-lite',     provider: 'gemini',  id: 'gemini-3.1-flash-lite', vision: true,
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 6, quick: 2, deep: 3, learn: 4 }, ask: ['flash-lite'] },
+    rank: { chat: 6, quick: 2, deep: 3, learn: 4, vision: 3 }, ask: ['flash-lite'] },
+
+  // Gemma 4 runs on the same Google key with a far larger free allowance (about 14,400 requests a day),
+  // but is slow, so it is only tried for images, and last. Not used for ordinary chat.
+  { key: 'gemma26',   name: 'gemma-4-26b (google)',      provider: 'gemini',  id: 'gemma-4-26b-a4b-it', vision: true,
+    tags: ['general', 'fast'], maxChars: 120000, maxTokens: 4096,
+    rank: { vision: 6 }, ask: ['gemma'] },
+
+  { key: 'gemma31',   name: 'gemma-4-31b (google)',      provider: 'gemini',  id: 'gemma-4-31b-it', vision: true,
+    tags: ['general'], maxChars: 120000, maxTokens: 4096,
+    rank: { vision: 7 }, ask: ['gemma-31b'] },
 
   { key: 'gptoss20',  name: 'gpt-oss-20b (groq)',        provider: 'groq',    id: 'openai/gpt-oss-20b',
     tags: ['fast', 'reasoning'], maxChars: 22000, maxTokens: 4096,
