@@ -7,18 +7,20 @@ import { supabase } from '../db.js';
 import { saveDoc, deleteDoc } from './store.js';
 import { extractFromBuffer } from './extract.js';
 
-const SUPPORTED_MIME = new Set([
+export const SUPPORTED_MIME = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'text/plain',
   'text/markdown',
+  'text/csv',
+  'application/json',
   'application/vnd.google-apps.document',
   'application/vnd.google-apps.spreadsheet',
 ]);
 
 export const driveConfigured = () => !!DRIVE_CREDENTIALS;
 
-function client() {
+export function client() {
   const auth = new google.auth.GoogleAuth({
     credentials: DRIVE_CREDENTIALS,
     scopes: ['https://www.googleapis.com/auth/drive'],

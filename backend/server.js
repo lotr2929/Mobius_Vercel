@@ -31,6 +31,7 @@ import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
 import { extractFromBuffer } from './docs/extract.js';
 import { driveConfigured, browse, importFile, uploadToDrive, syncDrive, backfillFull } from './docs/drive.js';
+import { listSources, addSource, updateSource, checkSource, removeSource, syncSources, serviceAccountEmail } from './docs/sources.js';
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -162,10 +163,15 @@ app.post('/api/drive/import', async (req, res) => {
 });
 
 let syncRunning = false;
-async function runDriveSync() {
+// The Drive folder named in config, then every folder linked in Settings. `budgetMs` bounds the linked ones.
+async function runDriveSync(budgetMs = 30000) {
   if (syncRunning || !supabase || !driveConfigured()) return null;
   syncRunning = true;
-  try { return await syncDrive(); }
+  try {
+    const base = await syncDrive();
+    const linked = await syncSources({ budgetMs: IS_VERCEL ? budgetMs : Infinity });
+    return { ...base, linked };
+  }
   finally { syncRunning = false; }
 }
 
@@ -178,6 +184,33 @@ app.post('/api/drive/sync', (req, res) => {
 });
 
 app.get('/api/drive/status', (req, res) => res.json({ running: syncRunning, keyExists: driveConfigured() }));
+
+// ── Linked folders (Settings → Linked folders) ──────────────────────────────
+app.get('/api/sources', async (req, res) => {
+  try { res.json({ sources: await listSources(), serviceAccount: serviceAccountEmail(), driveReady: driveConfigured() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/sources', async (req, res) => { // { url, label?, maxFiles? }
+  try { res.json({ ok: true, source: await addSource(req.body || {}) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.put('/api/sources/:id', async (req, res) => {
+  try { await updateSource(Number(req.params.id), req.body || {}); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/sources/sync', async (req, res) => { // read new files now (bounded, so a big Drive is read over several presses)
+  if (syncRunning) return res.json({ ok: false, message: 'A sync is already running.' });
+  try { res.json({ ok: true, report: await runDriveSync(40000) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/sources/:id/check', async (req, res) => {
+  try { res.json({ ok: true, source: await checkSource(Number(req.params.id)) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete('/api/sources/:id', async (req, res) => { // ?docs=1 also removes the documents it brought in (to the backup)
+  try { res.json({ ok: true, ...(await removeSource(Number(req.params.id), { withDocs: req.query.docs === '1' })) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 async function handleBackfillFull(req, res) {
   if (!supabase || !driveConfigured()) return res.json({ ok: false, message: 'Drive or database not configured' });
@@ -291,7 +324,7 @@ app.get('/api/cron/daily', async (req, res) => {
   }
   if (!supabase) return res.json({ ok: false, message: 'no Supabase connection' });
   const out = {};
-  try { out.drive = (await runDriveSync()) || { skipped: true }; }
+  try { out.drive = (await runDriveSync(15000)) || { skipped: true }; }
   catch (e) { out.driveError = e.message; }
   out.memory = await runMaintenance({ budgetMs: CRON_BUDGET_MS });
   res.json({ ok: true, ...out });

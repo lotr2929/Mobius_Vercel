@@ -143,6 +143,28 @@ create table if not exists mobius_devnotes (
 create index if not exists mobius_devnotes_status on mobius_devnotes (status, created_at);
 alter table mobius_devnotes enable row level security;
 
+-- Linked folders: cloud folders Boon links in Settings by pasting a share link. Google Drive folders
+-- are read and indexed (newest files first, up to max_files); other providers are only recorded.
+create table if not exists mobius_sources (
+  id            bigserial primary key,
+  provider      text not null default 'gdrive',
+  url           text not null,
+  external_id   text,
+  resource_key  text,
+  label         text not null,
+  is_folder     boolean not null default true,
+  max_files     integer not null default 200,
+  status        text not null default 'pending',   -- 'ok' | 'pending' | 'no_access' | 'unsupported' | 'paused' | 'error'
+  detail        text,
+  files_seen    integer,
+  files_indexed integer,
+  last_checked  timestamptz,
+  last_synced   timestamptz,
+  created_at    timestamptz not null default now()
+);
+create index if not exists mobius_sources_status on mobius_sources (status, id);
+alter table mobius_sources enable row level security;
+
 -- Sizes for the Settings page (the free plan allows 500 MB for the whole project).
 create or replace function pcm_storage ()
 returns table (name text, bytes bigint)
