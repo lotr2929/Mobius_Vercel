@@ -721,15 +721,24 @@ async function handleSend() {
     const reader = res.body.getReader(); const dec = new TextDecoder();
     ansEl.innerHTML = '';
 
+    // A network chunk can end in the middle of a line (or of a character), so keep the unfinished part for the next chunk.
+    // Without this, a line split in two is unreadable and its text silently vanishes from the reply.
+    let sseBuf = '';
     while (true) {
       const { done, value } = await reader.read(); if (done) break;
-      for (const line of dec.decode(value).split('\n')) {
+      sseBuf += dec.decode(value, { stream: true });
+      const sseLines = sseBuf.split('\n'); sseBuf = sseLines.pop();
+      for (const line of sseLines) {
         if (!line.startsWith('data: ')) continue;
         const raw = line.slice(6).trim(); if (raw === '[DONE]') break;
         try {
           const obj = JSON.parse(raw);
           if (obj.event) {
             if (obj.event.startsWith('model:')) usedModel = obj.event.slice(6);
+            if (obj.event === 'cut-off') {
+              full += '\n\n⚠ This reply stopped early and could not be completed. Type "continue" to carry on from here.';
+              ansEl.innerHTML = md(full);
+            }
             if (obj.event.startsWith('searching')) {
               searched = true;
               document.getElementById('status-dot').className = 'searching';
