@@ -52,6 +52,7 @@ async function listTree(drive, rootId, resourceKey, { budgetMs = 30000, maxEntri
   const queue = [{ id: rootId, path: '' }];
   const files = [];
   const skipped = { tooBig: 0, unsupported: 0 };
+  const folders = [rootId]; // every folder under the root: a live search is limited to these
   let truncated = false;
   while (queue.length) {
     if (Date.now() - t0 > budgetMs || files.length + skipped.tooBig + skipped.unsupported > maxEntries) { truncated = true; break; }
@@ -64,7 +65,7 @@ async function listTree(drive, rootId, resourceKey, { budgetMs = 30000, maxEntri
         fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime)',
       }, id === rootId ? keyHeaders(rootId, resourceKey) : undefined);
       for (const f of r.data.files || []) {
-        if (f.mimeType === FOLDER) queue.push({ id: f.id, path: path + f.name + '/' });
+        if (f.mimeType === FOLDER) { queue.push({ id: f.id, path: path + f.name + '/' }); folders.push(f.id); }
         else if (!SUPPORTED_MIME.has(f.mimeType)) skipped.unsupported++;
         else if (Number(f.size || 0) > MAX_BYTES) skipped.tooBig++;
         else files.push({ ...f, path: path + f.name });
@@ -72,7 +73,7 @@ async function listTree(drive, rootId, resourceKey, { budgetMs = 30000, maxEntri
       pageToken = r.data.nextPageToken;
     } while (pageToken);
   }
-  return { files, skipped, truncated };
+  return { files, skipped, truncated, folders };
 }
 
 // The ways Mobius can open Drive, best first: Boon's own connected Google account (no sharing needed), then the
@@ -97,7 +98,7 @@ async function tryOpen(drive, id, resourceKey) {
   const n = tree.files.length;
   const skips = [tree.skipped.unsupported && `${tree.skipped.unsupported} of other types`, tree.skipped.tooBig && `${tree.skipped.tooBig} over 25 MB`].filter(Boolean);
   return {
-    status: 'ok', name: f.data.name, isFolder: true, seen: n,
+    status: 'ok', name: f.data.name, isFolder: true, seen: n, folders: tree.folders,
     detail: `Opened. ${tree.truncated ? 'At least ' : ''}${n.toLocaleString()} readable file${n === 1 ? '' : 's'} found${skips.length ? ' (skipping ' + skips.join(' and ') + ')' : ''}.`,
   };
 }
@@ -145,7 +146,7 @@ export async function addSource({ url, label, maxFiles }) {
     row = {
       provider: 'gdrive', url: String(url).trim(), external_id: link.id, resource_key: link.resourceKey || null,
       label: (String(label || '').trim() || v.name || 'Google Drive folder').slice(0, 60).replace(/[\\/]+/g, '-'),
-      is_folder: v.isFolder !== false, max_files: max, status: v.status, detail: v.detail, access: v.access || 'service',
+      is_folder: v.isFolder !== false, max_files: max, status: v.status, detail: v.detail, access: v.access || 'service', folder_ids: v.folders ? v.folders.slice(0, 5000) : null,
       files_seen: v.seen ?? null, last_checked: new Date().toISOString(),
     };
   } else {
@@ -173,7 +174,7 @@ export async function checkSource(id) {
   if (!src) throw new Error('That linked folder no longer exists.');
   if (src.provider !== 'gdrive') return src;
   const v = await verifyDrive(src.external_id, src.resource_key);
-  const patch = { status: v.status, detail: v.detail, files_seen: v.seen ?? src.files_seen, last_checked: new Date().toISOString(), ...(v.access ? { access: v.access } : {}) };
+  const patch = { status: v.status, detail: v.detail, files_seen: v.seen ?? src.files_seen, last_checked: new Date().toISOString(), ...(v.access ? { access: v.access } : {}), ...(v.folders ? { folder_ids: v.folders.slice(0, 5000) } : {}) };
   const { data } = await supabase.from(T).update(patch).eq('id', id).select('*').single();
   return data;
 }
@@ -225,7 +226,7 @@ async function syncOne(drive, src, left) {
   ].filter(Boolean);
   await supabase.from(T).update({
     status: paused ? 'paused' : 'ok', detail: paused || notes.join(' '),
-    files_seen: tree.files.length, files_indexed: total, last_synced: new Date().toISOString(),
+    files_seen: tree.files.length, files_indexed: total, last_synced: new Date().toISOString(), folder_ids: tree.folders.slice(0, 5000),
   }).eq('id', src.id);
   return { id: src.id, label: src.label, indexed, unchanged, failed, paused: !!paused };
 }

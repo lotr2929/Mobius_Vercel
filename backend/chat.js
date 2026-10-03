@@ -22,6 +22,7 @@ import { PROFILE_SEND_MAX } from './pcm/profile.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
+import { liveDriveSearch } from './docs/live.js';
 import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
@@ -104,7 +105,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf; // none for greetings, questions about Mobius, or answers already in hand
     if (useWeb) yield { event: 'searching web...' };
 
-    const [web, profile, week, archive, namedFile, selfText] = await Promise.all([
+    const [web, profile, week, archive, namedFile, selfText, live] = await Promise.all([
       useWeb ? tavilySearch(plan.standalone) : null,
       safe(getProfile, ''),
       safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
@@ -113,6 +114,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
         : NOTHING,
       attached.length ? null : safe(() => findNamedDoc(plan.standalone), null),
       plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
+      // Boon's linked Drive folders, searched now rather than stored (only when the message is about his documents or work)
+      plan.aboutSelf || memoryAction ? null : safe(() => Promise.race([liveDriveSearch(plan.standalone, plan), new Promise(r => setTimeout(() => r(null), 10000))]), null),
     ]);
     const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
 
@@ -122,7 +125,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const chosen = projects.filter(p => plan.projects.includes(p.key));
     trace.set({ recalled: {
       web: web ? web.length : 0, profile: profile.length, weekDigest: week.digest.length, weekGap: week.gap.length,
-      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, projects: chosen.map(p => p.key), self: selfText.length,
+      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, projects: chosen.map(p => p.key), self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
     } }).mark('recalled');
 
     // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
@@ -142,6 +145,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Past week', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
       { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
+      { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
       { title: 'Web search results', rank: 6, cap: 2600, text: web },
     ]);
