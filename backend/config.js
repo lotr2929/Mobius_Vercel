@@ -17,6 +17,7 @@ export const KEYS = {
   gemini:  env.GEMINI_API_KEY  || '',
   mistral: env.MISTRAL_API_KEY || '',
   groq:    env.GROQ_API_KEY    || '',
+  nvidia:  env.NVIDIA_API_KEY  || '',   // NVIDIA NIM free endpoints (build.nvidia.com); "trial use only"
   tavily:  env.TAVILY_API_KEY  || '',
 };
 

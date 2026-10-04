@@ -26,6 +26,11 @@ const LISTERS = {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return (await r.json()).data.filter(m => m.capabilities?.completion_chat).map(m => m.id);
   },
+  async nvidia() {
+    const r = await fetch('https://integrate.api.nvidia.com/v1/models', { headers: { Authorization: 'Bearer ' + KEYS.nvidia }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return (await r.json()).data.map(m => m.id);
+  },
 };
 
 // Which unregistered ids look like chat models worth a look.
@@ -33,6 +38,7 @@ const WORTHY = {
   gemini:  id => /^gemini-[\d.]+-(flash|pro)(-lite)?(-preview)?(-\d+)?$/.test(id) || /^gemini-(flash|pro)(-lite)?-latest$/.test(id),
   groq:    id => !/whisper|orpheus|guard|safeguard|tts|allam/.test(id),
   mistral: id => /^(mistral|ministral|magistral|codestral|devstral)-.*latest$/.test(id),
+  nvidia:  id => /(nemotron-3|minimax-m3|gpt-oss|kimi|deepseek-v4|glm-5|qwen3\.[5-9]|mistral-large|gemma-4)/i.test(id) && !/embed|rerank|guard|reward|vl|parse|safety|translate/i.test(id),
 };
 
 export async function auditModels() {

@@ -94,6 +94,7 @@ const PROVIDERS = {
   gemini:  { stream: streamGemini },
   groq:    { stream: openAICompat('Groq',    'https://api.groq.com/openai/v1/chat/completions') },
   mistral: { stream: openAICompat('Mistral', 'https://api.mistral.ai/v1/chat/completions') },
+  nvidia:  { stream: openAICompat('NVIDIA',  'https://integrate.api.nvidia.com/v1/chat/completions') },
 };
 const keyFor = model => KEYS[model.provider] || '';
 
