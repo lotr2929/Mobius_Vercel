@@ -188,12 +188,17 @@ export function joinContinuation(partial, head) {
   return (needsSpace ? ' ' : '') + h;
 }
 
-export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [] } = {}) {
+export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [], privateOnly = false } = {}) {
   if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
   const seeing = images.length > 0;
   if (seeing && only && !modelByKey(only).vision) { yield { event: 'error:cannot-see-images:' + modelByKey(only).name }; return; }
   // With an image attached the request is channelled to the models that can see, in their own order ('vision').
-  const order = only ? [only] : pickKeys(orderFor(seeing ? 'vision' : 'chat', task)).filter(k => !seeing || modelByKey(k).vision);
+  let order = only ? [only] : pickKeys(orderFor(seeing ? 'vision' : 'chat', task)).filter(k => !seeing || modelByKey(k).vision);
+  // A private message goes only to models whose provider does not train on prompts; if none can answer, nothing is sent anywhere.
+  if (privateOnly) {
+    order = order.filter(k => modelByKey(k).trains === false);
+    if (!order.length) { yield { event: 'error:no-private-model' }; return; }
+  }
   let partial = ''; // everything sent so far; kept across models so a failure mid-answer is carried on by the next one
   for (const key of order) {
     const m = modelByKey(key);
@@ -203,6 +208,7 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
     }
     try {
       yield { event: 'model:' + m.name };
+      if (m.weak) yield { event: 'weak-model' }; // the app badges the answer: a small model answered because the stronger ones were unavailable
       // Groq's free tokens-per-minute allowance is small, and an image takes part of it: send less text with it.
       const room = seeing && m.provider === 'groq' ? Math.max(8000, m.maxChars - 8000) : m.maxChars;
       for (let cuts = 0; ; cuts++) {
@@ -240,9 +246,9 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
 
 // ── One-shot call (routing, summarising) ─────────────────────────────────────
 // Each model gets its own timeout; the first non-empty answer wins. role: 'quick' | 'deep'.
-export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT } = {}) {
+export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT, privateOnly = false } = {}) {
   let lastError;
-  for (const key of pickKeys(orderFor(role))) {
+  for (const key of pickKeys(orderFor(role)).filter(k => !privateOnly || modelByKey(k).trains === false)) {
     const m = modelByKey(key);
     if (!keyFor(m)) continue;
     try {

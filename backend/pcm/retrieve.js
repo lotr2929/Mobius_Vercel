@@ -35,11 +35,11 @@ export async function getWeek(windowStart) {
 
 // Hybrid search (SQL functions pcm_search_messages / pcm_search_docs fuse vector and
 // keyword ranks). Without an embedding — Gemini quota out — it degrades to keywords only.
-export async function searchArchive({ semantic, keywords }, { sinceDays = null } = {}) {
+export async function searchArchive({ semantic, keywords }, { sinceDays = null, noEmbed = false } = {}) {
   const empty = { messages: [], docs: [] };
   if (!supabase) return empty;
   const query_text = toOrQuery(keywords || semantic);
-  const query_embedding = await embedQuery(semantic);
+  const query_embedding = noEmbed ? null : await embedQuery(semantic); // noEmbed: a private message is not sent to the embedding service
   const min_date = sinceDays ? isoDaysAgo(sinceDays) : null;
 
   const [m, d] = await Promise.all([

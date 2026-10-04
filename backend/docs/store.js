@@ -7,9 +7,10 @@ import { trash } from '../pcm/backup.js';
 const CHUNK_SIZE = 600;
 const CHUNK_OVERLAP = 100;
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 export function chunkText(text) {
   const chunks = [];
-  for (let i = 0; i < text.length; i += CHUNK_SIZE - CHUNK_OVERLAP) chunks.push(text.slice(i, i + CHUNK_SIZE));
+  for (let i = 0; i < text.length; i += CHUNK_SIZE - CHUNK_OVERLAP) chunks.push(text.slice(i, i + CHUNK_SIZE).replace(LONE_SURROGATE, '')); // a cut can split an emoji-like pair
   return chunks.filter(c => c.trim().length > 20);
 }
 
@@ -17,6 +18,8 @@ export function chunkText(text) {
 // upload is quick and keyword-searchable at once; semantic search follows once embedded.
 export async function saveDoc(filename, text, { source = 'upload', modifiedAt = null } = {}) {
   if (!supabase) return 0;
+  // PDF text can hold NUL characters and unpaired surrogates, which the database refuses ("unsupported Unicode escape sequence").
+  text = String(text).replace(/\u0000/g, '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
   const now = new Date().toISOString();
   await supabase.from('mobius_docs_full').upsert({ filename, content: text, updated_at: now });
   await supabase.from('mobius_docs').delete().eq('filename', filename);

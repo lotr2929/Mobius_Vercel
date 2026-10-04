@@ -422,3 +422,44 @@ create table if not exists mobius_digests (
 );
 create index if not exists mobius_digests_level on mobius_digests (level, filename);
 alter table mobius_digests enable row level security;
+
+
+-- Library shelves and private folders: a linked folder can be a "shelf" (used when Boon talks theology) and can be marked
+-- 'private' (kept out of prompts sent to models that train on them). pcm_search_library is the hybrid search for one shelf
+-- or book: files are stored as "<shelf label>/<name>", so shelf_prefix is that label plus "/" (or a whole file name).
+alter table mobius_sources add column if not exists library boolean not null default false;
+alter table mobius_sources add column if not exists sensitivity text not null default 'open';   -- 'open' | 'private'
+create or replace function pcm_search_library(
+  query_text text, query_embedding vector default null, shelf_prefix text default '',
+  match_count integer default 8, min_similarity double precision default 0.45)
+returns table(id bigint, filename text, chunk text, score double precision)
+language sql stable as $$
+  with sem as (
+    select d.id, row_number() over (order by d.embedding <=> query_embedding) as rnk
+    from mobius_docs d
+    where query_embedding is not null and d.embedding is not null
+      and d.filename like shelf_prefix || '%'
+      and 1 - (d.embedding <=> query_embedding) >= min_similarity
+    order by d.embedding <=> query_embedding
+    limit match_count * 4
+  ),
+  kw as (
+    select d.id, row_number() over (order by ts_rank(d.fts, q.tsq) desc) as rnk
+    from mobius_docs d,
+         (select websearch_to_tsquery('english', coalesce(query_text, '')) as tsq) q
+    where coalesce(query_text, '') <> ''
+      and d.filename like shelf_prefix || '%'
+      and d.fts @@ q.tsq
+    order by ts_rank(d.fts, q.tsq) desc
+    limit match_count * 4
+  ),
+  fused as (
+    select coalesce(sem.id, kw.id) as id,
+           coalesce(1.0 / (60 + sem.rnk), 0) + coalesce(1.0 / (60 + kw.rnk), 0) as rrf
+    from sem full outer join kw on sem.id = kw.id
+  )
+  select d.id, d.filename, d.chunk, f.rrf::float as score
+  from fused f join mobius_docs d on d.id = f.id
+  order by 4 desc
+  limit match_count;
+$$;

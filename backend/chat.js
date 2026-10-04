@@ -24,6 +24,7 @@ import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
 import { docDigests, digestOutline, passagesFrom, digestDoc, formatOverview, folderScope } from './docs/digest.js';
 import { listSources } from './docs/sources.js';
+import { isTheology, libraryContext } from './docs/library.js';
 import { liveDriveSearch } from './docs/live.js';
 import { runWorkspace, describeState, loadState } from './workspace.js';
 import { earlierImages, saveImages } from './pcm/attachments.js';
@@ -76,12 +77,18 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
-  const userQuery = cleanQuery || query; // "Ask: Qwen" alone shouldn't blank the query
+  // "Private: …" (or "Confidential: …"): answered only by models whose provider does not train on prompts (ai/models.js `trains`),
+  // with no web search, no embedding call, no automatic learning, and nothing saved to memory (a saved message would later be
+  // read by the digest jobs, which use the free models that do train).
+  const PRIVATE_PREFIX = /^\s*(?:private|confidential)\s*[:\-\u2013\u2014]\s*/i;
+  const asked = cleanQuery || query; // "Ask: Qwen" alone shouldn't blank the query
+  const privateMode = PRIVATE_PREFIX.test(asked);
+  const userQuery = privateMode ? (asked.replace(PRIVATE_PREFIX, '') || asked) : asked;
   const attached = (Array.isArray(docs) ? docs : []).filter(d => d?.text);
   const ctx = describeContext(client, geo); // { tz, now, where }
 
   const trace = startTrace('chat', {
-    query: userQuery, forced: forceProvider, attached: attached.map(d => d.filename),
+    query: privateMode ? '[private message — not recorded]' : userQuery, forced: forceProvider, attached: attached.map(d => d.filename), private: privateMode,
     where: ctx.where, tz: ctx.tz, client: clientBrief(client), events: [],
   });
 
@@ -94,7 +101,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // Notes: "Remember that ...", "Forget ...", "Save 14" and the like are carried out here, before any
     // model is involved. The model is then told what happened so it can confirm it.
     let notes = await listNotes(); // active + suggested
-    const command = parseCommand(userQuery, notes.some(n => n.status === 'proposed'));
+    const command = privateMode ? null : parseCommand(userQuery, notes.some(n => n.status === 'proposed'));
     const memoryAction = command
       ? await safe(() => runCommand(command, { active: notes.filter(n => n.status === 'active'), pending: notes.filter(n => n.status === 'proposed') }), null)
       : null;
@@ -109,8 +116,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     }).mark('loaded');
     const plan = memoryAction
       ? { standalone: userQuery, queries: [userQuery], projects: [], needsArchive: false, sinceDays: null, aboutSelf: false, needsWeb: false }
-      : await analyse(userQuery, recent, projects, ctx, await safe(describeState, ''));
-    trace.set({ plan }).mark('analysed');
+      : await analyse(userQuery, recent, projects, ctx, await safe(describeState, ''), { privateOnly: privateMode });
+    trace.set({ plan: privateMode ? { private: true } : plan }).mark('analysed');
 
     // Requests about his cloud drives ("what drives are linked?", "list the files in the GPR folder", "read the second one")
     // are carried out here; the model is handed the result to present.
@@ -147,15 +154,21 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
 
     // 3. recall, with the web search running alongside
-    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct; // none for greetings, questions about Mobius, or answers already in hand
+    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !privateMode; // none for greetings, questions about Mobius, answers already in hand, or private messages
     if (useWeb) yield { event: 'searching web...' };
+    // Theology talk draws on Boon's library shelves (docs/library.js); a private message does not search outside, so nor does it embed.
+    const theology = !direct && !memoryAction && !attached.length && !plan.aboutSelf && isTheology(`${plan.standalone} ${userQuery}`);
+    // A shelf Boon has marked private (mobius_sources.sensitivity) is kept out of every prompt that goes to a model which trains on
+    // prompts. A "Private:" message goes only to models that do not, so it may use them.
+    const privateLabels = privateMode ? [] : await safe(async () => (await listSources()).filter(s => s.sensitivity === 'private').map(s => s.label), []);
+    const hidden = name => privateLabels.some(l => String(name).startsWith(l + '/'));
 
-    const [web, profile, week, archive, namedFile, selfText, live, overview] = await Promise.all([
+    const [web, profile, week, archive0, namedFile0, selfText, live0, overview0, library] = await Promise.all([
       useWeb ? tavilySearch(plan.standalone) : null,
       safe(getProfile, ''),
       safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
       plan.needsArchive && !direct
-        ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays }), NOTHING)
+        ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays, noEmbed: privateMode }), NOTHING)
         : NOTHING,
       attached.length || direct ? null : safe(async () => {
         const hit = await findNamedDoc(plan.standalone);
@@ -169,10 +182,15 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       plan.aboutSelf || memoryAction || direct || attached.length ? null : safe(async () => {
         const scope = folderScope(plan.standalone, (await listSources()).map(s => s.label));
         if (!scope) return null;
-        const rows = await docDigests({ folder: scope.label });
+        const rows = (await docDigests({ folder: scope.label })).filter(r => !hidden(r.filename));
         return { label: scope.label, n: rows.length, text: formatOverview(rows, 14000) };
       }, null),
+      theology ? safe(() => libraryContext(plan.standalone, { noEmbed: privateMode }), null) : null,
     ]);
+    const archive = { ...archive0, docs: (archive0.docs || []).filter(d => !hidden(d.filename)) };
+    const namedFile = namedFile0 && !hidden(namedFile0) ? namedFile0 : null;
+    const overview = overview0 && !(overview0.label && hidden(overview0.label + '/')) ? overview0 : null;
+    const live = privateLabels.length ? null : live0; // the live Drive search cannot tell private folders apart: off while any is marked
     const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
     // A book too long to send whole is sent as its digest (or the parts digested so far) plus the digests of the parts that match
     // the question, and the passages of it that contain the question's words (docs/digest.js).
@@ -206,6 +224,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, aboutOpenFile: !!plan.aboutOpenFile,
       namedOutline: namedOutline ? { chars: namedOutline.text.length, complete: namedOutline.complete } : 0, namedPassages: namedPassages.length,
       folderOverview: overview ? { folder: overview.label, digests: overview.n } : null,
+      library: library ? { books: library.books, passages: library.hits } : (theology ? 'none held' : null),
       projects: chosen.map(p => p.key), self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
     } }).mark('recalled');
 
@@ -235,6 +254,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
         : `Archived document: ${namedFile} (${namedText?.length.toLocaleString()} characters) — its digest is NOT finished, so what follows is only what has been digested so far. Say in your first sentence that you have not yet read all of it and how much you have; answer only from what is below; do not describe parts you were not given`,
       rank: 1, cap: 20000, text: longNamed ? (namedOutline?.text || `The digest of this document has not been started yet; nothing but the passages below was available. Say that you have not read the whole book and answer only from the passages.`) : '' },
       { title: `Passages of ${namedFile} that contain the words of the question (exact text from the document; quote only from these)`, rank: 2, cap: 5000, text: namedPassages },
+      { title: `Boon's theology library — the shelf (${library?.labels?.join(', ') || ''}): the books he keeps, each with what it is and argues. This is a theological conversation, so draw on these books where they bear on the question, naming the book for every point you take from it; keep what an author says apart from your own view; test an author's argument instead of just repeating it; if the shelf does not cover the question, say so and answer from your own knowledge, marked as such`, rank: 2, cap: 4500, text: library?.shelf || '' },
+      { title: 'Passages from the books on his shelf that match the question (exact words of the books, each with the passage before and after it, labelled by book). They are fragments: do not claim an author never says something just because it is not among them', rank: 2, cap: 9500, text: library?.passages || '' },
       { title: `Digests of the documents ${overview?.label ? `in Boon's folder "${overview.label}"` : 'in Boon\'s folders'} — each written in advance by a model from the document's whole text. Answer the question about the collection from these; for detail from one document, name it and say that its passages can be searched`, rank: 2, cap: 14000, text: overview?.text || '' },
       { title: 'Note', rank: 1, cap: 600, text: noDocs ? NO_DOCS_NOTE : (overview && !overview.n ? 'Boon asked about a whole folder, but no document in it has been digested yet (digests are written gradually in the background after files are read). Say so plainly, and answer only from the searched passages, making clear they are not the whole.' : '') },
       { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
@@ -266,7 +287,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       sections: context.sections,
       system_chars: system.length, system: system.slice(0, 6000),
       messages: messages.map(m => ({ role: m.role, chars: m.content.length })),
-      prompt: finalContent.slice(0, 30000), // exactly what the model was asked
+      prompt: privateMode ? '[private — not recorded]' : finalContent.slice(0, 30000), // exactly what the model was asked
     }).mark('assembled');
 
     // 5. answer. Learning (pcm/learn.js) starts with the first token and runs alongside the rest of
@@ -286,11 +307,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       full = directAnswer;
       yield { token: full };
     }
-    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages })) {
+    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');
-          if (!memoryAction && !direct) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
+          if (!memoryAction && !direct && !privateMode) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
         }
         full += chunk;
         yield { token: chunk };
@@ -305,10 +326,10 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const learned = learning && !signal?.aborted ? await Promise.race([learning, new Promise(r => setTimeout(() => r([]), 4000))]) : [];
     const notice = learnedNotice(learned);
     if (notice) { full += notice; yield { token: notice }; }
-    trace.set({ learned, model: usedModel, answer_chars: full.length, answer_head: full.slice(0, 600) }).mark('answered');
+    trace.set({ learned, model: usedModel, answer_chars: full.length, answer_head: privateMode ? '[private]' : full.slice(0, 600) }).mark('answered');
 
-    // 6. remember — only a finished answer to a question that is still wanted
-    if (!signal?.aborted && full.trim()) {
+    // 6. remember — only a finished answer to a question that is still wanted. A private message is not kept at all.
+    if (!privateMode && !signal?.aborted && full.trim()) {
       const saved = await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
       // keep the pictures so a later "the man in the previous image" can be answered by looking again
       if (images.length && saved?.userId) await saveImages(images, saved.userId, full).catch(e => console.warn('[chat] pictures not kept:', e.message));

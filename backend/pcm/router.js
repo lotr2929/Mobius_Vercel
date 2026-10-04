@@ -132,7 +132,7 @@ function accept(j, query, projects, fallback, hasState, recent = [], hasFile = f
 // → { standalone, queries[], projects[], needsArchive, sinceDays, aboutSelf, needsWeb,
 //     refersToImage, imageHint, refersToChat, chatHint, listChats, drive }
 // ctx = { now, where } from self.js describeContext(); workspace = a line from workspace.describeState()
-export async function analyse(query, recent, projects, ctx = {}, workspace = '') {
+export async function analyse(query, recent, projects, ctx = {}, workspace = '', opts = {}) {
   const hasState = /current folder|last file|numbered list|asked which/.test(workspace);
   const hasFile = /last file opened/.test(workspace);
   const recentHasImage = recent.some(m => IMAGE_MARK.test(m.content || ''));
@@ -194,7 +194,7 @@ drive is for requests about Boon's cloud storage, answered by looking in it. "ac
 Use null for drive for everything else, including general questions that merely mention documents, and for requests about files Boon attaches to the message itself.`;
 
   try {
-    const raw = await askModel(prompt, { role: 'quick', timeoutMs: 10000 });
+    const raw = await askModel(prompt, { role: 'quick', timeoutMs: 10000, privateOnly: !!opts.privateOnly });
     return accept(parseJson(raw), query, projects, fallback, hasState, recent, hasFile);
   } catch (e) {
     console.warn('[pcm] router fell back to rules:', e.message);

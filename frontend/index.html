@@ -691,7 +691,7 @@ async function handleSend() {
   ansEl.innerHTML = '<span class="thinking-dots">thinking…</span>';
   scrollFeed();
 
-  let full = ''; let usedModel = ''; let searched = false; let tavilyRemaining = '';
+  let full = ''; let usedModel = ''; let weakModel = false; let searched = false; let tavilyRemaining = '';
 
   try {
     const body = { query: q, client: await getClientInfo().catch(() => null) };
@@ -721,7 +721,12 @@ async function handleSend() {
         try {
           const obj = JSON.parse(raw);
           if (obj.event) {
-            if (obj.event.startsWith('model:')) usedModel = obj.event.slice(6);
+            if (obj.event.startsWith('model:')) { usedModel = obj.event.slice(6); weakModel = false; }
+            if (obj.event === 'weak-model') weakModel = true; // a small model is answering: the badge below carries a warning
+            if (obj.event === 'error:no-private-model') {
+              full += '⚠ No private model is available just now (Groq may be rate-limited), so nothing was sent anywhere. Try again in a minute.';
+              ansEl.innerHTML = md(full);
+            }
             if (obj.event === 'cut-off') {
               full += '\n\n⚠ This reply stopped early and could not be completed. Type "continue" to carry on from here.';
               ansEl.innerHTML = md(full);
@@ -752,7 +757,7 @@ async function handleSend() {
     if (meta) {
       meta.innerHTML =
         '<span>'+fmtDT(new Date().toISOString())+'</span>'+
-        (usedModel ? '<span class="ai-badge">'+esc(usedModel)+'</span>' : '')+
+        (usedModel ? '<span class="ai-badge"'+(weakModel ? ' style="color:#b45309;border-color:#b45309" title="A small model answered because the stronger ones were unavailable. Check anything important."' : '')+'>'+(weakModel ? '&#x26A0; ' : '')+esc(usedModel)+'</span>' : '')+
         (searched ? '<span class="search-badge">&#x1F50D; web</span>' : '')+
         (tavilyRemaining ? '<span class="ai-badge" title="Tavily credits remaining this month">&#x1F50D; '+esc(tavilyRemaining)+'</span>' : '')+
         '<button class="copy-btn" onclick="copyBubble(this)" title="Copy">&#x2398;</button>';
