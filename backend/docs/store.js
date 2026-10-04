@@ -33,13 +33,18 @@ export async function saveDoc(filename, text, { source = 'upload', modifiedAt = 
 export async function findNamedDoc(query) {
   if (!supabase) return null;
   const { data } = await supabase.from('mobius_docs_full').select('filename');
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().replace(/\s+/g, ' ');
   for (const { filename } of data || []) {
-    const stem = filename.replace(/\.(pdf|txt|md|docx?|csv|json|js|py)$/i, '')
+    // Files read from a linked folder are stored as "<folder>/<path>"; the name Boon would use is the file's own.
+    const stem = filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|csv|json|js|py)$/i, '')
       .replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
     if (stem.length > 6 && q.includes(stem)) return filename;
     const words = stem.split(' ').filter(w => w.length > 3);
     if (words.length >= 2 && words.every(w => q.includes(w))) return filename;
+    // A long title is rarely typed in full: its first three words (without a leading "a" or "the") are enough.
+    // Not for exported chats, whose names end in a hash and begin with ordinary words ("chesterton and the devil-6a40…").
+    const lead = stem.replace(/^(?:a|an|the) /, '').split(' ').slice(0, 3).join(' ');
+    if (stem.split(' ').length >= 5 && lead.length >= 14 && !/\b[0-9a-f]{8}\b/.test(stem) && q.includes(lead)) return filename;
   }
   return null;
 }
@@ -76,4 +81,5 @@ export async function deleteDoc(filename, reason = 'deleted by Boon') {
   }
   await supabase.from('mobius_docs').delete().eq('filename', filename);
   await supabase.from('mobius_docs_full').delete().eq('filename', filename);
+  await supabase.from('mobius_digests').delete().eq('filename', filename); // derived, so rebuilt if the file returns
 }

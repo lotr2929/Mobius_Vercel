@@ -8,10 +8,12 @@
 //   profile   tier 2  weekly update of the personal profile, used straight away (old version kept)
 //   housekeeping       tidies itself: backups to the laptop, rebuilds, retires old data (housekeeping.js)
 //   embed     tier 4  embed messages and document chunks saved without a vector
+//   digests   tier 4  a digest of every document (and of each part of a long one), so a folder can be read as a whole
 import { supabase } from '../db.js';
 import { RECENT_MESSAGES, WEEK_DAYS, PROJECT_DORMANT_DAYS } from '../config.js';
 import { askModel } from '../ai/cascade.js';
 import { auditModels } from '../ai/audit.js';
+import { digestPending } from '../docs/digest.js';
 import { embedQuery, embedPatient } from './embed.js';
 import { getActive, listActive, put, retireStale, getState, setState } from './memory.js';
 import { fitProfile } from './profile.js';
@@ -239,6 +241,9 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
     ['projects', () => refreshProjects(left)],
     ['notes',    () => harvestNotes(left)],
     ['profile',  () => refreshProfile()],
+    ['digests',  () => digestPending(Number.isFinite(budgetMs)
+      ? { left: () => left() - budgetMs * 0.3, maxParts: 60 }  // a timed (daily) run: gentle on the free quotas, and keeps 30% of its time for embedding
+      : { left })],                                            // by hand: as much as there is
     ['embed',    () => embedBacklog({ messages: cli ? 500 : 20, docs: cli ? 3000 : 30, patient: cli, left })],
   ];
   const report = {};

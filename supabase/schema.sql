@@ -404,3 +404,21 @@ $$;
 
 -- The old match_mobius_docs / match_mobius_messages functions and the mobius_topics table
 -- are no longer used by the app. They are left in place; drop them whenever convenient.
+
+
+-- Digests: a short account of each document, written in advance by a model from the whole text, so that a question
+-- about a folder (or about one long book) can be answered from above, not only from passages that search happens to find.
+-- 'section' rows are the parts of a long file (about 16,000 characters each); the one 'doc' row is the digest of the whole.
+create table if not exists mobius_digests (
+  filename    text not null,
+  level       text not null,                 -- 'section' | 'doc'
+  idx         integer not null default 0,    -- part number for 'section'; 0 for 'doc'
+  chars_from  integer,
+  chars_to    integer,
+  content     text not null,
+  doc_updated timestamptz,                   -- the version of the file (mobius_docs_full.updated_at) this describes
+  created_at  timestamptz not null default now(),
+  primary key (filename, level, idx)
+);
+create index if not exists mobius_digests_level on mobius_digests (level, filename);
+alter table mobius_digests enable row level security;

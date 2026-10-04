@@ -22,6 +22,8 @@ import { PROFILE_SEND_MAX } from './pcm/profile.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
+import { docDigests, digestOutline, formatOverview, folderScope } from './docs/digest.js';
+import { listSources } from './docs/sources.js';
 import { liveDriveSearch } from './docs/live.js';
 import { runWorkspace, describeState } from './workspace.js';
 import { earlierImages, saveImages } from './pcm/attachments.js';
@@ -148,7 +150,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct; // none for greetings, questions about Mobius, or answers already in hand
     if (useWeb) yield { event: 'searching web...' };
 
-    const [web, profile, week, archive, namedFile, selfText, live] = await Promise.all([
+    const [web, profile, week, archive, namedFile, selfText, live, overview] = await Promise.all([
       useWeb ? tavilySearch(plan.standalone) : null,
       safe(getProfile, ''),
       safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
@@ -159,8 +161,17 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
       // Boon's linked Drive folders, searched now rather than stored (only when the message is about his documents or work)
       plan.aboutSelf || memoryAction || direct ? null : safe(() => Promise.race([liveDriveSearch(plan.standalone, plan), new Promise(r => setTimeout(() => r(null), 10000))]), null),
+      // A question about a whole folder ("what runs through the documents in Scriptura Fidelium?") is answered from the digests of its documents
+      plan.aboutSelf || memoryAction || direct || attached.length ? null : safe(async () => {
+        const scope = folderScope(plan.standalone, (await listSources()).map(s => s.label));
+        if (!scope) return null;
+        const rows = await docDigests({ folder: scope.label });
+        return { label: scope.label, n: rows.length, text: formatOverview(rows, 14000) };
+      }, null),
     ]);
     const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
+    // A book too long to send whole is sent as its digest plus the digests of the parts that match the question (docs/digest.js).
+    const namedOutline = namedText && namedText.length > 20000 ? await safe(() => digestOutline(namedFile, plan.standalone), null) : null;
 
     // "In our chat about X ...", "the previous chat": find that conversation and read it back.
     const hitIds = archive.messages.map(m => m.id);
@@ -177,11 +188,13 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     const seen = new Set(recent.map(m => m.id));
     const past = archive.messages.filter(m => !seen.has(m.id));
-    const chunks = namedText ? [] : archive.docs;
+    const chunks = namedText && !namedOutline ? [] : archive.docs; // a digested long book keeps its search passages too
     const chosen = projects.filter(p => plan.projects.includes(p.key));
     trace.set({ recalled: {
       web: web ? web.length : 0, profile: profile.length, weekDigest: week.digest.length, weekGap: week.gap.length,
-      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, projects: chosen.map(p => p.key), self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
+      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, namedOutline: namedOutline ? namedOutline.length : 0,
+      folderOverview: overview ? { folder: overview.label, digests: overview.n } : null,
+      projects: chosen.map(p => p.key), self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
     } }).mark('recalled');
 
     // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
@@ -204,8 +217,10 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Picture(s) sent earlier, attached to this message again (look at them afresh; the earlier description is only a hint)', rank: 1, cap: 900, text: earlier?.note || '' },
       { title: ATTACHED_TITLE, rank: 1, cap: 20000,
         text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
-      { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedText },
-      { title: 'Note', rank: 1, cap: 400, text: noDocs ? NO_DOCS_NOTE : '' },
+      { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedOutline ? '' : namedText },
+      { title: `Archived document: ${namedFile} — too long to send whole, so this is its digest and the digests of the parts that best match the question. The digests were written in advance by a model from the full text; for exact wording rely on the passages under "Relevant documents", and say when something you are asked is not covered here`, rank: 1, cap: 20000, text: namedOutline || '' },
+      { title: `Digests of the documents ${overview?.label ? `in Boon's folder "${overview.label}"` : 'in Boon\'s folders'} — each written in advance by a model from the document's whole text. Answer the question about the collection from these; for detail from one document, name it and say that its passages can be searched`, rank: 2, cap: 14000, text: overview?.text || '' },
+      { title: 'Note', rank: 1, cap: 600, text: noDocs ? NO_DOCS_NOTE : (overview && !overview.n ? 'Boon asked about a whole folder, but no document in it has been digested yet (digests are written gradually in the background after files are read). Say so plainly, and answer only from the searched passages, making clear they are not the whole.' : '') },
       { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
       { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
       { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },

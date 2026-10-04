@@ -14,7 +14,7 @@ import { userDrive, noteFailure } from '../google.js';
 const T = 'mobius_sources';
 const FOLDER = 'application/vnd.google-apps.folder';
 const MAX_BYTES = 25 * 1024 * 1024;  // bigger files are skipped
-const MAX_CHARS = 300000;            // text kept per file (about 100 pages); the rest is left out
+const MAX_CHARS = 1000000;           // text kept per file (about 330 pages); longer books go in with `npm run ingest`, which has no such limit
 const STOP_AT_PERCENT = 85;          // stop indexing when the database is this full
 const OTHER_NAMES = { onedrive: 'OneDrive / SharePoint', dropbox: 'Dropbox', box: 'Box', other: 'this service' };
 
@@ -220,7 +220,7 @@ async function syncOne(drive, src, left) {
     `${total.toLocaleString()} file${total === 1 ? '' : 's'} read of ${tree.files.length.toLocaleString()} found${tree.truncated ? '+' : ''}.`,
     more ? `${more.toLocaleString()} older file${more === 1 ? ' is' : 's are'} beyond the limit of ${src.max_files} (raise it to include more).` : '',
     tree.skipped.unsupported ? `${tree.skipped.unsupported.toLocaleString()} of other types skipped.` : '',
-    tree.skipped.tooBig ? `${tree.skipped.tooBig.toLocaleString()} over 25 MB skipped.` : '',
+    tree.skipped.tooBig ? `${tree.skipped.tooBig.toLocaleString()} over 25 MB skipped (add these from the laptop with “npm run ingest”).` : '',
     failed ? `${failed} had no readable text (for example scanned pages).` : '',
     indexed + unchanged < wanted.length && !paused ? 'Not finished: press “Read new files now” again to continue.' : '',
   ].filter(Boolean);
