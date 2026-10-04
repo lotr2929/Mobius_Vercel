@@ -8,27 +8,50 @@ const CHUNK_SIZE = 600;
 const CHUNK_OVERLAP = 100;
 
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
-export function chunkText(text) {
+
+// Books on a library shelf are cut into larger passages with no overlap: the search machinery (keyword index, meaning-vector)
+// costs far more per passage than the text does, so 1,800 characters instead of 600+overlap cuts a book's footprint by about two thirds.
+export const LIBRARY_CHUNK = { size: 1800, overlap: 0 };
+
+export function chunkText(text, size = CHUNK_SIZE, overlap = CHUNK_OVERLAP) {
   const chunks = [];
-  for (let i = 0; i < text.length; i += CHUNK_SIZE - CHUNK_OVERLAP) chunks.push(text.slice(i, i + CHUNK_SIZE).replace(LONE_SURROGATE, '')); // a cut can split an emoji-like pair
+  if (overlap === 0) { // cut at a paragraph or sentence end near the limit, so a passage rarely stops mid-sentence
+    for (let i = 0; i < text.length;) {
+      let end = Math.min(text.length, i + size);
+      if (end < text.length) {
+        const win = text.slice(i + Math.floor(size * 0.7), end);
+        const cut = Math.max(win.lastIndexOf('\n\n'), win.lastIndexOf('. '), win.lastIndexOf('.\n'));
+        if (cut > 0) end = i + Math.floor(size * 0.7) + cut + 1;
+      }
+      chunks.push(text.slice(i, end).replace(LONE_SURROGATE, ''));
+      i = end;
+    }
+  } else {
+    for (let i = 0; i < text.length; i += size - overlap) chunks.push(text.slice(i, i + size).replace(LONE_SURROGATE, '')); // a cut can split an emoji-like pair
+  }
   return chunks.filter(c => c.trim().length > 20);
 }
 
-// Replaces any earlier version of the file. Chunks are saved without vectors, so an
+// Replaces the search passages of a file (not its stored text, so digests stay valid). Passages are saved without vectors, so an
 // upload is quick and keyword-searchable at once; semantic search follows once embedded.
-export async function saveDoc(filename, text, { source = 'upload', modifiedAt = null } = {}) {
-  if (!supabase) return 0;
-  // PDF text can hold NUL characters and unpaired surrogates, which the database refuses ("unsupported Unicode escape sequence").
-  text = String(text).replace(/\u0000/g, '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+export async function saveChunks(filename, text, { source = 'upload', modifiedAt = null, size = CHUNK_SIZE, overlap = CHUNK_OVERLAP } = {}) {
   const now = new Date().toISOString();
-  await supabase.from('mobius_docs_full').upsert({ filename, content: text, updated_at: now });
   await supabase.from('mobius_docs').delete().eq('filename', filename);
-  const rows = chunkText(text).map(chunk => ({ filename, chunk, source, modified_at: modifiedAt, created_at: now }));
+  const rows = chunkText(text, size, overlap).map(chunk => ({ filename, chunk, source, modified_at: modifiedAt, created_at: now }));
   for (let i = 0; i < rows.length; i += 200) {
     const { error } = await supabase.from('mobius_docs').insert(rows.slice(i, i + 200));
     if (error) throw new Error('saving chunks: ' + error.message);
   }
   return rows.length;
+}
+
+// Replaces any earlier version of the file: its whole text, then its passages.
+export async function saveDoc(filename, text, opts = {}) {
+  if (!supabase) return 0;
+  // PDF text can hold NUL characters and unpaired surrogates, which the database refuses ("unsupported Unicode escape sequence").
+  text = String(text).replace(/\u0000/g, '').replace(LONE_SURROGATE, '');
+  await supabase.from('mobius_docs_full').upsert({ filename, content: text, updated_at: new Date().toISOString() });
+  return saveChunks(filename, text, opts);
 }
 
 // Does the query name a specific stored file? Match the file's name (minus extension)

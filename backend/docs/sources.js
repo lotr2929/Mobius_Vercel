@@ -7,7 +7,7 @@
 import { supabase } from '../db.js';
 import { DRIVE_CREDENTIALS } from '../config.js';
 import { client, extractText, SUPPORTED_MIME, driveConfigured } from './drive.js';
-import { saveDoc, deleteDoc } from './store.js';
+import { saveDoc, deleteDoc, LIBRARY_CHUNK } from './store.js';
 import { storageReport } from '../pcm/housekeeping.js';
 import { userDrive, noteFailure } from '../google.js';
 
@@ -200,7 +200,11 @@ async function syncOne(drive, src, left) {
   for (const f of wanted) {
     if (left() < 6000) break;
     const name = `${src.label}/${f.path}`;
-    const { data: have } = await supabase.from('mobius_docs').select('id').eq('filename', name).eq('modified_at', f.modifiedTime).limit(1);
+    // A library shelf is loaded from the laptop (`npm run ingest`, no size limit), so a book already held is left alone here
+    // whatever its recorded date: re-reading it from Drive would cut it at 1,000,000 characters and restart its digest.
+    let q = supabase.from('mobius_docs').select('id').eq('filename', name);
+    if (!src.library) q = q.eq('modified_at', f.modifiedTime);
+    const { data: have } = await q.limit(1);
     if (have?.length) { unchanged++; continue; }
     if (indexed % 10 === 0) {
       const rep = await storageReport().catch(() => null);
@@ -209,7 +213,7 @@ async function syncOne(drive, src, left) {
     try {
       const text = (await extractText(drive, f)).slice(0, MAX_CHARS);
       if (!text.trim()) { failed++; continue; }
-      await saveDoc(name, text, { source, modifiedAt: f.modifiedTime });
+      await saveDoc(name, text, { source, modifiedAt: f.modifiedTime, ...(src.library ? LIBRARY_CHUNK : {}) });
       indexed++;
     } catch (e) { failed++; console.warn('[sources]', name, e.message); }
   }

@@ -48,15 +48,18 @@ async function shelfText(shelves) {
   return shelfMemo;
 }
 
-// The passage found, widened by the chunk before and after it (chunks overlap by 100 characters).
+// A short passage (600 characters, overlapping its neighbours by 100) is widened by the chunk before and after it. A shelf
+// passage of 1,800 characters (docs/store.js LIBRARY_CHUNK) is already a paragraph or two, and is used as it stands.
 async function widen(hits) {
-  const ids = [...new Set(hits.flatMap(h => [h.id - 1, h.id, h.id + 1]))];
-  const { data } = await supabase.from('mobius_docs').select('id, filename, chunk').in('id', ids);
+  const small = hits.filter(h => h.chunk.length <= 1200);
+  const ids = [...new Set(small.flatMap(h => [h.id - 1, h.id, h.id + 1]))];
+  const { data } = ids.length ? await supabase.from('mobius_docs').select('id, filename, chunk').in('id', ids) : { data: [] };
   const byId = new Map((data || []).map(r => [r.id, r]));
   const used = new Set();
   const out = [];
   for (const h of hits) {
     if (used.has(h.id)) continue;
+    if (h.chunk.length > 1200) { used.add(h.id); out.push({ filename: h.filename, text: h.chunk.replace(/\s+/g, ' ').trim() }); continue; }
     const win = [h.id - 1, h.id, h.id + 1].map(i => byId.get(i)).filter(r => r && r.filename === h.filename);
     win.forEach(r => used.add(r.id));
     const text = win.map((r, i) => (i === 0 ? r.chunk : r.chunk.slice(100))).join('').replace(/\s+/g, ' ').trim();
@@ -77,7 +80,7 @@ function surnameOf(filename) {
 // → { shelf, passages, books, hits } or null when no shelf is marked or nothing is held
 // Passages are spread across the books: at most 3 from any one book, and when the question names an author on the shelf
 // ("does Armstrong see it differently?") that author's book is searched on its own, so one strong match cannot crowd the others out.
-export async function libraryContext(query, { max = 8, noEmbed = false } = {}) {
+export async function libraryContext(query, { max = 6, noEmbed = false } = {}) {
   const shelves = await libraryShelves();
   if (!shelves.length) return null;
   const [shelf, embedding] = await Promise.all([shelfText(shelves), noEmbed ? null : embedQuery(query).catch(() => null)]);

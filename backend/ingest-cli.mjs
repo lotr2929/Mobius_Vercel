@@ -9,8 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { supabase } from './db.js';
 import { extractFromBuffer } from './docs/extract.js';
-import { saveDoc } from './docs/store.js';
-import { chunkText } from './docs/store.js';
+import { saveDoc, LIBRARY_CHUNK } from './docs/store.js';
 import { listSources } from './docs/sources.js';
 import { storageReport } from './pcm/housekeeping.js';
 
@@ -28,11 +27,12 @@ if (!target || !fs.existsSync(target)) {
 }
 if (!supabase) { console.log('No database connection (check SUPABASE_URL and SUPABASE_KEY in .env).'); process.exit(1); }
 
-let source = 'upload', prefix = '';
+let source = 'upload', prefix = '', chunking = {};
 if (label) {
   const src = (await listSources()).find(s => s.label.toLowerCase() === label.toLowerCase());
   if (!src) { console.log(`No linked folder is called "${label}". Linked: ${(await listSources()).map(s => s.label).join(', ') || 'none'}.`); process.exit(1); }
   source = 'gdrive:' + src.id; prefix = src.label + '/';
+  if (src.library) chunking = LIBRARY_CHUNK; // a library shelf is cut into larger passages (about a third of the space)
 }
 
 const files = [];
@@ -52,8 +52,8 @@ for (const file of files) {
   try {
     const text = (await extractFromBuffer(fs.readFileSync(file), file)).slice(0, MAX_CHARS);
     if (!text.trim()) { console.log('no readable text (a scan?), skipped'); continue; }
-    const n = await saveDoc(name, text, { source, modifiedAt: fs.statSync(file).mtime.toISOString() });
-    console.log(`${text.length.toLocaleString()} characters, ${n.toLocaleString()} search passages (about ${Math.round(n * 7.5 / 1024)} MB of database)`);
+    const n = await saveDoc(name, text, { source, modifiedAt: fs.statSync(file).mtime.toISOString(), ...chunking });
+    console.log(`${text.length.toLocaleString()} characters, ${n.toLocaleString()} search passages (about ${Math.round(n * (chunking.size ? 3 : 7.5) / 1024)} MB of database)`);
     added++;
   } catch (e) { console.log('failed: ' + e.message); }
 }
