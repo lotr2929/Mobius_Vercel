@@ -26,11 +26,19 @@
   const bookName = n => BOOKS[n - 1] && BOOKS[n - 1].name;
   const display = n => (n === 19 ? 'Psalm' : bookName(n));
 
-  const DASH = '[-\u2013\u2014]';
+  // Every dash a model or a keyboard can produce: hyphen, non-breaking hyphen (U+2011, which models often use inside
+  // "31‑46"), figure dash, en/em dash, horizontal bar, minus sign, small and full-width hyphen-minus.
+  const DASH_CLASS = '-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D';
+  const DASH = '[' + DASH_CLASS + ']';
+  // Between the two ends of a verse range: a dash, or the words "to" / "through" ("Genesis 1:1 to 2:4").
+  const RANGE = '(?:' + DASH + '|to|through|thru|until)';
+  const PART_RE = new RegExp('^(?:(\\d{1,3})\\s*:\\s*)?(\\d{1,3})([a-c])?(?:\\s*' + RANGE + '\\s*(?:(\\d{1,3})\\s*:\\s*)?(\\d{1,3})([a-c])?)?$', 'i');
   const REF_SOURCE = (
     '(?<![A-Za-z0-9])(?<num>[1-3]|III|II|I|First|Second|Third)?\\.?\\s*(?<name>[A-Za-z]+(?:\\s+of\\s+(?:Songs|Solomon|John|the\\s+Apostles))?)\\.?\\s*(?<ch>\\d{1,3})' +
-    '(?:\\s*:\\s*(?<v1>\\d{1,3})(?<s1>[a-c])?(?:\\s*' + DASH + '\\s*(?:(?<c2>\\d{1,3})\\s*:\\s*)?(?<v2>\\d{1,3})(?<s2>[a-c])?)?' +
-    '(?<more>(?:\\s*[,;]\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?(?:\\s*' + DASH + '\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?)?(?!\\d)(?!\\s*:)(?!\\s*[A-Za-z]{2,}))*))?');
+    // a run of whole chapters: "Revelation 20-21"
+    '(?:\\s*' + DASH + '\\s*(?<ch2>\\d{1,3})(?!\\d)(?!\\s*:))?' +
+    '(?:\\s*:\\s*(?<v1>\\d{1,3})(?<s1>[a-c])?(?:\\s*' + RANGE + '\\s*(?:(?<c2>\\d{1,3})\\s*:\\s*)?(?<v2>\\d{1,3})(?<s2>[a-c])?)?' +
+    '(?<more>(?:\\s*[,;]\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?(?:\\s*' + RANGE + '\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?)?(?!\\d)(?!\\s*:)(?!\\s*[A-Za-z]{2,}))*))?');
   const numKey = n => ({ i: '1', ii: '2', iii: '3', first: '1', second: '2', third: '3' }[String(n).toLowerCase()] || n);
 
   // → [{ book, ranges: [{ c1, v1, c2, v2 }], partial, chapterOnly, label, text, start, end }]
@@ -52,14 +60,14 @@
       const ch = +g.ch;
       const ranges = [];
       let partial = !!(g.s1 || g.s2);
-      if (!hasVerse) ranges.push({ c1: ch, v1: 1, c2: ch, v2: Infinity });
+      if (!hasVerse) ranges.push({ c1: ch, v1: 1, c2: g.ch2 ? +g.ch2 : ch, v2: Infinity });
       else {
         const c2 = g.c2 ? +g.c2 : ch;
         ranges.push({ c1: ch, v1: +g.v1, c2, v2: g.v2 ? +g.v2 : (g.c2 ? Infinity : +g.v1) });
         const parts = String(g.more || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
         let cur = c2; // the chapter in force; "; 2:1-4" moves to chapter 2
         for (const part of parts) {
-          const mm = part.match(/^(?:(\d{1,3})\s*:\s*)?(\d{1,3})([a-c])?(?:\s*[-\u2013\u2014]\s*(?:(\d{1,3})\s*:\s*)?(\d{1,3})([a-c])?)?$/);
+          const mm = part.match(PART_RE);
           if (!mm) continue;
           if (mm[3] || mm[6]) partial = true;
           const cs = mm[1] ? +mm[1] : cur, ce = mm[4] ? +mm[4] : cs;
@@ -67,7 +75,7 @@
           cur = ce;
         }
       }
-      const spec = ranges.map(r => (r.v2 === Infinity && r.v1 === 1 ? '' + r.c1 : r.c1 === r.c2
+      const spec = ranges.map(r => (r.v2 === Infinity && r.v1 === 1 ? (r.c1 === r.c2 ? '' + r.c1 : r.c1 + '\u2013' + r.c2) : r.c1 === r.c2
         ? (r.v1 === r.v2 ? r.c1 + ':' + r.v1 : r.c1 + ':' + r.v1 + '\u2013' + (r.v2 === Infinity ? 'end' : r.v2))
         : r.c1 + ':' + r.v1 + '\u2013' + r.c2 + ':' + (r.v2 === Infinity ? 'end' : r.v2)));
       // later ranges in the same chapter are written without repeating the chapter: "105:1–11, 45"
