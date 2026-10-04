@@ -18,7 +18,7 @@ import { embedQuery, embedPatient } from './embed.js';
 import { getActive, listActive, put, retireStale, getState, setState } from './memory.js';
 import { fitProfile } from './profile.js';
 import { housekeeping } from './housekeeping.js';
-import { listNotes, addNote } from './notes.js';
+import { listNotes, addNote, promoteSuggestions } from './notes.js';
 import { segmentChats, summariseChats } from './chats.js';
 import { clip, isoDaysAgo, parseJson } from '../util.js';
 
@@ -240,6 +240,7 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
     ['chats',    async () => ({ ...(await segmentChats()), ...(await summariseChats({ limit: 3 })) })],
     ['projects', () => refreshProjects(left)],
     ['notes',    () => harvestNotes(left)],
+    ['promote',  () => promoteSuggestions()],   // suggestions are not reviewed: safe ones become notes, private ones stay out of every prompt
     ['profile',  () => refreshProfile()],
     ['digests',  () => digestPending(Number.isFinite(budgetMs)
       ? { left: () => left() - budgetMs * 0.3, maxParts: 60 }  // a timed (daily) run: gentle on the free quotas, and keeps 30% of its time for embedding

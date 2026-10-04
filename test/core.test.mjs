@@ -112,3 +112,13 @@ test('the app: logo opens Settings, no settings icon, arrow keys drive all four 
   assert.match(html, /ArrowLeft[\s\S]{0,400}navHist\(-1\)[\s\S]{0,200}navHist\(1\)[\s\S]{0,200}navQueryHist\(-1\)[\s\S]{0,200}navQueryHist\(1\)/, 'arrows are wired to the chevrons');
   assert.match(html, /typingDraft/, 'arrows leave the cursor alone while a new message is being typed');
 });
+
+test('suggestions: private topics are held back, repeats are recognised, ordinary views pass', async () => {
+  const { PRIVATE_TOPIC, overlap } = await import('../backend/pcm/notes.js');
+  for (const s of ['Boon has a family member named Fee Yoon who is suffering from liver problems.', 'Boon earns a salary of 90k.', 'Boon keeps his passport number in a drawer.', 'Boon is on medication for his heart.'])
+    assert.match(s, PRIVATE_TOPIC, s);
+  for (const s of ['Boon defines God as complete honesty and openness to life itself.', 'Boon decides to allocate his time to his GPR project.', 'Boon prefers British English.', 'Boon notes that his local church prioritises space for doubt.'])
+    assert.doesNotMatch(s, PRIVATE_TOPIC, s);
+  assert.ok(overlap('Boon defines the term "space for God to act" as complete honesty and openness to life itself.', 'Boon defines God as complete honesty and openness to life itself.') >= 0.6);
+  assert.ok(overlap('Boon decides to allocate his time to his GPR project.', 'Boon defines God as complete honesty and openness to life itself.') < 0.3);
+});

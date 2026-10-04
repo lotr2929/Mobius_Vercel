@@ -151,3 +151,40 @@ export async function runCommand(cmd, { active, pending }) {
       return null;
   }
 }
+
+// ── Suggestions that need no review ──────────────────────────────────────────
+// Boon does not review suggestions (4 Oct 2026), so a suggestion left unreviewed for a few hours is promoted to an active note
+// unless it (a) repeats what an active note already says, or (b) touches something private: health, money, identifiers and
+// passwords, legal trouble, sex and relationships, immigration. Those stay "proposed" for ever: they are never sent to a model.
+// Active notes ride in every prompt, including those that go to free tiers which may train on them, so privacy is decided here.
+export const PRIVATE_TOPIC = /\b(?:health|ill(?:ness)?|sick|disease|diagnosed|diagnosis of|symptom\w*|medicat\w*|medicine|drug|dose|cancer|tumou?r|liver|kidney|heart|stroke|surgery|hospital|clinic|doctor|therap\w*|psychiatr\w*|depress\w*|anxiety|suicid\w*|self[- ]harm|addict\w*|dementia|pregnan\w*|salary|income|wage|debt|loan|mortgage|tax|bank|account number|credit|savings|shares|stocks|portfolio|inherit\w*|password|passcode|pin\b|passport|licen[cs]e number|tax file|ssn|lawsuit|sued|court|police|arrest\w*|convict\w*|divorce|affair|sexual\w*|gay|lesbian|visa\b|immigra\w*|citizenship|abuse[ds]?|assault\w*|stress\w*|strain|burn(?:ed|t)?[- ]?out|overwhelm\w*|exhaust\w*|grie[fv]\w*|bereave\w*|lonel\w*|marginali[sz]\w*|marriage|marital|spouse|wife|husband|home life|family life)\b/i;
+
+// How much of the shorter note's words the longer one contains: 1 means one is inside the other.
+export function overlap(a, b) {
+  const A = words(a), B = new Set(words(b));
+  if (!A.length || !B.size) return 0;
+  const common = A.filter(w => B.has(w)).length;
+  return common / Math.min(A.length, B.size);
+}
+
+export async function promoteSuggestions({ minAgeHours = 6, max = 12 } = {}) {
+  if (!supabase) return { skipped: 'no database' };
+  const all = await listNotes(['active', 'proposed']);
+  const active = all.filter(n => n.status === 'active');
+  const cutoff = Date.now() - minAgeHours * 3600e3;
+  const out = { promoted: 0, heldPrivate: 0, duplicates: 0, waiting: 0 };
+  const promote = [], taken = [...active];
+  for (const n of all.filter(x => x.status === 'proposed').sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    if (Date.parse(n.created_at) > cutoff) { out.waiting++; continue; }
+    if (PRIVATE_TOPIC.test(n.content)) { out.heldPrivate++; continue; }
+    if (taken.some(t => overlap(n.content, t.content) >= 0.6)) { out.duplicates++; await setStatus([n.id], 'rejected'); continue; } // already known: not suggested again
+    if (promote.length >= max) { out.waiting++; continue; }
+    promote.push(n.id); taken.push(n);
+  }
+  if (promote.length) {
+    const { error } = await supabase.from(T).update({ status: 'active', source: 'suggested-auto', updated_at: new Date().toISOString() }).in('id', promote);
+    if (error) throw new Error('notes: ' + error.message);
+  }
+  out.promoted = promote.length;
+  return out;
+}
