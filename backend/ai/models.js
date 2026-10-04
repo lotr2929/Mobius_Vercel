@@ -58,13 +58,16 @@ export const MODELS = [
     rank: { chat: 7, quick: 1, deep: 10, learn: 4, vision: 4 }, ask: ['qwen'] },
 
   // NVIDIA NIM: needs NVIDIA_API_KEY. Reasoning models, so they get a larger output allowance (thinking shares it).
-  { key: 'minimax',   name: 'minimax-m3 (nvidia)',       provider: 'nvidia',  id: 'minimaxai/minimax-m3',
-    tags: ['general', 'reasoning', 'code', 'long-context'], maxChars: 90000, maxTokens: 8192,
-    rank: { chat: 8 }, ask: ['minimax'] },
-
+  // Tried live on 4 Oct 2026: nemotron-3-ultra and -super answer in about a second; glm-5.3-flash in about 13 s;
+  // deepseek-v4.1-flash in about 36 s (too slow for chat); kimi-k3, glm-5.3 and gemma-4-31b timed out at 60 s;
+  // kimi-k2.6, mistral-large and llama-3.1-nemotron-ultra are "not found for account"; MiniMax M3 and gpt-oss-120b are not on the list.
   { key: 'nemotron',  name: 'nemotron-3-ultra (nvidia)', provider: 'nvidia',  id: 'nvidia/nemotron-3-ultra-550b-a55b',
     tags: ['general', 'reasoning', 'long-context'], maxChars: 90000, maxTokens: 8192,
-    rank: { chat: 9 }, ask: ['nemotron', 'ultra'] },
+    rank: { chat: 8, deep: 13 }, ask: ['nemotron', 'ultra'] },
+
+  { key: 'glm53f',    name: 'glm-5.3-flash (nvidia)',    provider: 'nvidia',  id: 'z-ai/glm-5.3-flash',
+    tags: ['general', 'reasoning', 'code'], maxChars: 90000, maxTokens: 8192,
+    rank: { chat: 12 }, ask: ['glm'] },
 
   { key: 'lite35',    name: 'gemini-3.5-flash-lite',     provider: 'gemini',  id: 'gemini-3.5-flash-lite', vision: true,
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
@@ -76,12 +79,7 @@ export const MODELS = [
 
   { key: 'nemosuper', name: 'nemotron-3-super (nvidia)', provider: 'nvidia',  id: 'nvidia/nemotron-3-super-120b-a12b',
     tags: ['general', 'reasoning'], maxChars: 90000, maxTokens: 8192,
-    rank: { chat: 12 }, ask: ['nemotron-super'] },
-
-  // The same gpt-oss-120b as the Groq entry, but on NVIDIA's separate allowance.
-  { key: 'gptossnim', name: 'gpt-oss-120b (nvidia)',     provider: 'nvidia',  id: 'openai/gpt-oss-120b',
-    tags: ['reasoning', 'general', 'code'], maxChars: 90000, maxTokens: 8192,
-    rank: { chat: 13 }, ask: ['gpt-oss-nvidia'] },
+    rank: { chat: 9, deep: 14 }, ask: ['nemotron-super'] },
 
   { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', id: 'ministral-14b-latest', vision: true,
     tags: ['general', 'fast'], maxChars: 90000, maxTokens: 4096,
