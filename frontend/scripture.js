@@ -38,7 +38,7 @@
     // a run of whole chapters: "Revelation 20-21"
     '(?:\\s*' + DASH + '\\s*(?<ch2>\\d{1,3})(?!\\d)(?!\\s*:))?' +
     '(?:\\s*:\\s*(?<v1>\\d{1,3})(?<s1>[a-c])?(?:\\s*' + RANGE + '\\s*(?:(?<c2>\\d{1,3})\\s*:\\s*)?(?<v2>\\d{1,3})(?<s2>[a-c])?)?' +
-    '(?<more>(?:\\s*[,;]\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?(?:\\s*' + RANGE + '\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?)?(?!\\d)(?!\\s*:)(?!\\s*[A-Za-z]{2,}))*))?');
+    '(?<more>(?:(?:\\s*[,;]\\s*(?:and\\s+)?|\\s+and\\s+|\\s*&\\s*)(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?(?:\\s*' + RANGE + '\\s*(?:\\d{1,3}\\s*:\\s*)?\\d{1,3}[a-c]?)?(?!\\d)(?!\\s*:)(?!\\s*(?!and\\b)[A-Za-z]{2,}))*))?');
   const numKey = n => ({ i: '1', ii: '2', iii: '3', first: '1', second: '2', third: '3' }[String(n).toLowerCase()] || n);
 
   // → [{ book, ranges: [{ c1, v1, c2, v2 }], partial, chapterOnly, label, text, start, end }]
@@ -64,7 +64,7 @@
       else {
         const c2 = g.c2 ? +g.c2 : ch;
         ranges.push({ c1: ch, v1: +g.v1, c2, v2: g.v2 ? +g.v2 : (g.c2 ? Infinity : +g.v1) });
-        const parts = String(g.more || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+        const parts = String(g.more || '').split(/\s*(?:[,;]|\band\b|&)\s*/i).map(s => s.trim()).filter(Boolean);
         let cur = c2; // the chapter in force; "; 2:1-4" moves to chapter 2
         for (const part of parts) {
           const mm = part.match(PART_RE);
