@@ -84,7 +84,7 @@ export async function probeModels() {
           body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK' }] }], generationConfig: { maxOutputTokens: 200 } }),
         });
       } else {
-        const url = m.provider === 'groq' ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.mistral.ai/v1/chat/completions';
+        const url = { groq: 'https://api.groq.com/openai/v1/chat/completions', mistral: 'https://api.mistral.ai/v1/chat/completions', nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions' }[m.provider];
         r = await fetch(url, {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(40000),
           body: JSON.stringify({ model: m.id, messages: [{ role: 'user', content: 'Reply with the single word OK' }], max_tokens: 200 }),
