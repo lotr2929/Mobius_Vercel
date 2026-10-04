@@ -25,7 +25,10 @@ export async function getWeek(windowStart) {
       .select('role, content, created_at')
       .gt('created_at', since).lt('created_at', windowStart)
       .order('created_at', { ascending: false }).limit(60);
-    gap = (data || []).reverse().map(m => `${m.role}: ${m.content.replace(/\s+/g, ' ').slice(0, 240)}`).join('\n');
+    // Written as dated notes, not as "user:" / "assistant:" turns: a small model that meets a transcript here takes its last
+    // line for the live conversation and answers that (it once answered a question from the night before).
+    const when = iso => new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Perth', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
+    gap = (data || []).reverse().map(m => `- ${when(m.created_at)}, ${m.role === 'user' ? 'Boon said' : 'Mobius replied'}: “${m.content.replace(/\s+/g, ' ').slice(0, 160)}”`).join('\n');
   }
   return { digest, gap };
 }

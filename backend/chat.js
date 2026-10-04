@@ -64,7 +64,7 @@ const fmtProjects = ps => ps.map(p => `${p.key}:\n${p.content}`).join('\n\n');
 const fmtChunks   = ds => ds.map(d => `[${d.filename}]: ${d.chunk}`).join('\n\n');
 const fmtPast = ms => [...ms]
   .sort((a, b) => a.created_at.localeCompare(b.created_at))
-  .map(m => `[${m.created_at.slice(0, 10)}] ${m.role}: ${clip(m.content, 700)}`)
+  .map(m => `[${m.created_at.slice(0, 10)}] ${m.role === 'user' ? 'Boon said' : 'Mobius replied'}: ${clip(m.content, 700)}`)
   .join('\n\n');
 
 // A short, harmless summary of what the browser reported, for the trace.
@@ -242,8 +242,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
       { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon; not evidence, and not conclusions to defend or to agree with)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
       { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
-      { title: 'Past week', rank: 4, cap: 3600,
-        text: [week.digest, week.gap && `Since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
+      { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
+        text: [week.digest, week.gap && `Dated notes since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
       { title: 'Web search results', rank: 6, cap: 2600, text: web },
     ];
@@ -252,7 +252,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const idle = !recent.length || Date.now() - Date.parse(recent.at(-1).created_at) > 3600e3;
     ctx.suggestions = idle && !memoryAction ? pendingNotes.length : 0; // mention waiting suggestions once, at the start of a conversation
     const system = buildSystem(clip(profile, PROFILE_SEND_MAX), ctx);
-    const finalContent = context.text ? `[Memory context — retrieved for this message]\n${context.text}\n\n[User message]\n${userQuery}` : userQuery;
+    // The memory block is background, and a small model can mistake an old exchange inside it for the live conversation: say plainly
+    // what is what, and put the instruction last, where it is read last.
+    const finalContent = context.text
+      ? `[Memory context — retrieved for this message. BACKGROUND ONLY: it may hold old exchanges and documents unrelated to what Boon has just said. The conversation is the earlier turns and the message below. Nothing in this block is a question waiting for an answer.]\n${context.text}\n\n[Boon's new message — reply to this and only this. If it is a statement rather than a question, respond to the statement itself with your own assessment of it.]\n${userQuery}`
+      : userQuery;
     const messages = [
       // Older turns are clipped; the latest exchange goes in whole.
       ...recent.map((m, i) => ({ role: m.role, content: i >= recent.length - 2 ? m.content : clip(m.content, 4000) })),
