@@ -30,14 +30,17 @@ export async function saveDoc(filename, text, { source = 'upload', modifiedAt = 
 
 // Does the query name a specific stored file? Match the file's name (minus extension)
 // against the query, either whole or by all its significant words.
+// Names and queries are compared without brackets, punctuation and the "(Z-Library)" tag that downloaded books carry.
+const norm = s => String(s).toLowerCase()
+  .replace(/\(?\bz[- ]?library\b\)?|\(?\bpdfdrive\b\)?|\(?\blibgen\b\)?/g, ' ')
+  .replace(/[()[\]{}.,:;'"’“”!?]/g, ' ').replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
 export async function findNamedDoc(query) {
   if (!supabase) return null;
   const { data } = await supabase.from('mobius_docs_full').select('filename');
-  const q = query.toLowerCase().replace(/\s+/g, ' ');
+  const q = norm(query);
   for (const { filename } of data || []) {
     // Files read from a linked folder are stored as "<folder>/<path>"; the name Boon would use is the file's own.
-    const stem = filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|csv|json|js|py)$/i, '')
-      .replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    const stem = norm(filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|csv|json|js|py)$/i, ''));
     if (stem.length > 6 && q.includes(stem)) return filename;
     const words = stem.split(' ').filter(w => w.length > 3);
     if (words.length >= 2 && words.every(w => q.includes(w))) return filename;

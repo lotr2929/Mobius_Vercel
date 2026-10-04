@@ -20,6 +20,8 @@ const IMAGE_REF = /\b(?:the|that|this|my|earlier|previous|last|first|second)\s+(
 const CHAT_REF = /\b(?:previous|earlier|last|other|old|past)\s+(?:chat|conversation|discussion|session)\b|\bwe\s+(?:discussed|talked about|spoke about|covered|agreed)\b|\b(?:in|from) (?:the|our) (?:\w+\s+)?(?:chat|conversation|discussion)\b|\bwhen we (?:discussed|talked|spoke)\b/i;
 const LIST_CHATS = /\b(?:list|show|what are|what were|give me)\b[^.?]{0,40}\b(?:my|our|the|recent|previous|past|earlier)\b[^.?]{0,25}\b(?:chats|conversations|discussions)\b/i;
 const STRONG_DRIVE = /\b(?:drive|folders?|files?|documents?|docs?|papers?|pdfs?|spreadsheets?|cloud|dropbox|onedrive|google|accounts?|linked|index|indexed|directory)\b/i;
+// A follow-up about the file just opened, without naming it ("his account", "the book", "the author's argument").
+const OPEN_FILE_REF = /\b(?:the|this|that|his|her|its|their)\s+(?:book|document|file|paper|pdf|author|writer|chapter|account|argument|thesis|text|critique|claim|treatment|introduction|conclusion)s?\b/i;
 const ORD = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
 const ordinal = s => { const w = String(s).toLowerCase(); return ORD[w] || (/^\d+/.test(w) ? parseInt(w, 10) : null); };
 
@@ -82,6 +84,7 @@ function fallbackPlan(query, projects, hasFile, recentHasImage = false, recent =
     refersToImage: IMAGE_REF.test(query) && recentHasImage, imageHint: '',
     refersToChat: CHAT_REF.test(query), chatHint: { keywords: query.slice(0, 120), sinceDays: null, untilDays: null, previous: /\b(?:previous|last|earlier)\s+(?:chat|conversation|discussion)\b/i.test(query) },
     listChats: LIST_CHATS.test(query), drive: driveRules(query, hasFile), bible: bibleRules(query, recent),
+    aboutOpenFile: hasFile && OPEN_FILE_REF.test(query),
   };
 }
 
@@ -98,7 +101,7 @@ function cleanDrive(d, query, hasState, fallback) {
   };
 }
 
-function accept(j, query, projects, fallback, hasState, recent = []) {
+function accept(j, query, projects, fallback, hasState, recent = [], hasFile = false) {
   const standalone = typeof j.standalone === 'string' && j.standalone.trim() ? j.standalone.trim().slice(0, 500) : query;
   const queries = (Array.isArray(j.queries) ? j.queries : [])
     .filter(q => typeof q === 'string' && q.trim()).map(q => q.trim().slice(0, 160)).slice(0, 2);
@@ -121,6 +124,7 @@ function accept(j, query, projects, fallback, hasState, recent = []) {
     chatHint: { keywords: typeof ch.keywords === 'string' && ch.keywords.trim() ? ch.keywords.trim().slice(0, 160) : queries.join(' ') || standalone, sinceDays: int(ch.sinceDays), untilDays: int(ch.untilDays), previous: ch.previous === true || fallback.chatHint.previous },
     listChats: (typeof j.listChats === 'boolean' ? j.listChats : false) || fallback.listChats,
     drive: cleanDrive(j.drive, query, hasState, fallback),
+    aboutOpenFile: hasFile && ((typeof j.aboutOpenFile === 'boolean' ? j.aboutOpenFile : false) || fallback.aboutOpenFile),
     bible: cleanBible(j.bible, query, recent, fallback),
   };
 }
@@ -166,6 +170,7 @@ Reply with ONLY a JSON object, no commentary:
   "refersToChat": true or false,
   "chatHint": {"keywords": "words likely to appear in that chat", "sinceDays": integer or null, "untilDays": integer or null, "previous": true or false},
   "listChats": true or false,
+  "aboutOpenFile": true or false,
   "drive": null or {"action": "accounts" or "list" or "find" or "open" or "link" or "unlink" or "sync", "target": "folder or file name as Boon said it, or empty", "ref": null or a number or "last", "query": "words to search for, for find", "account": "google, dropbox, onedrive or empty", "withDocs": true or false},
   "bible": null or {"refs": ["Matthew 21:33-46"], "translation": "WEB" or "KJV" or "both" or "", "show": true or false, "explain": true or false, "readings": true or false}
 }
@@ -182,13 +187,15 @@ refersToImage is true when the message asks about a picture, photo or screenshot
 refersToChat is true when the message points at an earlier conversation that is not in the recent conversation above ("in our chat about the GPR paper", "last Tuesday we discussed...", "the previous chat", "go back to where we talked about..."). chatHint.previous is true for "the previous / last chat". chatHint.sinceDays and untilDays turn a time expression into days ago (for "last week": sinceDays 14, untilDays 7; for "yesterday": sinceDays 2, untilDays 0), otherwise null.
 listChats is true when Boon asks to see a list of his earlier chats or conversations.
 
-drive is for requests about Boon's cloud storage, answered by looking in it. "accounts": which drives, accounts or cloud storage are linked. "list": show the contents of a folder ("list the files in the GPR folder", "what's in my Drive", "open the Papers folder", "go into the third one"; target is the folder name, empty for "this folder", ref is a number when he picks from a numbered list). "find": look for files by name or subject across the Drive. "open": read, open, summarise, quote or check a particular file ("read the second one", "summarise draft_v3.pdf", "summarise it" when a file was just opened gives ref "last"). "link": keep a folder indexed for searching; "unlink": stop that; "sync": update the index. bible is for scripture. refs are Bible references Boon wrote (copied exactly), or, when he says "them", "those readings" or "in full", the references listed in the recent conversation. show is true when he wants the passage text displayed ("show me", "read", "give me", "in full"); explain is true when he also asks for explanation, comparison or comment. readings is true when he asks to see this or next Sunday's lectionary readings (RCL) in full but names no references. A message that merely mentions a reference in discussion has refs and show false. Use null when there is no scripture reference and no request for readings.
+aboutOpenFile is true when a file was recently opened (see "last file opened" above) and the message is a follow-up question about that file or its author without naming it: "is his account representative?", "what does the book say about grace?", "and chapter 3?", "why does the author think that?". When it is true, the standalone rewrite must name the file by its title, and drive stays null (the file is already in the archive). False when the message is about something else.
+
+drive is for requests about Boon's cloud storage, answered by looking in it. "accounts": which drives, accounts or cloud storage are linked. "list": show the contents of a folder ("list the files in the GPR folder", "what's in my Drive", "open the Papers folder", "go into the third one"; target is the folder name, empty for "this folder", ref is a number when he picks from a numbered list). "find": look for files by name or subject across the Drive. "open": read, open, summarise, quote or check a particular file ("read the second one", "summarise draft_v3.pdf", "summarise it" when a file was just opened gives ref "last"). If Boon says where a file is without naming it ("it's in the Scriptura Fidelium folder"), the file is the one he asked for earlier in the recent conversation: use "open" with that file's title as target, and make standalone name it. "link": keep a folder indexed for searching; "unlink": stop that; "sync": update the index. bible is for scripture. refs are Bible references Boon wrote (copied exactly), or, when he says "them", "those readings" or "in full", the references listed in the recent conversation. show is true when he wants the passage text displayed ("show me", "read", "give me", "in full"); explain is true when he also asks for explanation, comparison or comment. readings is true when he asks to see this or next Sunday's lectionary readings (RCL) in full but names no references. A message that merely mentions a reference in discussion has refs and show false. Use null when there is no scripture reference and no request for readings.
 
 Use null for drive for everything else, including general questions that merely mention documents, and for requests about files Boon attaches to the message itself.`;
 
   try {
     const raw = await askModel(prompt, { role: 'quick', timeoutMs: 10000 });
-    return accept(parseJson(raw), query, projects, fallback, hasState, recent);
+    return accept(parseJson(raw), query, projects, fallback, hasState, recent, hasFile);
   } catch (e) {
     console.warn('[pcm] router fell back to rules:', e.message);
     return fallback;

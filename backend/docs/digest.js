@@ -200,20 +200,37 @@ export function formatOverview(rows, budget = 14000) {
 }
 
 // One long file, for a question about it: the digest of the whole, then the section digests that best match the
-// question (most of its words present), in the order they occur. Null when the file has not been digested yet.
-export async function digestOutline(filename, query, { budget = 18000 } = {}) {
+// question (most of its words present), in the order they occur. → { text, complete } or null when no part of the
+// file has been digested yet. complete is false while the digest of the whole is still being written (the parts done
+// so far are then given, with how much of the text they cover).
+export async function digestOutline(filename, query, { budget = 18000, totalChars = 0 } = {}) {
   if (!supabase) return null;
-  const { data: rows } = await supabase.from('mobius_digests').select('level, idx, content').eq('filename', filename).order('idx');
+  const { data: rows } = await supabase.from('mobius_digests').select('level, idx, content, chars_to').eq('filename', filename).order('idx');
   const doc = (rows || []).find(r => r.level === 'doc');
-  if (!doc) return null;
   const parts = (rows || []).filter(r => r.level === 'section');
+  if (!doc && !parts.length) return null;
   const terms = termsOf(query);
   const scored = parts.map(p => ({ p, score: terms.filter(t => p.content.toLowerCase().includes(t)).length }))
     .filter(s => s.score > 0).sort((a, b) => b.score - a.score || a.p.idx - b.p.idx);
-  let room = budget - doc.content.length - 400;
+  let room = budget - (doc ? doc.content.length : 0) - 400;
   const chosen = [];
   for (const s of scored) { if (s.p.content.length + 40 > room) break; chosen.push(s.p); room -= s.p.content.length + 40; }
   chosen.sort((a, b) => a.idx - b.idx);
-  return `Digest of the whole document (written in advance from its full text):\n${doc.content}`
-    + (chosen.length ? `\n\nDigests of the ${chosen.length} part${chosen.length === 1 ? '' : 's'} (of ${parts.length}) that best match the question:\n\n${chosen.map(p => `[Part ${p.idx + 1} of ${parts.length}] ${p.content}`).join('\n\n')}` : '');
+  const covered = Math.max(0, ...parts.map(p => p.chars_to || 0));
+  const head = doc
+    ? `Digest of the whole document (written in advance from its full text):\n${doc.content}`
+    : `The digest of the whole document is NOT finished. So far ${parts.length} part${parts.length === 1 ? '' : 's'} have been digested${totalChars ? `, covering the first ${Math.min(100, Math.round(covered / totalChars * 100))}% of the text` : ''}.`;
+  const body = chosen.length ? `${doc ? '\n\n' : '\n\n'}Digests of the ${chosen.length} part${chosen.length === 1 ? '' : 's'}${doc ? ` (of ${parts.length})` : ' done so far'} that best match the question:\n\n${chosen.map(p => `[Part ${p.idx + 1}] ${p.content}`).join('\n\n')}` : '';
+  return { text: head + body, complete: !!doc };
+}
+
+// Passages of one file that contain the question's words (full-text search, so it works before any embedding exists).
+// → text, or '' when nothing matches
+export async function passagesFrom(filename, query, { max = 6 } = {}) {
+  if (!supabase) return '';
+  const terms = termsOf(query).slice(0, 8);
+  if (!terms.length) return '';
+  const { data } = await supabase.from('mobius_docs').select('chunk').eq('filename', filename)
+    .textSearch('fts', terms.join(' or '), { type: 'websearch', config: 'english' }).limit(max);
+  return (data || []).map(r => r.chunk.replace(/\s+/g, ' ').trim()).join('\n…\n');
 }

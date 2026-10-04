@@ -8,6 +8,9 @@ import { getState, setState } from './pcm/memory.js';
 import { userDrive, account as googleAccount, noteFailure } from './google.js';
 import { extractText, SUPPORTED_MIME } from './docs/drive.js';
 import { listSources, addSource, removeSource, syncSources } from './docs/sources.js';
+import { saveDoc } from './docs/store.js';
+import { storageReport } from './pcm/housekeeping.js';
+import { supabase } from './db.js';
 import { termsOf } from './docs/live.js';
 
 const FOLDER = 'application/vnd.google-apps.folder';
@@ -16,6 +19,8 @@ const STATE_TTL = 12 * 3600e3;
 const MAX_LIST = 60;       // items shown for a folder
 const MAX_KEPT = 120;      // items remembered so "the 80th one" still works
 const TEXT_CHARS = 20000;  // of a file given to the model in one go
+const KEEP_CHARS = 1000000; // of a long file filed in the archive when Boon asks for it to be read
+const KEEP_STOP_PERCENT = 85;
 const IMAGE_BYTES = 3.5 * 1024 * 1024;
 
 const esc = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -163,7 +168,7 @@ async function actFind(drive, intent, state) {
   if (!files.length) return { text: `No files in your Drive match "${words.join(' ')}" by name or content. Google's search may take a while to cover files uploaded very recently.` };
   const parents = new Map();
   for (const id of [...new Set(files.map(f => f.parents?.[0]).filter(Boolean))].slice(0, 12)) parents.set(id, (await drive.files.get({ fileId: id, fields: 'name', supportsAllDrives: true }).catch(() => null))?.data?.name || '?');
-  const numbered = files.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: false, size: f.size, modified: f.modifiedTime, parent: parents.get(f.parents?.[0]) }));
+  const numbered = files.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: false, size: f.size, modified: f.modifiedTime, parent: parents.get(f.parents?.[0]), parentId: f.parents?.[0] }));
   await saveState({ items: numbered, pending: null });
   return { text: [`**${await driveLabel()}**  \n**Search:** "${words.join(' ')}" — ${files.length}${files.length === 20 ? ' or more' : ''} file${files.length === 1 ? '' : 's'}\n`, ...numbered.map(i => `${i.n}. ${i.name} — ${kind(i.mime)}${size(i.size) ? ', ' + size(i.size) : ''}, in "${i.parent || '?'}", changed ${perthDate(i.modified)}`)].join('\n') };
 }
@@ -181,9 +186,9 @@ async function actOpen(drive, intent, state) {
       const hits = r.data.files || [];
       const exact = hits.filter(f => f.name.toLowerCase() === terms.toLowerCase());
       const pick = exact.length ? exact : hits;
-      if (pick.length === 1) { file = { id: pick[0].id, name: pick[0].name, mime: pick[0].mimeType, size: pick[0].size, modified: pick[0].modifiedTime }; break; }
+      if (pick.length === 1) { file = { id: pick[0].id, name: pick[0].name, mime: pick[0].mimeType, size: pick[0].size, modified: pick[0].modifiedTime, parentId: pick[0].parents?.[0] }; break; }
       if (pick.length > 1) {
-        const numbered = pick.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: false, size: f.size, modified: f.modifiedTime }));
+        const numbered = pick.map((f, i) => ({ n: i + 1, id: f.id, name: f.name, mime: f.mimeType, folder: false, size: f.size, modified: f.modifiedTime, parentId: f.parents?.[0] }));
         await saveState({ pending: numbered.map(f => ({ ...f, path: f.name })), items: numbered });
         return { text: `More than one file matches "${terms}". Which one do you mean? Answer with a number.\n${numbered.map(f => `${f.n}. ${f.name} — ${kind(f.mime)}, changed ${perthDate(f.modified)}`).join('\n')}` };
       }
@@ -193,7 +198,8 @@ async function actOpen(drive, intent, state) {
   if (file.folder) return actList(drive, { ...intent, ref: file.n, target: '' }, state);
 
   const mime = file.mime || file.mimeType;
-  await saveState({ file: { id: file.id, name: file.name, mime, size: file.size, modified: file.modified }, pending: null });
+  const parentId = file.parentId || (Number.isInteger(ref) ? state?.folder?.id : null) || null;
+  await saveState({ file: { id: file.id, name: file.name, mime, size: file.size, modified: file.modified, parentId, archived: file.archived || null }, pending: null });
   if (mime?.startsWith('image/')) {
     if (Number(file.size || 0) > IMAGE_BYTES) return { text: `"${file.name}" is an image of ${size(file.size)}, too large to look at here (the limit is ${size(IMAGE_BYTES)}).` };
     const res = await drive.files.get({ fileId: file.id, alt: 'media', supportsAllDrives: true }, { responseType: 'arraybuffer' });
@@ -203,10 +209,35 @@ async function actOpen(drive, intent, state) {
   const text = await extractText(drive, { id: file.id, name: file.name, mimeType: mime });
   if (!text || !text.trim()) return { text: `"${file.name}" opened but has no readable text (it may be a scan or an image-only PDF).` };
   const cut = text.length > TEXT_CHARS;
+  // A file too long to give whole is filed in the archive, so that this question and the ones after it can reach all of it
+  // (search passages now, digests once they are written), instead of only the first pages.
+  const archived = cut ? await archiveOpened(file, text, parentId).catch(e => { console.warn('[workspace] not filed:', e.message); return null; }) : null;
+  if (archived) await saveState({ file: { id: file.id, name: file.name, mime, size: file.size, modified: file.modified, parentId, archived } });
+  const pct = (TEXT_CHARS / text.length * 100).toFixed(1);
   return {
-    text: `Opened "${file.name}" from ${await driveLabel()} (${kind(mime)}${size(file.size) ? ', ' + size(file.size) : ''}, changed ${perthDate(file.modified)}). ${cut ? `It has ${text.length.toLocaleString()} characters; the first ${TEXT_CHARS.toLocaleString()} are given below. Say so if the rest is needed.` : 'The whole text is given below.'}`,
-    fileText: text.slice(0, TEXT_CHARS), fileName: file.name,
+    text: `Opened "${file.name}" from ${await driveLabel()} (${kind(mime)}${size(file.size) ? ', ' + size(file.size) : ''}, changed ${perthDate(file.modified)}). ${cut
+      ? `It has ${text.length.toLocaleString()} characters, and ONLY THE FIRST ${TEXT_CHARS.toLocaleString()} (${pct}%) ARE GIVEN BELOW.${archived ? ' The whole text has been filed in the Mobius archive and a digest of it is being written in the background, so questions about the whole document can be answered once that is done.' : ' The rest could not be filed.'}`
+      : 'The whole text is given below.'}`,
+    fileText: text.slice(0, TEXT_CHARS), fileName: file.name, archived,
+    partial: cut ? { shown: TEXT_CHARS, total: text.length } : null,
   };
+}
+
+// Files the long text of an opened file under the folder it came from (if that folder is linked, the very name that
+// reading the folder would give it, so nothing is stored twice), else under "Drive/". → the archive name, or null
+async function archiveOpened(file, text, parentId) {
+  if (!supabase) return null;
+  const sources = await listSources().catch(() => []);
+  const home = parentId ? sources.find(s => s.provider === 'gdrive' && s.external_id === parentId) : null;
+  const name = home ? `${home.label}/${file.name}` : `Drive/${file.name}`;
+  const source = home ? 'gdrive:' + home.id : 'gdrive:opened';
+  const modifiedAt = file.modified || null;
+  const { data: have } = await supabase.from('mobius_docs').select('id').eq('filename', name).eq('modified_at', modifiedAt).limit(1);
+  if (have?.length) return name; // filed already, unchanged
+  const rep = await storageReport().catch(() => null);
+  if (rep && rep.percent >= KEEP_STOP_PERCENT) return null; // the free database is nearly full
+  await saveDoc(name, text.slice(0, KEEP_CHARS), { source, modifiedAt });
+  return name;
 }
 
 async function actLink(drive, intent, state) {

@@ -22,10 +22,10 @@ import { PROFILE_SEND_MAX } from './pcm/profile.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog } from './pcm/maintain.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
-import { docDigests, digestOutline, formatOverview, folderScope } from './docs/digest.js';
+import { docDigests, digestOutline, passagesFrom, digestDoc, formatOverview, folderScope } from './docs/digest.js';
 import { listSources } from './docs/sources.js';
 import { liveDriveSearch } from './docs/live.js';
-import { runWorkspace, describeState } from './workspace.js';
+import { runWorkspace, describeState, loadState } from './workspace.js';
 import { earlierImages, saveImages } from './pcm/attachments.js';
 import { findChats, ensureSummaries, loadChatText, listChats, describeChat } from './pcm/chats.js';
 import { runBible } from './bible.js';
@@ -157,7 +157,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       plan.needsArchive && !direct
         ? safe(() => searchArchive({ semantic: plan.standalone, keywords: plan.queries.join(' ') }, { sinceDays: plan.sinceDays }), NOTHING)
         : NOTHING,
-      attached.length || direct ? null : safe(() => findNamedDoc(plan.standalone), null),
+      attached.length || direct ? null : safe(async () => {
+        const hit = await findNamedDoc(plan.standalone);
+        if (hit || !plan.aboutOpenFile) return hit;
+        return (await loadState())?.file?.archived || null; // a follow-up ("his account…") about the file opened a moment ago
+      }, null),
       plan.aboutSelf ? safe(() => selfReport(client, geo, ctx), '') : '',
       // Boon's linked Drive folders, searched now rather than stored (only when the message is about his documents or work)
       plan.aboutSelf || memoryAction || direct ? null : safe(() => Promise.race([liveDriveSearch(plan.standalone, plan), new Promise(r => setTimeout(() => r(null), 10000))]), null),
@@ -170,8 +174,15 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       }, null),
     ]);
     const namedText = namedFile ? await safe(() => getFullDoc(namedFile), null) : null;
-    // A book too long to send whole is sent as its digest plus the digests of the parts that match the question (docs/digest.js).
-    const namedOutline = namedText && namedText.length > 20000 ? await safe(() => digestOutline(namedFile, plan.standalone), null) : null;
+    // A book too long to send whole is sent as its digest (or the parts digested so far) plus the digests of the parts that match
+    // the question, and the passages of it that contain the question's words (docs/digest.js).
+    const longNamed = !!namedText && namedText.length > 20000;
+    const [namedOutline, namedPassages] = longNamed
+      ? await Promise.all([
+        safe(() => digestOutline(namedFile, plan.standalone, { totalChars: namedText.length }), null),
+        safe(() => passagesFrom(namedFile, plan.standalone), ''),
+      ])
+      : [null, ''];
 
     // "In our chat about X ...", "the previous chat": find that conversation and read it back.
     const hitIds = archive.messages.map(m => m.id);
@@ -188,11 +199,12 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     const seen = new Set(recent.map(m => m.id));
     const past = archive.messages.filter(m => !seen.has(m.id));
-    const chunks = namedText && !namedOutline ? [] : archive.docs; // a digested long book keeps its search passages too
+    const chunks = longNamed || !namedText ? archive.docs : []; // a short named file goes in whole; a long one keeps its search passages too
     const chosen = projects.filter(p => plan.projects.includes(p.key));
     trace.set({ recalled: {
       web: web ? web.length : 0, profile: profile.length, weekDigest: week.digest.length, weekGap: week.gap.length,
-      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, namedOutline: namedOutline ? namedOutline.length : 0,
+      pastMessages: past.length, docChunks: chunks.length, namedFile: namedFile || null, aboutOpenFile: !!plan.aboutOpenFile,
+      namedOutline: namedOutline ? { chars: namedOutline.text.length, complete: namedOutline.complete } : 0, namedPassages: namedPassages.length,
       folderOverview: overview ? { folder: overview.label, digests: overview.n } : null,
       projects: chosen.map(p => p.key), self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
     } }).mark('recalled');
@@ -212,13 +224,17 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Scripture lookup note', rank: 1, cap: 900, text: [bibleResult?.source, ...(bibleResult?.notes || [])].filter(Boolean).join('\n') },
       { title: 'Scripture text just shown to Boon in full, word for word from the stored translation. Do NOT repeat it. Comment only on what he asked; quote a few words from it only when needed, exactly as written', rank: 1, cap: 14000, text: bibleShown && !bibleOnly ? bibleShown.text : '' },
       { title: 'Scripture text for the references in this message: the exact words of the stored translation. Quote scripture only from this, never from memory', rank: 2, cap: 7000, text: bibleResult?.text && !bibleShown ? bibleResult.text : '' },
-      { title: `File opened from Boon's Drive: ${driveResult?.fileName || ''}`, rank: 1, cap: 20000, text: driveResult?.fileText || '' },
+      { title: `File opened from Boon's Drive: ${driveResult?.fileName || ''}${driveResult?.partial ? ` — ONLY THE FIRST ${driveResult.partial.shown.toLocaleString()} OF ${driveResult.partial.total.toLocaleString()} CHARACTERS (${(driveResult.partial.shown / driveResult.partial.total * 100).toFixed(1)}%) ARE HERE. Say so in your first sentence. Describe only what these characters contain (probably the front matter and the opening); do not summarise the rest of the document, state its argument or name its chapters from memory. If the whole is filed in the archive, tell Boon that questions about the whole will be answered once its digest is written, and that he can ask again later` : ''}`, rank: 1, cap: 20000, text: driveResult?.fileText || '' },
       { title: 'Earlier conversation(s) Boon is referring to (name the chat by its date and title when you answer; if it does not hold what he asks, say so)', rank: 2, cap: 7000, text: earlierChats },
       { title: 'Picture(s) sent earlier, attached to this message again (look at them afresh; the earlier description is only a hint)', rank: 1, cap: 900, text: earlier?.note || '' },
       { title: ATTACHED_TITLE, rank: 1, cap: 20000,
         text: attached.map(d => `--- ${d.filename} ---\n${clip(d.text, 20000)}`).join('\n\n') },
-      { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: namedOutline ? '' : namedText },
-      { title: `Archived document: ${namedFile} — too long to send whole, so this is its digest and the digests of the parts that best match the question. The digests were written in advance by a model from the full text; for exact wording rely on the passages under "Relevant documents", and say when something you are asked is not covered here`, rank: 1, cap: 20000, text: namedOutline || '' },
+      { title: `Archived document: ${namedFile} — full text`, rank: 1, cap: 20000, text: longNamed ? '' : namedText },
+      { title: namedOutline?.complete
+        ? `Archived document: ${namedFile} — too long to send whole, so this is its digest and the digests of the parts that best match the question. The digests were written in advance by a model from the full text; answer from them and say that this is what the answer rests on. For exact wording use the passages below`
+        : `Archived document: ${namedFile} (${namedText?.length.toLocaleString()} characters) — its digest is NOT finished, so what follows is only what has been digested so far. Say in your first sentence that you have not yet read all of it and how much you have; answer only from what is below; do not describe parts you were not given`,
+      rank: 1, cap: 20000, text: longNamed ? (namedOutline?.text || `The digest of this document has not been started yet; nothing but the passages below was available. Say that you have not read the whole book and answer only from the passages.`) : '' },
+      { title: `Passages of ${namedFile} that contain the words of the question (exact text from the document; quote only from these)`, rank: 2, cap: 5000, text: namedPassages },
       { title: `Digests of the documents ${overview?.label ? `in Boon's folder "${overview.label}"` : 'in Boon\'s folders'} — each written in advance by a model from the document's whole text. Answer the question about the collection from these; for detail from one document, name it and say that its passages can be searched`, rank: 2, cap: 14000, text: overview?.text || '' },
       { title: 'Note', rank: 1, cap: 600, text: noDocs ? NO_DOCS_NOTE : (overview && !overview.n ? 'Boon asked about a whole folder, but no document in it has been digested yet (digests are written gradually in the background after files are read). Say so plainly, and answer only from the searched passages, making clear they are not the whole.' : '') },
       { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
@@ -300,6 +316,9 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     }
 
     embedBacklog({ messages: 4, docs: 8 }).catch(() => {}); // quiet top-up, never blocks the reply
+    // A long file Boon is working with gets its digest written, a few parts at a time, whenever it is used (maintenance finishes the job)
+    const toDigest = driveResult?.archived || (longNamed && !namedOutline?.complete ? namedFile : null);
+    if (toDigest) digestDoc(toDigest, { left: () => 45000, maxParts: 10, pause: 1500 }).catch(() => {});
   } catch (e) {
     trace.set({ error: String(e.message).slice(0, 500) });
     throw e;
