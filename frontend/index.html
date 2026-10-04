@@ -173,8 +173,10 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 
 <!-- Header -->
 <div id="header">
-  <img id="logo" src="/logo.png" alt="Mobius" onerror="this.style.display='none'">
-  <span id="appname">Mobius</span>
+  <a id="home-link" href="/settings.html" title="Settings" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+    <img id="logo" src="/logo.png" alt="Mobius — Settings" onerror="this.style.display='none'">
+    <span id="appname">Mobius</span>
+  </a>
   <div id="header-right">
     <div id="status-row">
       <span id="status-dot" class="offline"></span>
@@ -220,9 +222,6 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     </div>
     <button class="icon-btn" id="reset-btn" title="Reset" onclick="resetInput()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-    </button>
-    <button class="icon-btn" id="settings-btn" title="Settings" onclick="location.href='/settings.html'">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
     </button>
     <button id="send-btn" onclick="handleSend()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -785,10 +784,23 @@ qinput.addEventListener('input', function() {
   this.style.height = 'auto';
   this.style.height = Math.min(this.scrollHeight, 160) + 'px';
 });
+// Arrow keys drive the chevrons: ← → step through earlier and later chats (the pair at the left of the buttons), ↑ ↓ step through
+// the queries you have sent (the pair beside it). They work from the message box too, so long as you are not part-way through
+// typing something new: with text in the box that is not a recalled query, the arrows keep their normal job of moving the cursor.
+// Ctrl/Alt/Shift + arrow are left alone (word jumps, selection).
 document.addEventListener('keydown', e => {
-  if (document.activeElement === qinput) return;
-  if (e.key === 'ArrowLeft')  { e.preventDefault(); navHist(-1); }
-  if (e.key === 'ArrowRight') { e.preventDefault(); navHist(1); }
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+  if (typeof docsOpen !== 'undefined' && docsOpen) return;                          // the file panel is open
+  const ae = document.activeElement;
+  if (ae && ae !== document.body && ae !== qinput && !(ae.closest && ae.closest('#hist-nav, #query-nav'))) return; // some other control has the keys
+  const typingDraft = ae === qinput && qinput.value.trim() && queryHistIdx === -1;
+  if (typingDraft) return;
+  e.preventDefault();
+  if (e.key === 'ArrowLeft')  navHist(-1);
+  if (e.key === 'ArrowRight') navHist(1);
+  if (e.key === 'ArrowUp')    navQueryHist(-1);
+  if (e.key === 'ArrowDown')  navQueryHist(1);
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────

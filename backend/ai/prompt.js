@@ -47,10 +47,8 @@ Intellectual character — the same in every conversation, whichever model is an
 export function buildSystem(profile, ctx = {}) {
   const p = (profile || '').trim();
   const now = `Right now: ${ctx.now || nowIn()}. Boon's approximate location: ${ctx.where || 'Perth, Western Australia'}. Use this for "today", "this week", "here", "near me" and recency; never assume a date from your training data. When Boon asks about Mobius itself (how it works, its models, memory, where or on what device it runs), your own documentation is included in the memory context: answer from it. If asked where you are, give his approximate location as well as the machine you run on.`;
-  const nudge = ctx.suggestions
-    ? ` There ${ctx.suggestions === 1 ? 'is 1 suggested note' : `are ${ctx.suggestions} suggested notes`} waiting for Boon's review (things Mobius noticed in his conversations that he may want remembered). After answering, mention this once in a short line and tell him he can say "show suggestions".`
-    : '';
-  return `${BASE_PROMPT}\n\n${now}${nudge}` + (p ? `\n\nWhat you know about Boon (his approved personal profile):\n${p}` : '');
+  // No reminders about suggested notes waiting for review: Boon does not review them (decided 4 Oct 2026).
+  return `${BASE_PROMPT}\n\n${now}` + (p ? `\n\nWhat you know about Boon (his approved personal profile):\n${p}` : '');
 }
 
 // Used for internal one-shot calls (routing, summarising).

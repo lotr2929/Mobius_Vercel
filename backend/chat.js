@@ -270,8 +270,9 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     ];
     const context = assembleContext(plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart]);
 
-    const idle = !recent.length || Date.now() - Date.parse(recent.at(-1).created_at) > 3600e3;
-    ctx.suggestions = idle && !memoryAction ? pendingNotes.length : 0; // mention waiting suggestions once, at the start of a conversation
+    // Suggested notes are no longer announced at the start of a conversation (Boon does not review them; he corrects Mobius
+    // structurally instead). They wait quietly, lapse after 60 days, and can still be listed with "show suggestions".
+    ctx.suggestions = 0;
     const system = buildSystem(clip(profile, PROFILE_SEND_MAX), ctx);
     // The memory block is background, and a small model can mistake an old exchange inside it for the live conversation: say plainly
     // what is what, and put the instruction last, where it is read last.

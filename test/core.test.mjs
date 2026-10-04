@@ -10,7 +10,7 @@ import { isTheology } from '../backend/docs/library.js';
 import { extractRefs } from '../backend/bible.js';
 import { driveRules, bibleRules, isTrivial } from '../backend/pcm/router.js';
 import { MODELS, orderFor, parseAskPrefix, modelByKey } from '../backend/ai/models.js';
-import { BASE_PROMPT } from '../backend/ai/prompt.js';
+import { BASE_PROMPT, buildSystem } from '../backend/ai/prompt.js';
 import { assembleContext } from '../backend/pcm/assemble.js';
 
 test('chunking: ordinary passages overlap, library passages are contiguous and lose nothing', () => {
@@ -96,4 +96,19 @@ test('context assembly: the most important sections survive a flood of the least
   ]);
   assert.ok(out.text.includes('IMPORTANT-FACT'));
   assert.ok(out.text.length < 45000, 'stays within the context budget');
+});
+
+test('no reminders about suggested notes, even when some are waiting', () => {
+  const s = buildSystem('', { suggestions: 7 });
+  assert.doesNotMatch(s, /suggested note|show suggestions|waiting for Boon/i);
+});
+
+test('the app: logo opens Settings, no settings icon, arrow keys drive all four chevrons', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+  assert.match(html, /<a id="home-link" href="\/settings\.html"[^>]*>\s*<img id="logo"/, 'the logo is the link to Settings');
+  assert.doesNotMatch(html, /id="settings-btn"/, 'the settings icon is gone');
+  for (const id of ['btn-older', 'btn-newer', 'btn-qup', 'btn-qdown']) assert.ok(html.includes(`id="${id}"`), `${id} exists`);
+  assert.match(html, /ArrowLeft[\s\S]{0,400}navHist\(-1\)[\s\S]{0,200}navHist\(1\)[\s\S]{0,200}navQueryHist\(-1\)[\s\S]{0,200}navQueryHist\(1\)/, 'arrows are wired to the chevrons');
+  assert.match(html, /typingDraft/, 'arrows leave the cursor alone while a new message is being typed');
 });
