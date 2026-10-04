@@ -27,7 +27,7 @@ const esc = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 const nameQuery = text => String(text).split(/\s+/).filter(Boolean).slice(0, 6).map(w => `name contains '${esc(w)}'`).join(' and ');
 const perthDate = iso => iso ? new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Perth', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)) : '';
 const size = b => { const n = Number(b || 0); return !n ? '' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; };
-const kind = m => m === FOLDER ? 'folder' : m === 'application/pdf' ? 'PDF' : /wordprocessingml|msword/.test(m) ? 'Word' : /spreadsheet|excel|csv/.test(m) ? 'spreadsheet' : /presentation|powerpoint/.test(m) ? 'slides'
+const kind = m => m === FOLDER ? 'folder' : m === 'application/pdf' ? 'PDF' : m === 'application/epub+zip' ? 'EPUB' : /wordprocessingml|msword/.test(m) ? 'Word' : /spreadsheet|excel|csv/.test(m) ? 'spreadsheet' : /presentation|powerpoint/.test(m) ? 'slides'
   : m === 'application/vnd.google-apps.document' ? 'Google Doc' : m?.startsWith('image/') ? 'image' : m?.startsWith('video/') ? 'video' : m?.startsWith('audio/') ? 'audio' : m?.startsWith('text/') || m === 'application/json' ? 'text' : (String(m).split('/').pop() || 'file').slice(0, 24);
 
 // ── Where we are ─────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ async function actOpen(drive, intent, state) {
     const res = await drive.files.get({ fileId: file.id, alt: 'media', supportsAllDrives: true }, { responseType: 'arraybuffer' });
     return { text: `Opened "${file.name}" (image). The picture is attached to this message.`, images: [{ mimeType: mime, base64: Buffer.from(res.data).toString('base64') }] };
   }
-  if (!SUPPORTED_MIME.has(mime)) return { text: `"${file.name}" is a ${kind(mime)} file, which Mobius cannot read as text yet (it reads PDF, Word, text, Markdown, CSV, JSON, Google Docs and Google Sheets, and can look at images).` };
+  if (!SUPPORTED_MIME.has(mime)) return { text: `"${file.name}" is a ${kind(mime)} file, which Mobius cannot read as text yet (it reads PDF, Word, EPUB, Excel, PowerPoint, HTML, text, Markdown, CSV, JSON, Google Docs, Sheets and Slides, and can look at images).` };
   const text = await extractText(drive, { id: file.id, name: file.name, mimeType: mime });
   if (!text || !text.trim()) return { text: `"${file.name}" opened but has no readable text (it may be a scan or an image-only PDF).` };
   const cut = text.length > TEXT_CHARS;

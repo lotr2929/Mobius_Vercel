@@ -51,6 +51,18 @@ echo                    %PROJECT_NAME% Deploying...
 echo ===========================================================
 echo.
 
+REM -- Tests: nothing is published while the core contract (npm test) is broken
+echo Running tests...
+call npm test --silent >nul 2>&1
+if %errorlevel% neq 0 (
+    echo.
+    echo TESTS FAILED - deployment blocked. Type "npm test" to see which one.
+    echo.
+    pause
+    exit /b 1
+)
+echo Tests passed.
+
 REM -- Bump service-worker version (frontend\sw.js, e.g. mobius-v2 -> mobius-v3)
 if defined SW_PREFIX if exist frontend\sw.js (
     powershell -NoProfile -Command "$f='frontend\sw.js';$c=[IO.File]::ReadAllText($f);$m=[regex]::Match($c,'%SW_PREFIX%(\d+)');if($m.Success){$n=[int]$m.Groups[1].Value+1;$c=$c -replace '%SW_PREFIX%\d+',('%SW_PREFIX%'+$n);[IO.File]::WriteAllText($f,$c);Write-Host('SW -> %SW_PREFIX%'+$n)}"

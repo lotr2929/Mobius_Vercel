@@ -250,7 +250,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
       🗂 Open Google Drive
     </button>
   </div>
-  <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json,.docx" multiple
+  <input type="file" id="docInput" accept=".pdf,.txt,.md,.js,.py,.csv,.json,.docx,.epub,.xlsx,.pptx,.html,.htm" multiple
          style="display:none" onchange="handleDocFiles(this.files)">
   <div style="padding:5px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;">
     <button id="drive-sync-btn" onclick="triggerDriveSync()" style="font-size:10px;background:none;color:var(--text-dim);border:none;text-decoration:underline;cursor:pointer;padding:2px;">Sync Google Drive folder into Mobius</button>

@@ -15,7 +15,7 @@ import { storageReport } from './pcm/housekeeping.js';
 
 const MAX_CHARS = 6000000;
 const STOP_AT_PERCENT = 85;
-const KINDS = /\.(pdf|docx|txt|md)$/i;
+const KINDS = /\.(pdf|docx|epub|xlsx|pptx|html?|txt|md)$/i;
 
 const args = process.argv.slice(2);
 const flag = n => { const i = args.indexOf(n); return i < 0 ? null : args.splice(i, 2)[1] || null; };
@@ -40,7 +40,7 @@ const files = [];
   if (fs.statSync(p).isDirectory()) fs.readdirSync(p).sort().forEach(f => walk(path.join(p, f)));
   else if (KINDS.test(p)) files.push(p);
 })(target);
-if (!files.length) { console.log('No PDF, Word, text or Markdown files found there.'); process.exit(1); }
+if (!files.length) { console.log('No PDF, Word, EPUB, Excel, PowerPoint, HTML, text or Markdown files found there.'); process.exit(1); }
 
 let added = 0;
 for (const file of files) {

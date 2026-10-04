@@ -58,7 +58,7 @@ export const MODELS = [
     rank: { chat: 6, deep: 5, vision: 5 }, ask: ['flash-3'] },
 
   { key: 'qwen',      name: 'qwen3.8-27b (groq)',        provider: 'groq',    trains: false, id: 'qwen/qwen3.8-27b', vision: true,
-    tags: ['general', 'code', 'multilingual', 'fast'], maxChars: 22000, maxTokens: 4096,
+    tags: ['general', 'code', 'multilingual', 'fast'], maxChars: 22000, maxTokens: 900,
     rank: { chat: 7, quick: 1, deep: 10, learn: 4, vision: 4 }, ask: ['qwen'] },
 
   // NVIDIA NIM: needs NVIDIA_API_KEY. Reasoning models, so they get a larger output allowance (thinking shares it).

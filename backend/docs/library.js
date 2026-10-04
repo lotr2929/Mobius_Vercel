@@ -20,7 +20,7 @@ export function isTheology(text) {
   return new Set((t.match(WEAK) || []).map(w => w.toLowerCase())).size >= 2;
 }
 
-const titleOf = filename => filename.split('/').pop().replace(/\.(pdf|docx?|txt|md)$/i, '').replace(/\s*[(\[](?:z[- ]?library|z-lib\.org|pdfdrive|libgen)[)\]]/gi, '').replace(/\s+/g, ' ').trim();
+const titleOf = filename => filename.split('/').pop().replace(/\.(pdf|docx?|epub|xlsx|pptx|html?|txt|md)$/i, '').replace(/\s*[(\[](?:z[- ]?library|z-lib\.org|pdfdrive|libgen)[)\]]/gi, '').replace(/\s+/g, ' ').trim();
 
 export async function libraryShelves() {
   if (!supabase) return [];

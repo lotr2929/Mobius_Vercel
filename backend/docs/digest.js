@@ -19,7 +19,7 @@ const CALL_TIMEOUT = 60000;
 const PAUSE_MS = 3000;       // between calls, to stay inside per-minute allowances
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const same = (a, b) => !!a && !!b && Date.parse(a) === Date.parse(b);
-const titleOf = filename => filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|csv|json)$/i, '');
+const titleOf = filename => filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|epub|xlsx|pptx|html?|csv|json)$/i, '');
 
 // Cuts at a paragraph, line or sentence break in the last 40% of each section, so a section rarely ends mid-sentence.
 export function splitSections(text, size = SECTION_CHARS) {

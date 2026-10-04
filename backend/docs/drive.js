@@ -10,12 +10,17 @@ import { extractFromBuffer } from './extract.js';
 export const SUPPORTED_MIME = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/epub+zip',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain',
   'text/markdown',
   'text/csv',
+  'text/html',
   'application/json',
   'application/vnd.google-apps.document',
   'application/vnd.google-apps.spreadsheet',
+  'application/vnd.google-apps.presentation',
 ]);
 
 export const driveConfigured = () => !!DRIVE_CREDENTIALS;
@@ -30,7 +35,7 @@ export function client() {
 
 export async function extractText(drive, file) {
   try {
-    if (file.mimeType === 'application/vnd.google-apps.document') {
+    if (file.mimeType === 'application/vnd.google-apps.document' || file.mimeType === 'application/vnd.google-apps.presentation') {
       return (await drive.files.export({ fileId: file.id, mimeType: 'text/plain' }, { responseType: 'text' })).data || '';
     }
     if (file.mimeType === 'application/vnd.google-apps.spreadsheet') {

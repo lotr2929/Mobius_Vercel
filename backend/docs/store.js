@@ -66,7 +66,7 @@ export async function findNamedDoc(query) {
   const q = norm(query);
   for (const { filename } of data || []) {
     // Files read from a linked folder are stored as "<folder>/<path>"; the name Boon would use is the file's own.
-    const stem = norm(filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|csv|json|js|py)$/i, ''));
+    const stem = norm(filename.split('/').pop().replace(/\.(pdf|txt|md|docx?|epub|xlsx|pptx|html?|csv|json|js|py)$/i, ''));
     if (stem.length > 6 && q.includes(stem)) return filename;
     const words = stem.split(' ').filter(w => w.length > 3);
     if (words.length >= 2 && words.every(w => q.includes(w))) return filename;

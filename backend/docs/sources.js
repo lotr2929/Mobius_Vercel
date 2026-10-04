@@ -92,7 +92,7 @@ async function tryOpen(drive, id, resourceKey) {
   if (!isFolder) {
     return SUPPORTED_MIME.has(f.data.mimeType)
       ? { status: 'ok', name: f.data.name, isFolder: false, seen: 1, detail: 'A single file.' }
-      : { status: 'unsupported', name: f.data.name, isFolder: false, detail: 'Mobius cannot read this type of file yet (it reads PDF, Word, text, Markdown, CSV, JSON, Google Docs and Google Sheets).' };
+      : { status: 'unsupported', name: f.data.name, isFolder: false, detail: 'Mobius cannot read this type of file yet (it reads PDF, Word, EPUB, Excel, PowerPoint, HTML, text, Markdown, CSV, JSON, Google Docs, Sheets and Slides).' };
   }
   const tree = await listTree(drive, id, resourceKey, { budgetMs: 15000, maxEntries: 5000 });
   const n = tree.files.length;
