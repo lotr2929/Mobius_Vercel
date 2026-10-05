@@ -63,6 +63,11 @@ test('router rules: drive and scripture requests, and greetings', () => {
   const b = bibleRules('show me Matthew 21:33-46 in the KJV');
   assert.equal(b.show, true); assert.equal(b.translation, 'KJV'); assert.deepEqual(b.refs, ['Matthew 21:33-46']);
   assert.ok(isTrivial('thanks!') && !isTrivial('thanks for the summary of Tillich'));
+  // "this passage" is a passage Boon is quoting, not this Sunday's lectionary reading (it once got a list of readings as its answer)
+  assert.equal(bibleRules('What does this passage mean: "and they find the New Testament message of salvation through Jesus Christ sectarian"'), null);
+  assert.equal(bibleRules('What does this gospel say about forgiveness?'), null);
+  for (const ok of ["What are this Sunday's readings?", "today's gospel", 'readings for this Sunday', 'readings this Sunday', "this week's readings", 'the lectionary readings for Proper 23'])
+    assert.equal(bibleRules(ok)?.readings, true, ok);
 });
 
 test('model list: shape, order and the privacy flags', () => {
