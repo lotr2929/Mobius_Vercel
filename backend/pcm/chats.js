@@ -162,3 +162,25 @@ export async function listChats(limit = 12) {
   return data || [];
 }
 export const describeChat = c => `${perthDay(c.started_at)}, ${new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Perth', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(c.started_at))}: ${c.title || '(not yet titled)'}${c.summary ? ' — ' + clip(c.summary, 160) : ''}`;
+
+
+
+// ── The chat Boon has opened ─────────────────────────────────────────────────
+// He navigates back to an earlier exchange and writes from there. `messageId` is the question of the exchange on screen.
+// → { chat, window, later }: the chat that exchange belongs to, its last `tail` messages up to and including the answer he is
+// looking at (the verbatim window to continue from), and how many messages of that chat came after it.
+export async function chatAtMessage(messageId, tail = 10) {
+  if (!supabase || messageId == null) return null;
+  await segmentChats(); // a message that is not yet cut into a chat has no chat_id
+  const { data: row } = await supabase.from('mobius_messages').select('id, chat_id').eq('id', messageId).maybeSingle();
+  if (!row?.chat_id) return null;
+  const [{ data: chat }, { data: msgs }] = await Promise.all([
+    supabase.from('mobius_chats').select('*').eq('id', row.chat_id).maybeSingle(),
+    supabase.from('mobius_messages').select('id, role, content, created_at, ai_provider, docs').eq('chat_id', row.chat_id)
+      .order('created_at', { ascending: true }).order('id', { ascending: true }),
+  ]);
+  const at = (msgs || []).findIndex(m => m.id === row.id);
+  if (!chat || at < 0) return null;
+  const upto = msgs.slice(0, at + 2); // through the answer to the exchange he is viewing
+  return { chat, window: upto.slice(-tail), later: msgs.length - upto.length };
+}

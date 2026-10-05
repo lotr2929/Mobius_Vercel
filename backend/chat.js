@@ -28,7 +28,7 @@ import { isTheology, libraryContext } from './docs/library.js';
 import { liveDriveSearch } from './docs/live.js';
 import { runWorkspace, describeState, loadState } from './workspace.js';
 import { earlierImages, saveImages } from './pcm/attachments.js';
-import { findChats, ensureSummaries, loadChatText, listChats, describeChat } from './pcm/chats.js';
+import { findChats, ensureSummaries, loadChatText, listChats, describeChat, chatAtMessage } from './pcm/chats.js';
 import { runBible } from './bible.js';
 import { findReadings } from './readings.js';
 import { describeContext, selfReport } from './self.js';
@@ -73,7 +73,7 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 
 // Yields { event } and { token } objects for server.js to relay as SSE.
 // client = what the browser reported about the device; geo = approximate location from the request.
-export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, signal }) {
+export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal }) {
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
@@ -95,7 +95,14 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
   try {
     // 1–2. verbatim window (complete exchanges only), then the plan
     const raw = await getMessages(RECENT_MESSAGES + 4);
-    const recent = settled(raw).slice(-RECENT_MESSAGES);
+    let recent = settled(raw).slice(-RECENT_MESSAGES);
+    // Boon has navigated back to an earlier exchange and is writing from there: that chat, up to the exchange on screen, becomes
+    // the conversation this message continues (instead of the newest messages in the log, which may be about something else).
+    const newestQuestionId = recent.at(-2)?.id;
+    const reopened = viewing != null && String(viewing) !== String(newestQuestionId)
+      ? await safe(() => chatAtMessage(viewing, RECENT_MESSAGES), null)
+      : null;
+    if (reopened) recent = settled(reopened.window);
     const projects = await listActive('project');
 
     // Notes: "Remember that ...", "Forget ...", "Save 14" and the like are carried out here, before any
@@ -215,6 +222,15 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       }, '')
       : '';
 
+    // The chat Boon reopened: the turns above are its tail up to the exchange he is looking at; a longer chat also gets its whole text.
+    const reopenedFull = reopened && reopened.chat.message_count > reopened.window.length
+      ? await safe(() => loadChatText(reopened.chat, { query: plan.standalone, budget: 5000 }), '')
+      : '';
+    const reopenedNote = reopened
+      ? `Boon has gone back to an earlier chat (${describeChat(reopened.chat)}) and is writing from there. The earlier turns of this conversation are THAT chat, up to the exchange he had on screen${reopened.later ? ` (${reopened.later} more message${reopened.later > 1 ? 's' : ''} followed it in that chat)` : ''}. His new message continues that chat, so answer it as part of that conversation; whatever else was said in Mobius since is a different conversation unless he says otherwise.`
+      : '';
+    trace.set({ reopened: reopened ? { id: reopened.chat.id, title: reopened.chat.title, started: reopened.chat.started_at, window: reopened.window.length, viewing } : null });
+
     const seen = new Set(recent.map(m => m.id));
     const past = archive.messages.filter(m => !seen.has(m.id));
     const chunks = longNamed || !namedText ? archive.docs : []; // a short named file goes in whole; a long one keeps its search passages too
@@ -244,6 +260,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Scripture text just shown to Boon in full, word for word from the stored translation. Do NOT repeat it. Comment only on what he asked; quote a few words from it only when needed, exactly as written', rank: 1, cap: 14000, text: bibleShown && !bibleOnly ? bibleShown.text : '' },
       { title: 'Scripture text for the references in this message: the exact words of the stored translation. Quote scripture only from this, never from memory', rank: 2, cap: 7000, text: bibleResult?.text && !bibleShown ? bibleResult.text : '' },
       { title: `File opened from Boon's Drive: ${driveResult?.fileName || ''}${driveResult?.partial ? ` — ONLY THE FIRST ${driveResult.partial.shown.toLocaleString()} OF ${driveResult.partial.total.toLocaleString()} CHARACTERS (${(driveResult.partial.shown / driveResult.partial.total * 100).toFixed(1)}%) ARE HERE. Say so in your first sentence. Describe only what these characters contain (probably the front matter and the opening); do not summarise the rest of the document, state its argument or name its chapters from memory. If the whole is filed in the archive, tell Boon that questions about the whole will be answered once its digest is written, and that he can ask again later` : ''}`, rank: 1, cap: 20000, text: driveResult?.fileText || '' },
+      { title: 'Which conversation this is — Boon reopened an earlier chat', rank: 1, cap: 900, text: reopenedNote },
+      { title: 'The whole of the chat Boon reopened (the turns above are its tail up to where he is writing; name the chat by its date and title when you answer)', rank: 2, cap: 5200, text: reopenedFull },
       { title: 'Earlier conversation(s) Boon is referring to (name the chat by its date and title when you answer; if it does not hold what he asks, say so)', rank: 2, cap: 7000, text: earlierChats },
       { title: 'Picture(s) sent earlier, attached to this message again (look at them afresh; the earlier description is only a hint)', rank: 1, cap: 900, text: earlier?.note || '' },
       { title: ATTACHED_TITLE, rank: 1, cap: 20000,

@@ -366,7 +366,7 @@ async function loadHistory(quiet) {
     history = [];
     for (let i=0; i<msgs.length; i++) {
       if (msgs[i]?.role==='user' && msgs[i+1]?.role==='assistant') {
-        history.push({ user: msgs[i].content, assistant: msgs[i+1].content, ts: msgs[i].created_at, ai: msgs[i+1].ai_provider||'', docs: msgs[i].docs||[] });
+        history.push({ id: msgs[i].id, user: msgs[i].content, assistant: msgs[i+1].content, ts: msgs[i].created_at, ai: msgs[i+1].ai_provider||'', docs: msgs[i].docs||[] });
         i++;
       }
     }
@@ -666,6 +666,7 @@ async function handleSend() {
   if (!queryHistory.length || queryHistory[queryHistory.length - 1] !== q) queryHistory.push(q);
   queryHistIdx = -1; queryHistDraft = '';
   input.value = ''; input.style.height = 'auto';
+  const viewingId = histIdx !== -1 ? (history[histIdx]?.id ?? null) : null; // the exchange on screen, if he has browsed back to one
   histIdx = -1;
   const imgs = attachedImgs.slice(); attachedImgs = []; renderImgPreviews();
   const docs = attachedDocs.slice(); attachedDocs = [];
@@ -694,6 +695,7 @@ async function handleSend() {
 
   try {
     const body = { query: q, client: await getClientInfo().catch(() => null) };
+    if (viewingId != null) body.viewing = viewingId;
     if (imgs.length) body.images = imgs.map(i=>({base64:i.base64,mimeType:i.mimeType}));
     if (docs.length) body.docs = docs.map(d=>({filename:d.filename,text:d.text}));
 
@@ -772,6 +774,7 @@ async function handleSend() {
 
   busy = false;
   document.getElementById('send-btn').disabled = false;
+  loadHistory(true); // pick up the saved exchange's id, so it can be reopened and continued like any other
   scrollFeed();
 }
 
