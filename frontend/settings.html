@@ -389,7 +389,7 @@ async function loadDev() {
   if (!d.open.length) open.append(el('div', 'empty', 'Nothing on the list. Add what you want us to work on next.'));
   d.open.forEach(n => open.append(devRow(n, false)));
   $('devCount').textContent = d.open.length + ' open';
-  $('devDoneBox').style.display = d.done.length ? 'block' : 'none';
+  $('devDoneBox').style.display = d.done.length ? '' : 'none';
   $('devDoneSummary').textContent = 'Done (' + d.done.length + ')';
   const done = $('devDone'); done.replaceChildren();
   d.done.forEach(n => done.append(devRow(n, true)));
