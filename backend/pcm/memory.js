@@ -57,6 +57,13 @@ export async function discard(kind, key = 'main') {
   if (error) throw new Error(error.message);
 }
 
+// Take one active row out of use (it stays in the table as 'archived', like an earlier version).
+export async function archiveActive(kind, key) {
+  const { error } = await supabase.from(T).update({ status: 'archived' })
+    .eq('kind', kind).eq('key', key).eq('status', 'active');
+  if (error) throw new Error(error.message);
+}
+
 // Active rows untouched for `days` fall out of the "current" tier (they remain in the archive).
 export async function retireStale(kind, days) {
   const cutoff = new Date(Date.now() - days * 864e5).toISOString();

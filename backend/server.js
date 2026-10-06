@@ -24,6 +24,7 @@ import { startTrace, saveTrace, recentTraces, getTrace } from './trace.js';
 import { getMessages } from './pcm/messages.js';
 import { getActive, history, getState } from './pcm/memory.js';
 import { saveProfile, PROFILE_MAX } from './pcm/profile.js';
+import { listProjects, saveProject, removeProject, PROJECT_MAX } from './pcm/projects.js';
 import { getSettings, saveSettings } from './pcm/settings.js';
 import { listTrash, trashStats, restoreTrash, deleteTrash, canMirror } from './pcm/backup.js';
 import { housekeeping, storageReport } from './pcm/housekeeping.js';
@@ -299,6 +300,17 @@ app.get('/api/pcm/profile', async (req, res) => {
 });
 app.post('/api/pcm/profile', async (req, res) => { // save the profile: { "content": "..." }
   try { res.json({ ok: true, ...(await saveProfile(req.body?.content, { manual: true })) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Your projects (Settings): the project notes Mobius uses in answers. Mobius also keeps them up to date from the chats.
+app.get('/api/pcm/projects', async (req, res) => res.json({ projects: await listProjects(), max: PROJECT_MAX }));
+app.post('/api/pcm/projects', async (req, res) => { // add or replace: { name, content, keywords }
+  try { res.json({ ok: true, ...(await saveProject(req.body || {})) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post('/api/pcm/projects/remove', async (req, res) => { // { name }; goes to the backup first
+  try { res.json({ ok: true, ...(await removeProject(req.body?.name)) }); }
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 

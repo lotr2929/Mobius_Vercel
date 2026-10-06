@@ -196,7 +196,7 @@ ${lines.join('\n')}
 
 Rewrite the profile, merging in anything new and durable.
 - Keep every fact already in the current profile (including family, health and commercial details Boon asked to be kept) unless his new messages contradict it. Never drop a line just because it is sensitive.
-- Add only things he actually said about himself or his work: who he is, the areas and projects he works on, his interests, how he likes to be answered. Do not infer new health, family or money details, and do not guess at his personality; prefer his own wording to interpretation.
+- Add only things he actually said about himself: who he is, family, friends, his interests, how he likes to be answered. Do not add his projects or work in progress: those are kept separately under Your projects. Leave any project lines already in the profile as they are. Do not infer new health, family or money details, and do not guess at his personality; prefer his own wording to interpretation.
 Plain markdown bullets, at most 480 words (about 3,000 characters). Reply with ONLY the profile.`, { role: 'deep', timeoutMs: 40000 });
 
   // Used straight away; the previous version stays under "earlier versions" in Settings.

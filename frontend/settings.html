@@ -54,6 +54,11 @@ section > h2:first-child { cursor: pointer; user-select: none; }
 section > h2:first-child::before { content: "\25BE"; display: inline-block; width: 1.1em; color: #888; }
 section.folded > h2:first-child::before { content: "\25B8"; }
 section.folded > :not(h2:first-child) { display: none; }
+/* Suggestions waiting for you folds the same way (6 Oct 2026) */
+#suggestionBox > h2 { cursor: pointer; user-select: none; }
+#suggestionBox > h2::before { content: "\25BE"; display: inline-block; width: 1.1em; color: #888; }
+#suggestionBox.folded > h2::before { content: "\25B8"; }
+#suggestionBox.folded > :not(h2) { display: none; }
 </style>
 </head>
 <body>
@@ -67,7 +72,7 @@ section.folded > :not(h2:first-child) { display: none; }
 <!-- ───────────── Profile ───────────── -->
 <section>
   <h2>Your profile</h2>
-  <p class="hint">Who you are, as Mobius should know you. This text goes to the AI with every message, so write only what you are happy for the AI providers to see. Mobius updates it weekly from your conversations and uses the update straight away; your earlier version is kept below. If you edit it, Mobius leaves it alone for a day.</p>
+  <p class="hint">Who you are, as Mobius should know you: your personal details, family, friends and other personal context. Your work and projects go under Your projects, below. This text goes to the AI with every message, so write only what you are happy for the AI providers to see. Mobius updates it weekly from your conversations and uses the update straight away; your earlier version is kept below. If you edit it, Mobius leaves it alone for a day.</p>
   <div id="profileMeta" class="sub"></div>
   <textarea id="profile" spellcheck="true"></textarea>
   <div class="row">
@@ -78,6 +83,20 @@ section.folded > :not(h2:first-child) { display: none; }
   <div class="row">
     <select id="versions"><option value="">Earlier versions…</option></select>
     <button id="loadVersion" class="plain" disabled>Load into the editor</button>
+  </div>
+</section>
+
+<!-- ───────────── Projects ───────────── -->
+<section>
+  <h2>Your projects</h2>
+  <p class="hint">Everything you are working on lives here, apart from your personal profile above. Each note goes to the AI when your message is about that project. Mobius also adds and updates them itself from your chats; edit one here and it carries on from your version. A project not mentioned for 30 days drops off this list. Removing one sends it to Backup below, so you can restore it.</p>
+  <div id="projects"></div>
+  <div class="card">
+    <b>Add a project</b>
+    <input type="text" id="projName" placeholder="Project name, e.g. Urban Ecological Index paper" style="margin-top:6px">
+    <textarea id="projText" placeholder="Goal, where it stands, decisions made, what is open" style="min-height:90px;margin-top:6px"></textarea>
+    <input type="text" id="projKw" placeholder="Keywords, separated by commas (names, tools, acronyms)" style="margin-top:6px">
+    <div class="row"><button id="projAdd">Add project</button><span id="projCount" class="count"></span></div>
   </div>
 </section>
 
@@ -381,6 +400,60 @@ $('devAdd').onclick = async () => {
 };
 $('devInput').addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') $('devAdd').click(); });
 
+// ── Projects ─────────────────────────────────────────────────────────────────
+let projMax = 1500;
+function projCard(p) {
+  const card = el('div', 'card'), head = el('div');
+  head.append(el('b', '', p.name), el('span', 'sub', ' · updated ' + when(p.updatedAt)));
+  const text = el('textarea'); text.value = p.content; text.style.minHeight = '110px'; text.style.marginTop = '6px';
+  const kw = el('input'); kw.type = 'text'; kw.value = p.keywords.join(', '); kw.placeholder = 'Keywords, separated by commas'; kw.style.marginTop = '6px';
+  const save = el('button', '', 'Save'), rm = el('button', 'warn', 'Remove'), count = el('span', 'count');
+  const check = () => {
+    const n = text.value.trim().length;
+    count.textContent = n.toLocaleString() + ' / ' + projMax.toLocaleString();
+    count.className = 'count' + (n > projMax ? ' over' : '');
+    save.disabled = n === 0 || n > projMax || (text.value.trim() === p.content.trim() && kw.value.trim() === p.keywords.join(', '));
+  };
+  text.addEventListener('input', check); kw.addEventListener('input', check); check();
+  save.onclick = async () => {
+    save.disabled = true; say('Saving…');
+    try { await api('POST', '/api/pcm/projects', { name: p.name, content: text.value, keywords: kw.value }); await loadProjects(); say('Saved “' + p.name + '”.', 'ok'); }
+    catch (e) { say(e.message, 'err'); check(); }
+  };
+  rm.onclick = async () => {
+    if (!confirm('Remove “' + p.name + '”? It goes to Backup, where you can restore it.')) return;
+    try { await api('POST', '/api/pcm/projects/remove', { name: p.name }); await Promise.all([loadProjects(), loadTrash()]); say('Removed. It is under Backup if you want it back.', 'ok'); }
+    catch (e) { say(e.message, 'err'); }
+  };
+  const row = el('div', 'row'); row.append(save, rm, count);
+  card.append(head, text, kw, row);
+  return card;
+}
+async function loadProjects() {
+  const d = await api('GET', '/api/pcm/projects');
+  projMax = d.max || 1500;
+  const box = $('projects'); box.replaceChildren();
+  if (!d.projects.length) box.append(el('div', 'empty', 'No projects yet. Add one below, or just talk about your work in the chat and Mobius will start a note.'));
+  d.projects.forEach(p => box.append(projCard(p)));
+  updateProjCount();
+}
+function updateProjCount() {
+  const n = $('projText').value.trim().length;
+  $('projCount').textContent = n.toLocaleString() + ' / ' + projMax.toLocaleString();
+  $('projCount').className = 'count' + (n > projMax ? ' over' : '');
+  $('projAdd').disabled = !$('projName').value.trim() || n === 0 || n > projMax;
+}
+$('projText').addEventListener('input', updateProjCount);
+$('projName').addEventListener('input', updateProjCount);
+$('projAdd').onclick = async () => {
+  $('projAdd').disabled = true; say('Adding…');
+  try {
+    const r = await api('POST', '/api/pcm/projects', { name: $('projName').value, content: $('projText').value, keywords: $('projKw').value });
+    $('projName').value = ''; $('projText').value = ''; $('projKw').value = '';
+    await loadProjects(); say((r.created ? 'Added “' : 'Updated “') + r.name + '”.', 'ok');
+  } catch (e) { say(e.message, 'err'); updateProjCount(); }
+};
+
 // ── Linked accounts ──────────────────────────────────────────────────────────
 // Settings only shows what is linked; adding, browsing and reading are done by asking in the chat.
 const SRC_STATUS = { ok: ['reading', 'ready'], pending: ['waiting to be read', 'rest'], no_access: ['cannot open', 'bad'], unsupported: ['not readable yet', 'bad'], paused: ['paused', 'rest'], error: ['problem', 'bad'] };
@@ -520,7 +593,17 @@ $('gDisconnect').onclick = async () => {
   } catch { /* offline: the stamp on the page is all there is */ }
 })();
 
-Promise.all([loadProfile(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
+Promise.all([loadProfile(), loadProjects(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
+// Suggestions waiting for you folds under its heading; remembered on this device. Default: folded.
+(() => {
+  const KEY = 'mobius-suggestions-open', box = $('suggestionBox'), h = box.querySelector('h2');
+  let isOpen = false; try { isOpen = localStorage.getItem(KEY) === '1'; } catch { /* private mode */ }
+  box.classList.toggle('folded', !isOpen);
+  h.addEventListener('click', () => {
+    box.classList.toggle('folded');
+    try { localStorage.setItem(KEY, box.classList.contains('folded') ? '0' : '1'); } catch { /* private mode */ }
+  });
+})();
 // Sections fold under their headings; the choice is remembered on this device. First visit: only Development notes is open.
 (() => {
   const KEY = 'mobius-settings-open', saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; } })();

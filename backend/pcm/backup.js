@@ -66,7 +66,7 @@ export async function restoreTrash(id) {
   } else if (row.kind === 'note') {
     await addNote(p.content, { source: p.source || 'asked', status: 'active' });
   } else if (row.kind === 'memory') {
-    await put(p.kind, p.key, { content: p.content });
+    await put(p.kind, p.key, { content: p.content, keywords: p.keywords || [] });
   } else if (row.kind === 'devnote') {
     const { restoreDevNote } = await import('./devnotes.js'); // imported here to avoid a circular import
     await restoreDevNote(p);
