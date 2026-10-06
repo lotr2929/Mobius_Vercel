@@ -15,12 +15,13 @@ import { restoreAudit } from './ai/audit.js';
 import { analyse, isTrivial } from './pcm/router.js';
 import { getMessages, saveExchange, settled } from './pcm/messages.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
-import { listActive } from './pcm/memory.js';
+import { listActive, getActive } from './pcm/memory.js';
 import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
 import { learnFromExchange, learnedNotice } from './pcm/learn.js';
 import { PROFILE_SEND_MAX } from './pcm/profile.js';
 import { assembleContext } from './pcm/assemble.js';
-import { embedBacklog } from './pcm/maintain.js';
+import { embedBacklog, learnStancesSoon } from './pcm/maintain.js';
+import { stancesFor } from './pcm/stance.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
 import { docDigests, digestOutline, passagesFrom, digestDoc, formatOverview, folderScope } from './docs/digest.js';
 import { listSources } from './docs/sources.js';
@@ -170,7 +171,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const privateLabels = privateMode ? [] : await safe(async () => (await listSources()).filter(s => s.sensitivity === 'private').map(s => s.label), []);
     const hidden = name => privateLabels.some(l => String(name).startsWith(l + '/'));
 
-    const [web, profile, week, archive0, namedFile0, selfText, live0, overview0, library] = await Promise.all([
+    const [web, profile, week, archive0, namedFile0, selfText, live0, overview0, library, stance, working] = await Promise.all([
       useWeb ? tavilySearch(plan.standalone) : null,
       safe(getProfile, ''),
       safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
@@ -193,6 +194,9 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
         return { label: scope.label, n: rows.length, text: formatOverview(rows, 14000) };
       }, null),
       theology ? safe(() => libraryContext(plan.standalone, { noEmbed: privateMode }), null) : null,
+      // Mobius's own positions on the question Boon is raising (pcm/stance.js), and what it has come to understand about him
+      direct || memoryAction || plan.aboutSelf ? '' : safe(async () => stancesFor(await listActive('stance'), `${plan.standalone} ${userQuery}`), ''),
+      direct || memoryAction || plan.aboutSelf ? '' : safe(async () => (await getActive('working'))?.content || '', ''),
     ]);
     const archive = { ...archive0, docs: (archive0.docs || []).filter(d => !hidden(d.filename)) };
     const namedFile = namedFile0 && !hidden(namedFile0) ? namedFile0 : null;
@@ -241,7 +245,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       namedOutline: namedOutline ? { chars: namedOutline.text.length, complete: namedOutline.complete } : 0, namedPassages: namedPassages.length,
       folderOverview: overview ? { folder: overview.label, digests: overview.n } : null,
       library: library ? { books: library.books, passages: library.hits } : (theology ? 'none held' : null),
-      projects: chosen.map(p => p.key), self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
+      projects: chosen.map(p => p.key), stance: stance.length, working: working.length, self: selfText.length, liveDrive: live?.files || null, liveDriveMs: live?.ms || null,
     } }).mark('recalled');
 
     // 4. assemble — parts are in display order; rank decides who is cut first when space runs out
@@ -253,6 +257,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // the standing background (notes, week, documentation) after it.
     const selfPart = { title: 'About Mobius and this device (your own documentation)', rank: plan.aboutSelf ? 1 : 3, cap: 8000, text: selfText };
     const parts = [
+      // First, so it is in the part of the block that every model keeps (a small model has the middle cut out)
+      { title: 'Your own positions on the question Boon is raising. They are yours: state them, give your reasons, and keep them from one conversation to the next. They move only for a new argument or new evidence, and when one moves, say what moved it. Points listed as already argued are not to be rerun: refer to them in a line ("we have been through that") and go on to what is new. Boon pressing, repeating himself or sounding sure is not an argument', rank: 1, cap: 3400, text: stance },
       { title: 'Memory action just taken (report it to Boon)', rank: 1, cap: 3000, text: memoryAction },
       { title: 'Result of the cloud-drive request just carried out for Boon: this IS the answer, so present it as it stands, keeping the numbers so he can answer by number (Mobius can only read his Drive, never change it)', rank: 1, cap: 7000, text: driveResult?.text || '' },
       { title: 'Boon\'s earlier chats, newest first: this IS the answer to his request to see them, so present the list as it stands, with the dates and titles', rank: 1, cap: 5000, text: chatList },
@@ -279,6 +285,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
       { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
       { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
+      { title: 'What you have come to understand about Boon by working with him (what he has said and argued, in his own provisional words: not evidence, and not settled fact)', rank: 2, cap: 2000, text: working },
       { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon; not evidence, and not conclusions to defend or to agree with)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
       { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
       { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
@@ -360,6 +367,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     }
 
     embedBacklog({ messages: 4, docs: 8 }).catch(() => {}); // quiet top-up, never blocks the reply
+    if (stance && !privateMode && !signal?.aborted) learnStancesSoon().catch(() => {}); // what was just argued is on record before the next message, not after tomorrow's maintenance
     // A long file Boon is working with gets its digest written, a few parts at a time, whenever it is used (maintenance finishes the job)
     const toDigest = driveResult?.archived || (longNamed && !namedOutline?.complete ? namedFile : null);
     if (toDigest) digestDoc(toDigest, { left: () => 45000, maxParts: 10, pause: 1500 }).catch(() => {});

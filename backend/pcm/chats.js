@@ -61,13 +61,14 @@ export async function summariseChat(chat) {
 
 ${text}
 
-Reply with ONLY JSON: {"title":"at most 9 words naming the main topic","summary":"at most 650 characters in British English: what was discussed, any conclusions or decisions, open questions, and any files or images mentioned (an image is described by what it showed)"}`, { role: 'quick', timeoutMs: 40000 });
+Reply with ONLY JSON: {"title":"at most 9 words naming the main topic, or the two or three main topics if the conversation moved from one subject to another","topics":["3 to 8 short keyphrases (1-3 words each) covering EVERY subject discussed, including minor ones, in the words Boon would use to look for them later"],"summary":"at most 650 characters in British English: what was discussed, any conclusions or decisions, open questions, and any files or images mentioned (an image is described by what it showed)"}`, { role: 'quick', timeoutMs: 40000 });
   const j = parseJson(raw);
   const title = String(j.title || '').replace(/\s+/g, ' ').trim().slice(0, 90);
   const summary = String(j.summary || '').replace(/\s+/g, ' ').trim().slice(0, 800);
+  const topics = (Array.isArray(j.topics) ? j.topics : []).map(t => String(t).replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).slice(0, 8);
   if (!title && !summary) return null;
-  await supabase.from('mobius_chats').update({ title: title || null, summary: summary || null, summary_msgs: count, updated_at: new Date().toISOString() }).eq('id', chat.id);
-  return { ...chat, title, summary, summary_msgs: count };
+  await supabase.from('mobius_chats').update({ title: title || null, topics, summary: summary || null, summary_msgs: count, updated_at: new Date().toISOString() }).eq('id', chat.id);
+  return { ...chat, title, topics, summary, summary_msgs: count };
 }
 
 // Chats that are over (quiet for 20 minutes), have at least one exchange, and are not summarised yet or have grown since.
@@ -105,7 +106,7 @@ export async function findChats({ keywords = '', sinceDays = null, untilDays = n
   }
   const kw = words(keywords);
   const scored = pool.map(c => {
-    const hay = `${c.title || ''} ${c.summary || ''}`.toLowerCase();
+    const hay = `${c.title || ''} ${(c.topics || []).join(' ')} ${c.summary || ''}`.toLowerCase();
     const km = kw.filter(w => hay.includes(w)).length;
     return { c, score: (hits.get(c.id) || 0) * 2 + km * 3 };
   });

@@ -16,7 +16,7 @@ import { authRouter, authGate, authEnabled } from './auth.js';
 import { lastUpdated, appVersion } from './version.js';
 import { lookupJson } from './bible.js';
 import { supabase } from './db.js';
-import { availableNames, modelStatus } from './ai/cascade.js';
+import { availableNames, modelStatus, syncRest } from './ai/cascade.js';
 import { auditModels, probeModels } from './ai/audit.js';
 import { chatTurn } from './chat.js';
 import { geoFromHeaders, memoryStats } from './self.js';
@@ -75,7 +75,7 @@ app.get('/api/history', async (req, res) => {
 });
 
 // ── Models ───
-app.get('/api/models', (req, res) => res.json({ models: modelStatus() }));
+app.get('/api/models', async (req, res) => { await syncRest(); res.json({ models: modelStatus() }); });
 app.all('/api/models/audit', async (req, res) => {          // ?probe=1 also makes one tiny live call per model
   const report = await auditModels();
   res.json(req.query.probe ? { ...report, probe: await probeModels() } : report);

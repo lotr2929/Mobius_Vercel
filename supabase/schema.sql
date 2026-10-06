@@ -59,8 +59,8 @@ create table if not exists mobius_docs_full (
 -- ── Curated memory (tiers 1–3) ───────────────────────────────────────────────
 create table if not exists mobius_memory (
   id         bigserial primary key,
-  kind       text not null check (kind in ('profile','project','week')),
-  key        text not null default 'main',          -- 'main' for profile/week, the project name for projects
+  kind       text not null check (kind in ('profile','project','week','stance','working')),
+  key        text not null default 'main',          -- 'main' for profile/week/working, the project name for projects, the topic for stance
   content    text not null,
   keywords   text[] not null default '{}',
   status     text not null default 'active' check (status in ('active','proposed','archived')),
@@ -69,6 +69,9 @@ create table if not exists mobius_memory (
 );
 create unique index if not exists mobius_memory_one_active on mobius_memory (kind, key) where status = 'active';
 create index if not exists mobius_memory_lookup on mobius_memory (kind, status, key);
+-- Databases made before 6 Oct 2026 have the older, narrower check: widen it (idempotent).
+alter table mobius_memory drop constraint if exists mobius_memory_kind_check;
+alter table mobius_memory add constraint mobius_memory_kind_check check (kind in ('profile','project','week','stance','working'));
 
 -- Job cursors: where each maintenance job got to.
 create table if not exists mobius_state (
@@ -200,6 +203,8 @@ create table if not exists mobius_chats (
 );
 create index if not exists mobius_chats_started on mobius_chats (started_at desc);
 alter table mobius_chats enable row level security;
+-- Each chat's keyphrases, so a chat that moved between subjects can be found by any of them (added 6 Oct 2026).
+alter table mobius_chats add column if not exists topics text[];
 alter table mobius_messages add column if not exists chat_id bigint;
 create index if not exists mobius_messages_chat on mobius_messages (chat_id);
 

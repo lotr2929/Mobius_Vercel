@@ -49,6 +49,11 @@ td{padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top;}
 tr:last-child td{border-bottom:none;}
 .ready{color:var(--green);} .rest{color:var(--amber);} .bad{color:var(--red);}
 ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
+/* Each section folds away under its heading (6 Oct 2026, dev note 6) */
+section > h2:first-child { cursor: pointer; user-select: none; }
+section > h2:first-child::before { content: "\25BE"; display: inline-block; width: 1.1em; color: #888; }
+section.folded > h2:first-child::before { content: "\25B8"; }
+section.folded > :not(h2:first-child) { display: none; }
 </style>
 </head>
 <body>
@@ -516,6 +521,18 @@ $('gDisconnect').onclick = async () => {
 })();
 
 Promise.all([loadProfile(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
+// Sections fold under their headings; the choice is remembered on this device. First visit: only Development notes is open.
+(() => {
+  const KEY = 'mobius-settings-open', saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; } })();
+  const secs = [...document.querySelectorAll('section')];
+  const nameOf = s => (s.querySelector('h2')?.textContent || '').trim();
+  const open = new Set(saved || ['Development notes']);
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(secs.filter(s => !s.classList.contains('folded')).map(nameOf))); } catch { /* private mode */ } };
+  for (const s of secs) {
+    if (!open.has(nameOf(s))) s.classList.add('folded');
+    s.querySelector('h2')?.addEventListener('click', () => { s.classList.toggle('folded'); save(); });
+  }
+})();
 </script>
 </body>
 </html>

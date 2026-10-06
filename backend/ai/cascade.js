@@ -5,6 +5,7 @@
 import { KEYS } from '../config.js';
 import { BASE_PROMPT, UTILITY_PROMPT } from './prompt.js';
 import { MODELS, modelByKey, orderFor } from './models.js';
+import { getState, setState } from '../pcm/memory.js';
 
 export { parseAskPrefix } from './models.js';
 
@@ -16,7 +17,7 @@ async function post(url, headers, body, signal, label) {
     body: JSON.stringify(body),
     signal,
   });
-  if (!r.ok) throw new Error(`${label} HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`${label} HTTP ${r.status}: ${(await r.text()).slice(0, 2500)}`);
   return r;
 }
 
@@ -113,11 +114,68 @@ function pickKeys(order) {
   return ok.length ? ok : order.filter(k => configured(modelByKey(k))); // all resting: try them anyway
 }
 
-// A minute after a rate limit, six hours after "payment required", "not found" or a bad key.
-function markDown(key, err) {
+// How long to rest a model, worked out from what the provider said (6 Oct 2026: a spent daily allowance used to be
+// retried every minute, so every message paid for a failed call on each exhausted model in turn).
+//   daily allowance spent  rest until the reset the provider names (Groq says "try again in 1h2m"; Gemini's daily counts
+//                          restart at midnight Pacific time), but never more than 3 hours, so a wrong guess or a changed
+//                          quota is rechecked by the next message after that: a refused call costs well under a second
+//   per-minute limit       the delay the provider names, between 15 seconds and an hour; a minute if it names none
+//   402/403/404/bad key    six hours;  timeout or other error: twenty seconds
+function pacificMidnightMs(now = Date.now()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(now);
+  const get = t => Number(parts.find(p => p.type === t).value) % 24;
+  return ((24 - get('hour')) * 3600 - get('minute') * 60 - get('second')) * 1000 + 60e3;
+}
+
+// Gemini: "retryDelay": "37s".  Groq and other OpenAI-style: "Please try again in 1h2m3.5s" or "in 850ms".
+export function retryDelayMs(text = '') {
+  let m = /"retryDelay"\s*:\s*"([\d.]+)s"/.exec(text);
+  if (m) return Math.round(Number(m[1]) * 1000);
+  m = /(?:try again|retry) in\s+((?:\d+(?:\.\d+)?\s*(?:ms|d|h|m|s)\s*)+)/i.exec(text);
+  if (!m) return null;
+  let ms = 0;
+  for (const [, n, u] of m[1].matchAll(/(\d+(?:\.\d+)?)\s*(ms|d|h|m|s)/g)) ms += Number(n) * { ms: 1, s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[u];
+  return Math.round(ms);
+}
+
+export function restFor(status, text = '', provider = '') {
+  if ([401, 402, 403, 404].includes(status)) return { ms: 6 * 3600e3 };
+  if (status === 429) {
+    const hinted = retryDelayMs(text);
+    if (/per ?day|PerDay|\bTPD\b|\bRPD\b|daily/i.test(text)) {
+      const reset = provider === 'gemini' ? pacificMidnightMs() : (hinted ?? 3 * 3600e3);
+      return { ms: Math.min(3 * 3600e3, Math.max(15 * 60e3, reset)), daily: true };
+    }
+    return { ms: Math.min(3600e3, Math.max(hinted ?? 60e3, 15e3)) };
+  }
+  return { ms: 20e3 };
+}
+
+// Rest periods are shared between instances, because Vercel starts a fresh process often and each one would otherwise
+// rediscover the same spent quota on its own first message. They live in mobius_state 'model_rest'.
+let restRead = 0;
+export async function syncRest() {
+  if (Date.now() - restRead < 15e3) return;
+  restRead = Date.now();
+  try {
+    for (const [k, v] of Object.entries((await getState('model_rest')) || {})) {
+      if (modelByKey(k) && v?.until > (downUntil[k] || 0)) { downUntil[k] = v.until; downWhy[k] = v.why; }
+    }
+  } catch { /* no memory available: this process still knows what it has seen */ }
+}
+
+async function saveRest() {
+  const now = Date.now(), out = {};
+  for (const k of Object.keys(downUntil)) if (downUntil[k] > now + 60e3) out[k] = { until: downUntil[k], why: downWhy[k] };
+  try { await setState('model_rest', out); } catch { /* as above */ }
+}
+
+async function markDown(key, err) {
   const status = Number((/HTTP (\d{3})/.exec(err.message) || [])[1]);
-  downUntil[key] = Date.now() + ([401, 402, 403, 404].includes(status) ? 6 * 3600e3 : status === 429 ? 60e3 : 20e3);
-  downWhy[key] = status ? `HTTP ${status}${status === 429 ? ' rate limit or quota' : status === 402 ? ' payment required' : status === 404 ? ' model not found' : ''}` : 'error or timeout';
+  const rest = restFor(status, err.message, modelByKey(key)?.provider);
+  downUntil[key] = Date.now() + rest.ms;
+  downWhy[key] = status ? `HTTP ${status}${status === 429 ? (rest.daily ? ' daily allowance spent' : ' rate limit') : status === 402 ? ' payment required' : status === 404 ? ' model not found' : ''}` : 'error or timeout';
+  if (rest.ms >= 2 * 60e3) await saveRest(); // short rests are not worth a database write
 }
 
 export function setRetired(keys) { retired.clear(); keys.forEach(k => retired.add(k)); }
@@ -128,7 +186,7 @@ export const availableNames = () => orderFor('chat').filter(k => configured(mode
 export const modelStatus = () => MODELS.map(m => ({
   key: m.key, name: m.name, id: m.id, provider: m.provider, tags: m.tags,
   state: !keyFor(m) ? 'no key' : retired.has(m.key) ? 'retired (not listed by the provider)'
-       : Date.now() < (downUntil[m.key] || 0) ? `resting after a failure (${downWhy[m.key]})` : 'ready',
+       : Date.now() < (downUntil[m.key] || 0) ? `resting until ${new Date(downUntil[m.key]).toISOString().slice(11, 16)} UTC (${downWhy[m.key]})` : 'ready',
 }));
 
 // ── Fitting a prompt to a model ──────────────────────────────────────────────
@@ -190,6 +248,7 @@ export function joinContinuation(partial, head) {
 
 export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [], privateOnly = false } = {}) {
   if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
+  await syncRest(); // learn which models another instance found out of allowance, so no message pays to rediscover it
   const seeing = images.length > 0;
   if (seeing && only && !modelByKey(only).vision) { yield { event: 'error:cannot-see-images:' + modelByKey(only).name }; return; }
   // With an image attached the request is channelled to the models that can see, in their own order ('vision').
@@ -234,8 +293,8 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
       }
     } catch (e) {
       if (signal?.aborted) return;
-      markDown(key, e);
-      console.warn(`[cascade] ${m.name} failed: ${e.message} — trying next`);
+      await markDown(key, e);
+      console.warn(`[cascade] ${m.name} failed: ${e.message.slice(0, 300)} - trying next`);
       yield { event: 'fallback:' + m.name + ':' + e.message.slice(0, 80) };
       if (only) { if (partial) yield { event: 'cut-off' }; return; }
     }
@@ -248,6 +307,7 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
 // Each model gets its own timeout; the first non-empty answer wins. role: 'quick' | 'deep'.
 export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT, privateOnly = false } = {}) {
   let lastError;
+  await syncRest();
   for (const key of pickKeys(orderFor(role)).filter(k => !privateOnly || modelByKey(k).trains === false)) {
     const m = modelByKey(key);
     if (!keyFor(m)) continue;
@@ -256,7 +316,7 @@ export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, syst
       for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise([{ role: 'user', content: prompt }]), system, m.maxChars), AbortSignal.timeout(timeoutMs), system)) out += token;
       if (out.trim()) return out.trim();
     } catch (e) {
-      markDown(key, e);
+      await markDown(key, e);
       lastError = e;
     }
   }

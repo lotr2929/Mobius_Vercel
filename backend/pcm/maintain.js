@@ -18,7 +18,8 @@ import { embedQuery, embedPatient } from './embed.js';
 import { getActive, listActive, put, retireStale, getState, setState } from './memory.js';
 import { fitProfile } from './profile.js';
 import { housekeeping } from './housekeeping.js';
-import { listNotes, addNote, promoteSuggestions } from './notes.js';
+import { listNotes, addNote, promoteSuggestions, PRIVATE_TOPIC } from './notes.js';
+import { mergeUpdate, cleanKeywords, MAX_STANCES } from './stance.js';
 import { segmentChats, summariseChats } from './chats.js';
 import { clip, isoDaysAgo, parseJson } from '../util.js';
 
@@ -206,6 +207,97 @@ Plain markdown bullets, at most 480 words (about 3,000 characters). Reply with O
   return { updated: true, shortened: fit.shortened };
 }
 
+// -- Mobius's own positions (stance.js): what it holds on God, morality, scripture ..., and what has already been argued --
+// The positions start balanced (seeded 6 Oct 2026) and move only for a new argument or new evidence. What is recorded from the
+// conversations is mainly WHAT HAS BEEN ARGUED, so that it is not argued again from the beginning.
+async function refreshStances(left) {
+  const report = { batches: 0, updated: 0, created: 0 };
+  for (let i = 0; i < 2 && left() > 15000; i++) {
+    const upto = (await getState('stances_upto')) || isoDaysAgo(14);
+    const { lines, upto: newUpto } = takeBatch(await messagesAfter(upto), m => line(m, 600));
+    if (lines.length < 4) break;
+
+    const rows = await listActive('stance');
+    const current = rows.map(r => `## ${r.key}\nKeywords: ${(r.keywords || []).join(', ')}\n${r.content}`).join('\n\n') || '(none yet)';
+    const raw = await askModel(`You keep the record of Mobius's own positions. Mobius is Boon's AI thinking partner; in the conversation below "user" is Boon and "assistant" is Mobius. Today is ${today()}.
+
+Current positions (one JSON record per topic):
+${current}
+
+New conversation since the record was last updated (oldest first):
+${lines.join('\n')}
+
+Find the exchanges in which Boon and Mobius argued about a question that no look-up can settle: God, morality, religion, scripture, suffering, meaning, mind. Ignore everything else (recipes, software, facts, files).
+For each topic touched, return one update:
+- "name": the exact name of an existing topic, or a short new name only for a topic Boon plainly keeps coming back to.
+- "keywords": 4 to 8 words likely to appear when the topic comes up (new topics only).
+- "covered": the arguments actually exchanged this time, from whichever side, one line each of at most 160 characters: {"point":"...","outcome":"held|conceded|open"}. "conceded" means Mobius accepted a point (say which point); "held" means Mobius kept its view for a stated reason; "open" means it was left unresolved. Boon's own views go here as "Boon argued ...", never as Mobius's position.
+- "position", "confidence", "because", "change": include them ONLY when a genuinely new argument or new evidence justifies changing Mobius's position (a new topic needs all four). Do not move a position because Boon disagreed, repeated himself or sounded certain. Do not adopt a line merely because an earlier reply took it: the replies came from different models and some were careless. A reply that sided with Boon, or against him, without an argument leaves the position as it was.
+Mobius stays balanced: a position says what the evidence supports and where it falls short, on both sides, and gives its confidence honestly.
+Reply with ONLY JSON: {"updates":[{"name":"...","keywords":["..."],"covered":[{"point":"...","outcome":"held"}],"position":"...","confidence":"...","because":"...","change":"..."}]}. If nothing qualifies, reply {"updates":[]}.`, { role: 'deep', timeoutMs: 45000 });
+
+    const updates = parseJson(raw).updates;
+    for (const u of (Array.isArray(updates) ? updates : []).slice(0, 6)) {
+      const name = flat(u?.name, 60);
+      if (!name) continue;
+      const existing = rows.find(r => r.key.toLowerCase() === name.toLowerCase());
+      if (!existing && rows.length >= MAX_STANCES) continue;
+      const merged = mergeUpdate(existing, u, today());
+      if (!merged) continue; // a new topic with no position of its own is not kept
+      const keywords = [...new Set([...(existing?.keywords || []), ...cleanKeywords(u.keywords)])].slice(0, 12);
+      await put('stance', existing ? existing.key : name, { content: JSON.stringify(merged), keywords });
+      if (existing) report.updated++; else { report.created++; rows.push({ key: name, keywords, content: '' }); }
+    }
+    await setState('stances_upto', newUpto);
+    report.batches++;
+  }
+  return report;
+}
+
+// -- What Mobius has come to understand about Boon (kind 'working') --
+// Grows with use: every couple of days the new conversation is merged in. It records what he has said and argued, not what
+// he is "like"; nothing private (PRIVATE_TOPIC lines are dropped), because it rides in prompts that may reach free models.
+async function refreshWorking() {
+  const last = await getState('working_last');
+  if (last && Date.now() - Date.parse(last) < 2 * 864e5) return { skipped: 'updated within the last two days' };
+  const upto = (await getState('working_upto')) || isoDaysAgo(30);
+  const rows = await messagesAfter(upto);
+  if (rows.length < 10) return { skipped: 'fewer than 10 new messages' };
+
+  const { lines, upto: newUpto } = takeBatch(rows, m => line(m, 450));
+  const current = (await getActive('working'))?.content || '';
+  const raw = await askModel(`You keep Mobius's growing understanding of Boon as a thinking partner, so that Mobius reasons with him better each month. In the conversation below "user" is Boon and "assistant" is Mobius. Today is ${today()}.
+
+Current understanding:
+${current || '(none yet)'}
+
+New conversation since it was last updated (oldest first):
+${lines.join('\n')}
+
+Rewrite the understanding, merging in what is new. Plain markdown bullets under these four bold headings, at most 1,800 characters in all:
+**What he is working through** - the questions he keeps returning to and where he has got to. Give his views as his own and provisional ("he argues", "for now he holds"), never as settled facts.
+**How he reasons** - habits you can see in how he argues (for instance testing a claim against history, or asking where an argument leads), his own terms and what he means by them.
+**What has been covered** - topics and arguments already discussed thoroughly, so that they are not started again; changes of mind that he himself expressed, with their dates.
+**How he likes to be answered** - only preferences he stated or plainly showed.
+Rules: use only what he said or did in these conversations; no diagnosis or guess about his character or motives; nothing about health, family, money, legal matters, relationships or personal strain; drop what is no longer true; keep it short. Reply with ONLY the text.`, { role: 'deep', timeoutMs: 45000 });
+
+  const kept = raw.split('\n').filter(l => !PRIVATE_TOPIC.test(l)).join('\n').trim();
+  if (kept.length < 80) return { skipped: 'nothing usable came back' };
+  await put('working', 'main', { content: clip(kept, 2200) });
+  await setState('working_last', new Date().toISOString());
+  await setState('working_upto', newUpto);
+  return { updated: true, chars: kept.length };
+}
+
+// Called by chat.js after an exchange that touched one of Mobius's positions, so what was just argued is on record before the
+// next message rather than after the daily maintenance run. At most once in twenty minutes; never blocks or breaks a reply.
+export async function learnStancesSoon() {
+  const last = await getState('stances_last');
+  if (last && Date.now() - Date.parse(last) < 20 * 60e3) return { skipped: 'ran in the last 20 minutes' };
+  await setState('stances_last', new Date().toISOString());
+  return refreshStances(() => 40000);
+}
+
 // ── Tier 4: embedding backlog ────────────────────────────────────────────────
 export async function embedBacklog({ messages = 0, docs = 0, patient = false, left = () => Infinity } = {}) {
   const embed = patient ? embedPatient : embedQuery;
@@ -237,11 +329,13 @@ export async function runMaintenance({ budgetMs = Infinity, cli = false } = {}) 
     ['models',   async () => { const a = await auditModels(); return { retired: a.retired, newModels: a.candidates }; }],
     ['housekeeping', () => housekeeping()],
     ['week',     () => refreshWeek()],
-    ['chats',    async () => ({ ...(await segmentChats()), ...(await summariseChats({ limit: 3 })) })],
+    ['chats',    async () => ({ ...(await segmentChats()), ...(await summariseChats({ limit: 6 })) })],
     ['projects', () => refreshProjects(left)],
     ['notes',    () => harvestNotes(left)],
     ['promote',  () => promoteSuggestions()],   // suggestions are not reviewed: safe ones become notes, private ones stay out of every prompt
+    ['stances',  () => refreshStances(left)],   // Mobius's own positions: what has been argued, and any position a new argument has moved
     ['profile',  () => refreshProfile()],
+    ['working',  () => refreshWorking()],       // what Mobius has come to understand about how Boon thinks and what he has worked through
     ['digests',  () => digestPending(Number.isFinite(budgetMs)
       ? { left: () => left() - budgetMs * 0.3, maxParts: 60 }  // a timed (daily) run: gentle on the free quotas, and keeps 30% of its time for embedding
       : { left })],                                            // by hand: as much as there is
