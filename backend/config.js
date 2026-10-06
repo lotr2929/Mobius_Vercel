@@ -64,3 +64,12 @@ export const RECENT_MESSAGES      = 20;  // tier 1: messages sent verbatim with 
 export const WEEK_DAYS            = 7;   // tier 1: horizon of the rolling digest
 export const PROJECT_DORMANT_DAYS = 30;  // tier 3: a project untouched this long drops out of "current"
 export const CRON_BUDGET_MS       = 50000; // time-box for the daily cron route
+
+// ── Answer review (pcm/review.js) ────────────────────────────────────────────
+// A second model checks a factual, theological or research answer before it is sent (and the draft is redrafted once if it
+// finds real problems). 'on' (default) or 'off'.
+export const REVIEW_MODE    = (env.REVIEW_MODE || 'on').toLowerCase();
+// The most time one chat turn may take, review included. The review is cut short, and the draft sent as it stands, rather than
+// run past it: a held draft that outlives the serverless function would be lost. The Vercel figure is a guess to be raised if
+// the project's function limit allows (CRON_BUDGET_MS above suggests about a minute); locally there is no such limit.
+export const TURN_BUDGET_MS = Number(env.TURN_BUDGET_MS) || (IS_VERCEL ? 52000 : 110000);

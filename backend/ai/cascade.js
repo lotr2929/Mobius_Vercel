@@ -305,16 +305,18 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
 
 // ── One-shot call (routing, summarising) ─────────────────────────────────────
 // Each model gets its own timeout; the first non-empty answer wins. role: 'quick' | 'deep'.
-export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT, privateOnly = false } = {}) {
+// `exceptProvider` leaves out every model of one provider (a reviewer must not be the model it reviews); `meta`, if given, is filled
+// with the name of the model that answered.
+export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT, privateOnly = false, exceptProvider = null, meta = null } = {}) {
   let lastError;
   await syncRest();
-  for (const key of pickKeys(orderFor(role)).filter(k => !privateOnly || modelByKey(k).trains === false)) {
+  for (const key of pickKeys(orderFor(role)).filter(k => (!privateOnly || modelByKey(k).trains === false) && (!exceptProvider || modelByKey(k).provider !== exceptProvider))) {
     const m = modelByKey(key);
     if (!keyFor(m)) continue;
     try {
       let out = '';
       for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise([{ role: 'user', content: prompt }]), system, m.maxChars), AbortSignal.timeout(timeoutMs), system)) out += token;
-      if (out.trim()) return out.trim();
+      if (out.trim()) { if (meta) meta.model = m.name; return out.trim(); }
     } catch (e) {
       await markDown(key, e);
       lastError = e;

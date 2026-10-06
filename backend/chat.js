@@ -8,7 +8,7 @@
 // Memory failures never stop the chat: every recall step degrades to "nothing found".
 // Every turn leaves a trace (trace.js) so that a wrong answer can be diagnosed afterwards.
 
-import { KEYS, RECENT_MESSAGES } from './config.js';
+import { KEYS, RECENT_MESSAGES, REVIEW_MODE, TURN_BUDGET_MS } from './config.js';
 import { buildSystem } from './ai/prompt.js';
 import { runCascade, parseAskPrefix } from './ai/cascade.js';
 import { restoreAudit } from './ai/audit.js';
@@ -22,6 +22,8 @@ import { PROFILE_SEND_MAX } from './pcm/profile.js';
 import { assembleContext } from './pcm/assemble.js';
 import { embedBacklog, learnStancesSoon } from './pcm/maintain.js';
 import { stancesFor } from './pcm/stance.js';
+import { checkAnswer, checkNotice } from './pcm/checks.js';
+import { shouldReview, reviewDraft } from './pcm/review.js';
 import { findNamedDoc, getFullDoc } from './docs/store.js';
 import { docDigests, digestOutline, passagesFrom, digestDoc, formatOverview, folderScope } from './docs/digest.js';
 import { listSources } from './docs/sources.js';
@@ -75,6 +77,7 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 // Yields { event } and { token } objects for server.js to relay as SSE.
 // client = what the browser reported about the device; geo = approximate location from the request.
 export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal }) {
+  const turnStart = Date.now(); // the review (pcm/review.js) must finish inside the turn's time budget
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
@@ -318,7 +321,14 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     // 5. answer. Learning (pcm/learn.js) starts with the first token and runs alongside the rest of
     //    the answer, so it adds no waiting time and never runs for an answer that failed.
-    let full = '', usedModel = '', learning = null;
+    // A factual, theological or research answer is checked by a model of another provider before it is sent (pcm/review.js). That is
+    // decided now, because a reviewed answer is held back instead of streamed: Boon sees "thinking" a little longer, then the checked reply.
+    const reviewing = shouldReview({
+      mode: REVIEW_MODE, query: userQuery, plan, theology, trivial: isTrivial(plan.standalone), privateMode, direct,
+      memoryAction: !!memoryAction, attached: attached.length > 0, forced: !!forceProvider,
+    });
+    trace.set({ reviewing });
+    let full = '', usedModel = '', learning = null, cutOff = false;
     const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
     if (bibleShown) {
       const shownText = (bibleShown.source ? `*${bibleShown.source}*\n\n` : '') + bibleShown.text + (bibleShown.notes.length ? '\n\n' + bibleShown.notes.map(n => `*${n}*`).join('\n') : '');
@@ -340,13 +350,43 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
           if (!memoryAction && !direct && !privateMode) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
         }
         full += chunk;
-        yield { token: chunk };
+        if (!reviewing) yield { token: chunk };
       } else if (chunk.event) {
         if (chunk.event.startsWith('model:')) usedModel = chunk.event.slice(6);
         trace.data.events.push(chunk.event.slice(0, 160));
+        if (reviewing && chunk.event === 'cut-off') { cutOff = true; continue; } // told after the draft, so the warning does not arrive before the text
         yield { event: chunk.event };
       }
     }
+
+    // The review: the held draft is checked, redrafted once if real problems turn up, and sent. If the reviewer is unavailable or
+    // too slow the draft goes out exactly as written. A cut-off draft is not reviewed.
+    if (reviewing) {
+      let finalText = full;
+      if (full.trim() && !cutOff && !signal?.aborted) {
+        yield { event: 'checking' };
+        const job = reviewDraft({ query: userQuery, draft: full, stance, answeredBy: usedModel, messages, system, deadline: turnStart + TURN_BUDGET_MS, signal });
+        let res = null;
+        while (!res) { // a sign of life every few seconds, so the connection is not taken for dead while the review runs
+          let tick;
+          res = await Promise.race([job, new Promise(r => { tick = setTimeout(() => r(null), 5000); })]);
+          clearTimeout(tick);
+          if (!res) yield { event: 'checking' };
+        }
+        finalText = res.text + res.note;
+        trace.set({ review: res.report });
+      }
+      if (finalText) { full = finalText; yield { token: finalText }; }
+      if (cutOff) yield { event: 'cut-off' };
+    }
+
+    // Plain-code checks on the finished answer (pcm/checks.js): no model, no waiting. A wrong count ("three reasons", five listed) is
+    // shown to Boon as a note under the answer; an opening that agrees or praises, or a change of mind while a position was in force,
+    // is only written to the trace. Not run on listings and scripture produced by code, which are not the model's words.
+    const findings = !direct && !bibleShown && !directAnswer && !signal?.aborted ? checkAnswer(full, { positions: !!stance }) : [];
+    const checkNote = checkNotice(findings);
+    if (checkNote) { full += checkNote; yield { token: checkNote }; }
+    if (findings.length) trace.set({ checks: privateMode ? findings.map(f => ({ kind: f.kind })) : findings }); // a private message leaves no text in the trace
 
     // Anything Boon said that is worth keeping: say what was noted, so nothing is saved silently.
     const learned = learning && !signal?.aborted ? await Promise.race([learning, new Promise(r => setTimeout(() => r([]), 4000))]) : [];

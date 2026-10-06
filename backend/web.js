@@ -1,13 +1,14 @@
 // web.js — Tavily web search (on by default for every substantive question).
 import { KEYS } from './config.js';
 
-export async function tavilySearch(query) {
+// depth 'advanced' (the default, two credits) for answering; 'basic' (one credit) is enough to check a single fact.
+export async function tavilySearch(query, { depth = 'advanced' } = {}) {
   if (!KEYS.tavily) return null;
   try {
     const r = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + KEYS.tavily },
-      body: JSON.stringify({ query, max_results: 5, search_depth: 'advanced', include_answer: true }),
+      body: JSON.stringify({ query, max_results: 5, search_depth: depth, include_answer: true }),
       signal: AbortSignal.timeout(15000),
     });
     if (!r.ok) return null;

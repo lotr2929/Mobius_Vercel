@@ -21,6 +21,8 @@
 //               quick  small utility calls (routing): fast first
 //               deep   big summarising jobs: large context first
 //               learn  deciding what is worth remembering from a message: sound judgement, quick
+//               review checking a finished draft (pcm/review.js); the caller leaves out the answering model's own provider,
+//                      so a Gemini answer is reviewed by NVIDIA or Groq and a Groq answer by Gemini
 //               vision when an image is attached: only models that can see it, in this order
 //   ask       extra words that work after "Ask:" to force this model
 //
@@ -35,23 +37,23 @@
 export const MODELS = [
   { key: 'gemini',    name: 'gemini-3.8-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.8-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 1, quick: 8, deep: 1, learn: 9, vision: 9 }, ask: ['flash'] },
+    rank: { chat: 1, quick: 8, deep: 1, learn: 9, vision: 9, review: 1 }, ask: ['flash'] },
 
   { key: 'gemini37',  name: 'gemini-3.7-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.7-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 2, quick: 7, deep: 2, learn: 2, vision: 1 }, ask: ['flash-3.7'] },
+    rank: { chat: 2, quick: 7, deep: 2, learn: 2, vision: 1, review: 2 }, ask: ['flash-3.7'] },
 
   { key: 'gemini36',  name: 'gemini-3.6-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.6-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 3, deep: 3, learn: 3, vision: 2 }, ask: ['flash-3.6'] },
+    rank: { chat: 3, deep: 3, learn: 3, vision: 2, review: 3 }, ask: ['flash-3.6'] },
 
   { key: 'gemini35',  name: 'gemini-3.5-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.5-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 4, deep: 4, learn: 5, vision: 3 }, ask: ['flash-3.5'] },
+    rank: { chat: 4, deep: 4, learn: 5, vision: 3, review: 7 }, ask: ['flash-3.5'] },
 
   { key: 'gptoss',    name: 'gpt-oss-120b (groq)',       provider: 'groq',    trains: false, id: 'openai/gpt-oss-120b',
     tags: ['reasoning', 'general', 'code'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 5, quick: 4, deep: 9, learn: 1 }, ask: ['gpt-oss', 'groq', 'gpt'] },
+    rank: { chat: 5, quick: 4, deep: 9, learn: 1, review: 5 }, ask: ['gpt-oss', 'groq', 'gpt'] },
 
   { key: 'gemini3p',  name: 'gemini-3-flash-preview',    provider: 'gemini',  trains: true, id: 'gemini-3-flash-preview', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
@@ -67,7 +69,7 @@ export const MODELS = [
   // kimi-k2.6, mistral-large and llama-3.1-nemotron-ultra are "not found for account"; MiniMax M3 and gpt-oss-120b are not on the list.
   { key: 'nemotron',  name: 'nemotron-3-ultra (nvidia)', provider: 'nvidia',  trains: true, id: 'nvidia/nemotron-3-ultra-550b-a55b',
     tags: ['general', 'reasoning', 'long-context'], maxChars: 90000, maxTokens: 8192,
-    rank: { chat: 8, deep: 13 }, ask: ['nemotron', 'ultra'] },
+    rank: { chat: 8, deep: 13, review: 4 }, ask: ['nemotron', 'ultra'] },
 
   { key: 'glm53f',    name: 'glm-5.3-flash (nvidia)',    provider: 'nvidia',  trains: true, id: 'z-ai/glm-5.3-flash',
     tags: ['general', 'reasoning', 'code'], maxChars: 90000, maxTokens: 8192,
@@ -83,7 +85,7 @@ export const MODELS = [
 
   { key: 'nemosuper', name: 'nemotron-3-super (nvidia)', provider: 'nvidia',  trains: true, id: 'nvidia/nemotron-3-super-120b-a12b',
     tags: ['general', 'reasoning'], maxChars: 90000, maxTokens: 8192,
-    rank: { chat: 9, deep: 14 }, ask: ['nemotron-super'] },
+    rank: { chat: 9, deep: 14, review: 6 }, ask: ['nemotron-super'] },
 
   { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', trains: true, weak: true, id: 'ministral-14b-latest', vision: true,
     tags: ['general', 'fast'], maxChars: 90000, maxTokens: 4096,
