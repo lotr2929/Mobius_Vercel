@@ -37,31 +37,31 @@
 export const MODELS = [
   { key: 'gemini',    name: 'gemini-3.8-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.8-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 1, quick: 8, deep: 1, learn: 9, vision: 9, review: 1 }, ask: ['flash'] },
+    rank: { chat: 1, quick: 9, deep: 7, learn: 11, vision: 9, review: 1 }, ask: ['flash'] },
 
   { key: 'gemini37',  name: 'gemini-3.7-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.7-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 2, quick: 7, deep: 2, learn: 2, vision: 1, review: 2 }, ask: ['flash-3.7'] },
+    rank: { chat: 2, quick: 8, deep: 8, learn: 7, vision: 1, review: 2 }, ask: ['flash-3.7'] },
 
   { key: 'gemini36',  name: 'gemini-3.6-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.6-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 3, deep: 3, learn: 3, vision: 2, review: 3 }, ask: ['flash-3.6'] },
+    rank: { chat: 3, deep: 9, learn: 8, vision: 2, review: 3 }, ask: ['flash-3.6'] },
 
   { key: 'gemini35',  name: 'gemini-3.5-flash',          provider: 'gemini',  trains: true, id: 'gemini-3.5-flash', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 4, deep: 4, learn: 5, vision: 3, review: 7 }, ask: ['flash-3.5'] },
+    rank: { chat: 4, deep: 10, learn: 9, vision: 3, review: 7 }, ask: ['flash-3.5'] },
 
   { key: 'gptoss',    name: 'gpt-oss-120b (groq)',       provider: 'groq',    trains: false, id: 'openai/gpt-oss-120b',
     tags: ['reasoning', 'general', 'code'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 5, quick: 4, deep: 9, learn: 1, review: 5 }, ask: ['gpt-oss', 'groq', 'gpt'] },
+    rank: { chat: 5, quick: 5, deep: 5, learn: 2, review: 5 }, ask: ['gpt-oss', 'groq', 'gpt'] },
 
   { key: 'gemini3p',  name: 'gemini-3-flash-preview',    provider: 'gemini',  trains: true, id: 'gemini-3-flash-preview', vision: true,
     tags: ['general', 'reasoning', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 6, deep: 5, vision: 5 }, ask: ['flash-3'] },
+    rank: { chat: 6, deep: 4, vision: 5 }, ask: ['flash-3'] },
 
   { key: 'qwen',      name: 'qwen3.8-27b (groq)',        provider: 'groq',    trains: false, id: 'qwen/qwen3.8-27b', vision: true,
     tags: ['general', 'code', 'multilingual', 'fast'], maxChars: 22000, maxTokens: 900,
-    rank: { chat: 7, quick: 1, deep: 10, learn: 4, vision: 4 }, ask: ['qwen'] },
+    rank: { chat: 7, quick: 4, deep: 6, learn: 5, vision: 4 }, ask: ['qwen'] },
 
   // NVIDIA NIM: needs NVIDIA_API_KEY. Reasoning models, so they get a larger output allowance (thinking shares it).
   // Tried live on 4 Oct 2026: nemotron-3-ultra and -super answer in about a second; glm-5.3-flash in about 13 s;
@@ -77,11 +77,11 @@ export const MODELS = [
 
   { key: 'lite35',    name: 'gemini-3.5-flash-lite',     provider: 'gemini',  trains: true, id: 'gemini-3.5-flash-lite', vision: true,
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 10, quick: 2, deep: 7, learn: 6, vision: 6 }, ask: ['flash-lite-3.5'] },
+    rank: { chat: 10, quick: 1, deep: 2, learn: 1, vision: 6 }, ask: ['flash-lite-3.5'] },
 
   { key: 'lite',      name: 'gemini-3.1-flash-lite',     provider: 'gemini',  trains: true, id: 'gemini-3.1-flash-lite', vision: true,
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 11, quick: 3, deep: 6, learn: 7, vision: 7 }, ask: ['flash-lite'] },
+    rank: { chat: 11, quick: 2, deep: 1, learn: 4, vision: 7 }, ask: ['flash-lite'] },
 
   { key: 'nemosuper', name: 'nemotron-3-super (nvidia)', provider: 'nvidia',  trains: true, id: 'nvidia/nemotron-3-super-120b-a12b',
     tags: ['general', 'reasoning'], maxChars: 90000, maxTokens: 8192,
@@ -89,29 +89,29 @@ export const MODELS = [
 
   { key: 'ministral', name: 'ministral-14b (mistral)',   provider: 'mistral', trains: true, weak: true, id: 'ministral-14b-latest', vision: true,
     tags: ['general', 'fast'], maxChars: 90000, maxTokens: 4096,
-    rank: { chat: 14, quick: 6, deep: 8, learn: 8, vision: 8 }, ask: ['mistral'] },
+    rank: { chat: 14, quick: 6, deep: 11, learn: 10, vision: 8 }, ask: ['mistral'] },
 
   { key: 'gemini25',  name: 'gemini-2.5-flash',          provider: 'gemini',  trains: true, id: 'gemini-2.5-flash', vision: true,
     tags: ['general', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { chat: 15, deep: 11, learn: 11 }, ask: ['flash-2.5'] },
+    rank: { chat: 15, deep: 3, learn: 6 }, ask: ['flash-2.5'] },
 
   { key: 'lite25',    name: 'gemini-2.5-flash-lite',     provider: 'gemini',  trains: true, id: 'gemini-2.5-flash-lite', vision: true,
     tags: ['fast', 'long-context'], maxChars: 300000, maxTokens: 8192,
-    rank: { quick: 5 }, ask: ['flash-lite-2.5'] },
+    rank: { quick: 3 }, ask: ['flash-lite-2.5'] },
 
   // Gemma 4 runs on the same Google key with a far larger free allowance (about 14,400 requests a day),
   // but is slow, so it is only tried for images, and last. Not used for ordinary chat.
-  { key: 'gemma26',   name: 'gemma-4-26b (google)',      provider: 'gemini',  trains: true, id: 'gemma-4-26b-a4b-it', vision: true,
+  { key: 'gemma26',   name: 'gemma-4-26b (google)',      provider: 'gemini',  trains: true, id: 'gemma-4-26b-a4b-it', vision: true, firstTokenMs: 60000,
     tags: ['general', 'fast'], maxChars: 120000, maxTokens: 4096,
     rank: { vision: 10 }, ask: ['gemma'] },
 
-  { key: 'gemma31',   name: 'gemma-4-31b (google)',      provider: 'gemini',  trains: true, id: 'gemma-4-31b-it', vision: true,
+  { key: 'gemma31',   name: 'gemma-4-31b (google)',      provider: 'gemini',  trains: true, id: 'gemma-4-31b-it', vision: true, firstTokenMs: 60000,
     tags: ['general'], maxChars: 120000, maxTokens: 4096,
     rank: { vision: 11 }, ask: ['gemma-31b'] },
 
   { key: 'gptoss20',  name: 'gpt-oss-20b (groq)',        provider: 'groq',    trains: false, weak: true, id: 'openai/gpt-oss-20b',
     tags: ['fast', 'reasoning'], maxChars: 22000, maxTokens: 4096,
-    rank: { chat: 16, quick: 9, deep: 12, learn: 10 }, ask: ['gpt-oss-20b'] },
+    rank: { chat: 16, quick: 7, deep: 12, learn: 3 }, ask: ['gpt-oss-20b'] },
 
   { key: 'codestral', name: 'codestral (mistral)',       provider: 'mistral', trains: true, weak: true, id: 'codestral-latest',
     tags: ['code'], maxChars: 90000, maxTokens: 4096,

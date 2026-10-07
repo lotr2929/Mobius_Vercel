@@ -84,7 +84,7 @@ Reply with ONLY the updated digest.`, { role: 'deep', timeoutMs: 40000 });
 }
 
 // ── Tier 3: current projects ─────────────────────────────────────────────────
-async function refreshProjects(left) {
+export async function refreshProjects(left) {
   const report = { batches: 0, updated: 0 };
   for (let i = 0; i < 3 && left() > 15000; i++) {
     const upto = (await getState('projects_upto')) || isoDaysAgo(PROJECT_DORMANT_DAYS);
@@ -104,10 +104,12 @@ New conversation since the notes were last updated (oldest first):
 ${lines.join('\n')}
 
 Return updates ONLY for projects these messages actually touch.
-- A project is sustained work with a goal: a paper, an app, a dataset, a course, a grant. One-off questions and small talk are not projects.
+- A project is sustained work with a goal that Boon will want to pick up again where he left off: a paper, an app, a dataset, a course, a grant, a book, a recurring study (his weekly reflections on the Revised Common Lectionary readings, RCL), a way of working with a body of texts (Scriptura Fidelium, his way of reading scripture), or a standing practice such as the prayers he asks for. One-off questions and small talk are not projects.
 - If a message concerns an existing project, reuse its exact name.
-- "summary" is the complete updated note, merging old and new: goal, current status, decisions made, open items. 500 to 900 characters.
+- The assistant these conversations are held with is called Mobius. A conversation held WITH Mobius is not about the project "Mobius" unless it is about building, changing or testing the assistant itself (its code, models, memory, settings, bugs). Theology, scripture, prayers, family and everything else Boon discusses belongs to its own project, or to none.
+- "summary" is the complete updated note, merging old and new, written as these labelled parts on separate lines (leave a part out only if there is truly nothing to put in it): "Goal:", "Status:", "Decided:", "Covered so far (do not go over it again):" (the points, passages or questions already worked through, and what was concluded), "Open:" (questions still unanswered), "Next:" (the natural next step), "Last worked on:" (a date, ${today()} if these messages are from today). 600 to 1200 characters in all.
 - "keywords" are 4 to 8 terms (names, tools, acronyms) likely to appear when the project is mentioned.
+- Never put medical details, a person's health, money or personal worries in a note: say only what is needed to pick the work up again (for the prayers, the manner Boon wants them written in and the passages already used, not whom they are for or why).
 - If nothing qualifies, return {"updates": []}.
 
 Reply with ONLY JSON: {"updates":[{"name":"...","keywords":["..."],"summary":"..."}]}`, { role: 'deep', timeoutMs: 45000 });
@@ -119,7 +121,7 @@ Reply with ONLY JSON: {"updates":[{"name":"...","keywords":["..."],"summary":"..
       if (!name || summary.length < 40) continue;
       const keywords = (Array.isArray(u.keywords) ? u.keywords : []).map(k => flat(k, 40)).filter(Boolean).slice(0, 8);
       const existing = current.find(p => p.key.toLowerCase() === name.toLowerCase());
-      await put('project', existing ? existing.key : name, { content: clip(summary, 1500), keywords });
+      await put('project', existing ? existing.key : name, { content: clip(summary, 2000), keywords });
       report.updated++;
     }
     await setState('projects_upto', newUpto);

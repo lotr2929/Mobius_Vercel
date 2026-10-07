@@ -105,6 +105,8 @@ const keyFor = model => KEYS[model.provider] || '';
 const retired = new Set();    // keys the audit could not find at the provider
 const downUntil = {};
 const downWhy = {};
+const streak = {};            // consecutive failures per model: each one doubles the rest, a success clears it
+const FIRST_TOKEN_MS = 25000; // a model that has said nothing by now is given up on (a model's own firstTokenMs in models.js overrides)
 
 const configured = m => !!keyFor(m) && !retired.has(m.key);
 const usable = key => { const m = modelByKey(key); return !!m && configured(m) && Date.now() >= (downUntil[key] || 0); };
@@ -120,7 +122,10 @@ function pickKeys(order) {
 //                          restart at midnight Pacific time), but never more than 3 hours, so a wrong guess or a changed
 //                          quota is rechecked by the next message after that: a refused call costs well under a second
 //   per-minute limit       the delay the provider names, between 15 seconds and an hour; a minute if it names none
-//   402/403/404/bad key    six hours;  timeout or other error: twenty seconds
+//   402/403/404/bad key    six hours
+//   timeout, 5xx or other error: twenty seconds, doubling with each failure in a row (20 s, 40 s, 80 s ... up to 15 minutes), because
+//                          a 503 "high demand" lasts minutes: on 5-6 Oct 2026 four Gemini models answered 503 or 429 to almost every message,
+//                          and with a flat twenty seconds every message paid for all four failed calls again before a weaker model answered
 function pacificMidnightMs(now = Date.now()) {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(now);
   const get = t => Number(parts.find(p => p.type === t).value) % 24;
@@ -138,7 +143,7 @@ export function retryDelayMs(text = '') {
   return Math.round(ms);
 }
 
-export function restFor(status, text = '', provider = '') {
+export function restFor(status, text = '', provider = '', failures = 0) {
   if ([401, 402, 403, 404].includes(status)) return { ms: 6 * 3600e3 };
   if (status === 429) {
     const hinted = retryDelayMs(text);
@@ -148,7 +153,7 @@ export function restFor(status, text = '', provider = '') {
     }
     return { ms: Math.min(3600e3, Math.max(hinted ?? 60e3, 15e3)) };
   }
-  return { ms: 20e3 };
+  return { ms: Math.min(15 * 60e3, 20e3 * 2 ** Math.min(Math.max(failures, 0), 6)) }; // 20 s the first time, then doubling
 }
 
 // Rest periods are shared between instances, because Vercel starts a fresh process often and each one would otherwise
@@ -159,23 +164,32 @@ export async function syncRest() {
   restRead = Date.now();
   try {
     for (const [k, v] of Object.entries((await getState('model_rest')) || {})) {
-      if (modelByKey(k) && v?.until > (downUntil[k] || 0)) { downUntil[k] = v.until; downWhy[k] = v.why; }
+      if (modelByKey(k) && v?.until > (downUntil[k] || 0)) { downUntil[k] = v.until; downWhy[k] = v.why; streak[k] = Math.max(streak[k] || 0, v.n || 0); }
     }
   } catch { /* no memory available: this process still knows what it has seen */ }
 }
 
 async function saveRest() {
   const now = Date.now(), out = {};
-  for (const k of Object.keys(downUntil)) if (downUntil[k] > now + 60e3) out[k] = { until: downUntil[k], why: downWhy[k] };
+  for (const k of Object.keys(downUntil)) if (downUntil[k] > now + 10e3) out[k] = { until: downUntil[k], why: downWhy[k], n: streak[k] || 0 };
   try { await setState('model_rest', out); } catch { /* as above */ }
 }
 
 async function markDown(key, err) {
   const status = Number((/HTTP (\d{3})/.exec(err.message) || [])[1]);
-  const rest = restFor(status, err.message, modelByKey(key)?.provider);
+  const failures = streak[key] || 0;
+  const rest = restFor(status, err.message, modelByKey(key)?.provider, failures);
+  streak[key] = failures + 1;
   downUntil[key] = Date.now() + rest.ms;
   downWhy[key] = status ? `HTTP ${status}${status === 429 ? (rest.daily ? ' daily allowance spent' : ' rate limit') : status === 402 ? ' payment required' : status === 404 ? ' model not found' : ''}` : 'error or timeout';
-  if (rest.ms >= 2 * 60e3) await saveRest(); // short rests are not worth a database write
+  if (rest.ms >= 30e3) await saveRest(); // the shortest rests are not worth a database write
+}
+
+// A model that has just answered in full is trusted again at once.
+async function markUp(key) {
+  if (!streak[key] && !downUntil[key]) return;
+  delete streak[key]; delete downUntil[key]; delete downWhy[key];
+  await saveRest();
 }
 
 export function setRetired(keys) { retired.clear(); keys.forEach(k => retired.add(k)); }
@@ -246,7 +260,7 @@ export function joinContinuation(partial, head) {
   return (needsSpace ? ' ' : '') + h;
 }
 
-export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [], privateOnly = false } = {}) {
+export async function* runCascade(messages, { signal, system = BASE_PROMPT, only = null, task = null, images = [], privateOnly = false, rebuild = null } = {}) {
   if (only && !modelByKey(only)) { yield { event: 'error:unknown-model:' + only }; return; }
   await syncRest(); // learn which models another instance found out of allowance, so no message pays to rediscover it
   const seeing = images.length > 0;
@@ -265,28 +279,45 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
       if (only) yield { event: 'error:not-configured:' + m.name };
       continue;
     }
+    const t0 = Date.now();
     try {
       yield { event: 'model:' + m.name };
       if (m.weak) yield { event: 'weak-model' }; // the app badges the answer: a small model answered because the stronger ones were unavailable
       // Groq's free tokens-per-minute allowance is small, and an image takes part of it: send less text with it.
       const room = seeing && m.provider === 'groq' ? Math.max(8000, m.maxChars - 8000) : m.maxChars;
+      // A model with a small window gets the message built for that window (chat.js `rebuild`): the standing notes and positions are
+      // ranked first and the bulk is cut by rank. Trimming the one big message from the middle, as fit() must for anything else,
+      // threw the notes away (6 Oct 2026: gpt-oss-120b never saw Boon's prayer instructions, nor any earlier turn).
+      const base = rebuild && room < 60000 ? rebuild(room - system.length) : messages;
+      let got = false;
       for (let cuts = 0; ; cuts++) {
         const meta = { finish: null };
-        const turns = partial ? [...messages, { role: 'assistant', content: partial }, { role: 'user', content: CONTINUE_PROMPT }] : messages;
+        const turns = partial ? [...base, { role: 'assistant', content: partial }, { role: 'user', content: CONTINUE_PROMPT }] : base;
         let head = partial ? '' : null; // a continuation is held back briefly, in case the model only says DONE
-        for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(turns), system, room), signal, system, seeing ? images : [], meta)) {
-          if (head === null) { partial += token; yield token; continue; }
-          head += token;
-          if (head.length < HOLD_BACK) continue;
-          const text = joinContinuation(partial, head);
-          partial += text; if (text) yield text; head = null;
-        }
+        // A model that has said nothing within its time is given up on, instead of holding the whole answer for as long as the provider likes
+        const limit = m.firstTokenMs || FIRST_TOKEN_MS;
+        const ctl = new AbortController();
+        const link = () => ctl.abort(signal.reason);
+        signal?.addEventListener('abort', link, { once: true });
+        let timer = setTimeout(() => ctl.abort(new Error(`no first token within ${limit / 1000} s`)), limit);
+        try {
+          for await (const token of PROVIDERS[m.provider].stream(m, fit(normalise(turns), system, room), ctl.signal, system, seeing ? images : [], meta)) {
+            if (timer) { clearTimeout(timer); timer = null; }
+            got = true;
+            if (head === null) { partial += token; yield token; continue; }
+            head += token;
+            if (head.length < HOLD_BACK) continue;
+            const text = joinContinuation(partial, head);
+            partial += text; if (text) yield text; head = null;
+          }
+        } finally { if (timer) clearTimeout(timer); signal?.removeEventListener('abort', link); }
         if (head) { // the stream ended inside the hold-back
-          if (/^\s*DONE\W*$/i.test(head)) return;
+          if (/^\s*DONE\W*$/i.test(head)) { await markUp(key); return; }
           const text = joinContinuation(partial, head);
           partial += text; if (text) yield text;
         }
         if (!partial) throw new Error('empty answer (finish: ' + (meta.finish || 'none') + ')');
+        if (got) await markUp(key);
         if (FINISHED.has(meta.finish) || REFUSED.has(meta.finish)) return;
         if (cuts >= MAX_CONTINUATIONS) { yield { event: 'cut-off' }; return; }
         yield { event: 'continuing:' + m.name + ':' + (meta.finish || 'no finish reason') };
@@ -294,8 +325,14 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
     } catch (e) {
       if (signal?.aborted) return;
       await markDown(key, e);
-      console.warn(`[cascade] ${m.name} failed: ${e.message.slice(0, 300)} - trying next`);
-      yield { event: 'fallback:' + m.name + ':' + e.message.slice(0, 80) };
+      const ms = Date.now() - t0;
+      // the quota that was hit, when the provider names it (Gemini: "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+      const why0 = (/"quotaId"\s*:\s*"([^"]+)"/.exec(e.message) || [])[1] || e.message.replace(/\s+/g, ' ').slice(0, 70);
+      const status = (/HTTP (\d{3})/.exec(e.message) || [])[1];
+      // a bench or a reader of the trace can tell a refused call from a broken one: the status, and whether the allowance named is a daily one
+      const why = `${status ? `HTTP ${status} ` : ''}${why0}${/per ?day|PerDay|\bTPD\b|\bRPD\b|daily/i.test(e.message) ? ' [daily]' : ''}`;
+      console.warn(`[cascade] ${m.name} failed after ${ms} ms: ${e.message.slice(0, 300)} - trying next`);
+      yield { event: `fallback:${m.name}:[${ms} ms] ${why}` };
       if (only) { if (partial) yield { event: 'cut-off' }; return; }
     }
   }

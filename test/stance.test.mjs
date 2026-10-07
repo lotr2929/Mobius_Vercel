@@ -85,4 +85,8 @@ test('a spent daily allowance rests for hours, a per-minute limit for a short wh
   assert.equal(restFor(429, 'too many requests', 'groq').ms, 60000);
   assert.equal(restFor(404, '', 'gemini').ms, 6 * 3600e3);
   assert.equal(restFor(500, '', 'gemini').ms, 20000);
+  // 5-6 Oct 2026: four Gemini models answered 503 to almost every message and a flat 20 s rest meant each message paid for all four again
+  assert.equal(restFor(503, '', 'gemini', 1).ms, 40000, 'each failure in a row doubles the rest');
+  assert.equal(restFor(503, '', 'gemini', 3).ms, 160000);
+  assert.equal(restFor(503, '', 'gemini', 50).ms, 15 * 60e3, 'but never beyond fifteen minutes, so a recovered model is found again');
 });

@@ -12,6 +12,8 @@
     "backup": "node backend/backup-cli.mjs",
     "test": "node --test",
     "identity": "node backend/identity-cli.mjs",
+    "compare": "node backend/compare-cli.mjs",
+    "bench": "node backend/bench-cli.mjs",
     "models": "node backend/models-cli.mjs"
   },
   "dependencies": {

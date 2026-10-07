@@ -9,6 +9,7 @@ import { folderScope } from '../backend/docs/digest.js';
 import { isTheology } from '../backend/docs/library.js';
 import { extractRefs } from '../backend/bible.js';
 import { driveRules, bibleRules, isTrivial } from '../backend/pcm/router.js';
+import { sundayFor, lectionaryOf } from '../backend/readings.js';
 import { MODELS, orderFor, parseAskPrefix, modelByKey } from '../backend/ai/models.js';
 import { BASE_PROMPT, buildSystem } from '../backend/ai/prompt.js';
 import { assembleContext } from '../backend/pcm/assemble.js';
@@ -68,6 +69,32 @@ test('router rules: drive and scripture requests, and greetings', () => {
   assert.equal(bibleRules('What does this gospel say about forgiveness?'), null);
   for (const ok of ["What are this Sunday's readings?", "today's gospel", 'readings for this Sunday', 'readings this Sunday', "this week's readings", 'the lectionary readings for Proper 23'])
     assert.equal(bibleRules(ok)?.readings, true, ok);
+});
+
+test('scripture requests, 6 Oct 2026: discussing the readings or writing a prayer is not a request to display them', () => {
+  // Boon asked what they had learned from the readings; Mobius printed the list of readings again, with no model asked
+  const talk = bibleRules("Let's continue our reflections on the RCL readings for this week. We have covered both the passages in Exodus and Psalms. What did we learn from them?");
+  assert.equal(talk.readings, true); assert.equal(talk.explain, true); assert.equal(talk.show, false);
+  assert.equal(talk.translation, '', '"both the passages" is not a request for both translations');
+  assert.equal(bibleRules('show me Psalm 23 in both translations').translation, 'both');
+  // A plain question about the readings is still answered by the list itself
+  const plain = bibleRules("What are this Sunday's readings?");
+  assert.equal(plain.readings, true); assert.equal(plain.explain, false); assert.equal(plain.show, false);
+  // "quote them in your prayer" once lifted five verses out of the last answer and displayed them instead of writing the prayer
+  const last = [{ role: 'assistant', content: 'Isaiah 41:10 and Philippians 4:7 and Psalm 34:18 were quoted for Xin.' }];
+  assert.equal(bibleRules("Give me a healing prayer for Fee Yoon and include me, Xin and Daniel at the end. Don't just reference Biblical verses, quote them in your prayer.", last), null);
+  assert.deepEqual(bibleRules('show me those verses', last).refs.length > 0, true, 'a real request to see the last answer\'s verses still works');
+});
+
+test('the Sunday of a week written as a range is the Sunday inside it', () => {
+  const day = d => d.toISOString().slice(0, 10);
+  const tuesday = new Date(Date.UTC(2026, 9, 5, 23, 46)); // Tuesday 6 October 2026, Perth
+  assert.equal(day(sundayFor('the readings for this week (6-12 October 2026)', tuesday)), '2026-10-11', 'was 18 October: the Sunday after the last day of the range');
+  assert.equal(day(sundayFor('the week 6 to 12 October 2026', tuesday)), '2026-10-11');
+  assert.equal(day(sundayFor('the week commencing 6 October 2026', tuesday)), '2026-10-11');
+  assert.equal(day(sundayFor('readings for 18 October 2026', tuesday)), '2026-10-18');
+  assert.equal(day(sundayFor("this Sunday's readings", tuesday)), '2026-10-11');
+  assert.deepEqual(lectionaryOf(sundayFor('11 October 2026', tuesday)), { year: 'A', proper: 23 });
 });
 
 test('model list: shape, order and the privacy flags', () => {

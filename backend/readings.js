@@ -24,6 +24,16 @@ export function sundayFor(request, now = new Date()) {
   const q = String(request || '');
   const m = q.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTHS.join('|')})(?:,?\\s+(\\d{4}))?`, 'i')) || q.match(new RegExp(`\\b(${MONTHS.join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?`, 'i'));
   const today = perthToday(now);
+  // A range such as "6-12 October 2026" (what the router writes for "this week") means the Sunday INSIDE it (11 October), not the
+  // Sunday after its last day. Reading only "12 October" (a Monday) gave 18 October on 6 Oct 2026: the wrong Proper, the wrong readings.
+  const range = q.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:-|\u2013|\u2014|to|until)\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTHS.join('|')})(?:,?\\s+(\\d{4}))?`, 'i'));
+  if (range) {
+    const mon = MONTHS.findIndex(x => x.toLowerCase() === range[3].toLowerCase()), yr = range[4] ? +range[4] : today.getUTCFullYear();
+    for (let day = +range[1]; day <= +range[2] && day <= 31; day++) {
+      const c = new Date(Date.UTC(yr, mon, day));
+      if (c.getUTCMonth() === mon && c.getUTCDay() === 0) return c;
+    }
+  }
   let d;
   if (m) {
     const [day, mon] = /^\d/.test(m[1]) ? [+m[1], m[2]] : [+m[2], m[1]];

@@ -19,7 +19,7 @@ import { listActive, getActive } from './pcm/memory.js';
 import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
 import { learnFromExchange, learnedNotice } from './pcm/learn.js';
 import { PROFILE_SEND_MAX } from './pcm/profile.js';
-import { assembleContext } from './pcm/assemble.js';
+import { assembleContext, TOTAL_CHARS } from './pcm/assemble.js';
 import { embedBacklog, learnStancesSoon } from './pcm/maintain.js';
 import { stancesFor } from './pcm/stance.js';
 import { checkAnswer, checkNotice } from './pcm/checks.js';
@@ -33,6 +33,7 @@ import { runWorkspace, describeState, loadState } from './workspace.js';
 import { earlierImages, saveImages } from './pcm/attachments.js';
 import { findChats, ensureSummaries, loadChatText, listChats, describeChat, chatAtMessage } from './pcm/chats.js';
 import { runBible } from './bible.js';
+import { isPrayerRequest, prayerScripture } from './prayer.js';
 import { findReadings } from './readings.js';
 import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilyUsage } from './web.js';
@@ -76,7 +77,7 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 
 // Yields { event } and { token } objects for server.js to relay as SSE.
 // client = what the browser reported about the device; geo = approximate location from the request.
-export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal }) {
+export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false }) {
   const turnStart = Date.now(); // the review (pcm/review.js) must finish inside the turn's time budget
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
@@ -92,7 +93,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
   const ctx = describeContext(client, geo); // { tz, now, where }
 
   const trace = startTrace('chat', {
-    query: privateMode ? '[private message — not recorded]' : userQuery, forced: forceProvider, attached: attached.map(d => d.filename), private: privateMode,
+    query: privateMode ? '[private message — not recorded]' : userQuery, forced: forceProvider, attached: attached.map(d => d.filename), private: privateMode, dryRun,
     where: ctx.where, tz: ctx.tz, client: clientBrief(client), events: [],
   });
 
@@ -112,7 +113,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // Notes: "Remember that ...", "Forget ...", "Save 14" and the like are carried out here, before any
     // model is involved. The model is then told what happened so it can confirm it.
     let notes = await listNotes(); // active + suggested
-    const command = privateMode ? null : parseCommand(userQuery, notes.some(n => n.status === 'proposed'));
+    const command = privateMode || dryRun ? null : parseCommand(userQuery, notes.some(n => n.status === 'proposed'));
     const memoryAction = command
       ? await safe(() => runCommand(command, { active: notes.filter(n => n.status === 'active'), pending: notes.filter(n => n.status === 'proposed') }), null)
       : null;
@@ -146,8 +147,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
         if (!refs.length && plan.bible.readings) {
           list = await findReadings(plan.standalone);
           refs = list.refs;
-          source = `Readings for ${list.header}. ${list.note}`;
-          if (!plan.bible.show) return { text: '', found: 0, notes: [], refs, source, list };
+          source = `Readings for ${list.header}${list.refs.length ? `: ${list.refs.join('; ')}` : ''}. ${list.note}`;
+          if (!plan.bible.show && !plan.bible.explain) return { text: '', found: 0, notes: [], refs, source, list }; // just the list; to discuss them, the stored text goes to the model as well
         }
         const out = await runBible({ refs, translation: plan.bible.translation });
         return { ...out, refs, source, list };
@@ -158,17 +159,23 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     if (bibleResult) trace.set({ bible: { refs: bibleResult.refs, found: bibleResult.found, notes: bibleResult.notes, source: bibleResult.source, shown: !!bibleShown, only: bibleOnly } });
     // A listing of files or chats is shown exactly as produced. Given to a model to "present", it once invented files that were not there.
     const driveDirect = !!driveResult && !driveResult.fileText && !driveResult.images?.length;
-    const readingsAnswer = bibleResult?.list && !plan.bible.show ? formatReadings(bibleResult.list) : '';
+    // Only a plain "what are the readings?" is answered by the list itself. A request to discuss, reflect on or write from them
+    // (plan.bible.explain) goes to a model, which is handed the checked references in the "Scripture lookup note" part (6 Oct 2026:
+    // "what did we learn from them?" was answered with the list again, twice, and no model was asked).
+    const readingsAnswer = bibleResult?.list && !plan.bible.show && !plan.bible.explain ? formatReadings(bibleResult.list) : '';
     const directAnswer = readingsAnswer || (driveDirect ? driveResult.text : (chatList ? `Your recent chats, newest first:\n\n${chatList}` : ''));
     const directLabel = readingsAnswer ? 'Lectionary lookup' : driveDirect ? 'Drive lookup' : 'Chat list';
     const direct = !!(driveResult || chatList || bibleShown || readingsAnswer); // answered by the result itself: nothing else is searched, so nothing competes with it
+    // A prayer to be written (pcm: prayer.js): the scripture for it is chosen and read from the stored Bible below, and neither Mobius's
+    // positions on questions of belief nor the theology shelf have anything to add to it, so they are left out and their room goes to the notes
+    const prayerRequest = !direct && !memoryAction && !plan.aboutSelf && isPrayerRequest(userQuery);
     trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
 
     // 3. recall, with the web search running alongside
-    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !privateMode; // none for greetings, questions about Mobius, answers already in hand, or private messages
+    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !prayerRequest && !privateMode; // none for greetings, questions about Mobius, answers already in hand, prayers, or private messages
     if (useWeb) yield { event: 'searching web...' };
     // Theology talk draws on Boon's library shelves (docs/library.js); a private message does not search outside, so nor does it embed.
-    const theology = !direct && !memoryAction && !attached.length && !plan.aboutSelf && isTheology(`${plan.standalone} ${userQuery}`);
+    const theology = !direct && !memoryAction && !prayerRequest && !attached.length && !plan.aboutSelf && isTheology(`${plan.standalone} ${userQuery}`);
     // A shelf Boon has marked private (mobius_sources.sensitivity) is kept out of every prompt that goes to a model which trains on
     // prompts. A "Private:" message goes only to models that do not, so it may use them.
     const privateLabels = privateMode ? [] : await safe(async () => (await listSources()).filter(s => s.sensitivity === 'private').map(s => s.label), []);
@@ -198,9 +205,14 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       }, null),
       theology ? safe(() => libraryContext(plan.standalone, { noEmbed: privateMode }), null) : null,
       // Mobius's own positions on the question Boon is raising (pcm/stance.js), and what it has come to understand about him
-      direct || memoryAction || plan.aboutSelf ? '' : safe(async () => stancesFor(await listActive('stance'), `${plan.standalone} ${userQuery}`), ''),
+      direct || memoryAction || plan.aboutSelf || prayerRequest ? '' : safe(async () => stancesFor(await listActive('stance'), `${plan.standalone} ${userQuery}`), ''),
       direct || memoryAction || plan.aboutSelf ? '' : safe(async () => (await getActive('working'))?.content || '', ''),
     ]);
+    // The scripture for a prayer, chosen by theme, not used in his recent prayers, read word for word from the stored WEB (prayer.js)
+    const prayer = prayerRequest
+      ? await safe(async () => prayerScripture({ query: `${userQuery} ${plan.standalone}`, pastTexts: (await getMessages(120)).filter(m => m.role === 'assistant').map(m => m.content) }), null)
+      : null;
+    if (prayer) trace.set({ prayer: { themes: prayer.themes, refs: prayer.refs, recentlyUsed: prayer.used } });
     const archive = { ...archive0, docs: (archive0.docs || []).filter(d => !hidden(d.filename)) };
     const namedFile = namedFile0 && !hidden(namedFile0) ? namedFile0 : null;
     const overview = overview0 && !(overview0.label && hidden(overview0.label + '/')) ? overview0 : null;
@@ -289,14 +301,16 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
       { title: 'Relevant past discussion', rank: 3, cap: 3200, text: fmtPast(past) },
       { title: 'What you have come to understand about Boon by working with him (what he has said and argued, in his own provisional words: not evidence, and not settled fact)', rank: 2, cap: 2000, text: working },
-      { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon; not evidence, and not conclusions to defend or to agree with)', rank: 2, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
-      { title: 'Active projects', rank: 2, cap: 2600, text: fmtProjects(chosen) },
+      { title: 'Scripture for this prayer: the exact words of the WEB, chosen for what Boon asks and leaving out what he has had in recent prayers. Whenever the prayer quotes scripture, quote ONLY from these passages, word for word, giving the reference. Never quote from memory and never quote any other verse. Use those that suit the prayer, in the order that suits it, each at most once (never repeat a verse within the prayer). Every verse in quotation marks must be in this block. Write the prayer itself, beginning with the address to God: no introduction, and no remark about instructions, earlier chats or the format', rank: 1, cap: 4000, text: prayer?.text || '' },
+      { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon). Follow his standing instructions about HOW he wants something done when the request is of that kind (for example how a prayer is to be written). On questions of fact or opinion they are not evidence, and not conclusions to defend or to agree with', rank: 1, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
+      { title: 'Active projects: where each one stands. Use them when Boon asks where you left off or returns to a project. Whatever is listed under "Covered so far" has been worked through: say so in a line and build on it, never go over it again', rank: 2, cap: 3200, text: fmtProjects(chosen) },
       { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Dated notes since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
       { title: 'Web search results', rank: 6, cap: 2600, text: web },
     ];
-    const context = assembleContext(plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart]);
+    const partsAll = plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart];
+    const context = assembleContext(partsAll);
 
     // Suggested notes are no longer announced at the start of a conversation (Boon does not review them; he corrects Mobius
     // structurally instead). They wait quietly, lapse after 60 days, and can still be listed with "show suggestions".
@@ -304,9 +318,24 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const system = buildSystem(clip(profile, PROFILE_SEND_MAX), ctx);
     // The memory block is background, and a small model can mistake an old exchange inside it for the live conversation: say plainly
     // what is what, and put the instruction last, where it is read last.
-    const finalContent = context.text
-      ? `[Memory context — retrieved for this message. BACKGROUND ONLY: it may hold old exchanges and documents unrelated to what Boon has just said. The conversation is the earlier turns and the message below. Nothing in this block is a question waiting for an answer.]\n${context.text}\n\n[Boon's new message — reply to this and only this. If it is a statement rather than a question, respond to the statement itself with your own assessment of it.]\n${userQuery}`
-      : userQuery;
+    const framed = text => (text
+      ? `[Memory context — retrieved for this message. BACKGROUND ONLY: it may hold old exchanges and documents unrelated to what Boon has just said. The conversation is the earlier turns and the message below. Nothing in this block is a question waiting for an answer.]\n${text}\n\n[Boon's new message — reply to this and only this. If it is a statement rather than a question, respond to the statement itself with your own assessment of it.]\n${userQuery}`
+      : userQuery);
+    const finalContent = framed(context.text);
+    // A model with a small window (Groq's: about 22,000 characters in all, and the system prompt takes half) cannot take the whole
+    // memory block, and trimming one big message from its middle threw the notes away (6 Oct 2026: gpt-oss-120b wrote the prayer
+    // without Boon's prayer instructions, and without any earlier turn). So the cascade asks for the message built for that model's room:
+    // the context is assembled again, by rank, into what is left once the question and a share for the earlier turns are paid for.
+    const windows = {};
+    const windowFor = room => {
+      if (room >= TOTAL_CHARS + 30000) return messages;
+      const turnsShare = Math.min(4500, Math.floor(room * 0.4));
+      const total = Math.max(4000, Math.min(TOTAL_CHARS, room - turnsShare - (framed('x').length - 1)));
+      if (total >= context.text.length) return messages;
+      const small = assembleContext(partsAll, total);
+      windows[room] = { total, kept: small.sections.filter(s => s.chars).map(s => `${s.title.slice(0, 28)}:${s.chars}`) };
+      return [...messages.slice(0, -1), { role: 'user', content: framed(small.text) }];
+    };
     const messages = [
       // Older turns are clipped; the latest exchange goes in whole.
       ...recent.map((m, i) => ({ role: m.role, content: i >= recent.length - 2 ? m.content : clip(m.content, 4000) })),
@@ -343,11 +372,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       full = directAnswer;
       yield { token: full };
     }
-    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode })) {
+    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode, rebuild: windowFor })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');
-          if (!memoryAction && !direct && !privateMode) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
+          if (!memoryAction && !direct && !privateMode && !dryRun) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
         }
         full += chunk;
         if (!reviewing) yield { token: chunk };
@@ -392,10 +421,10 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const learned = learning && !signal?.aborted ? await Promise.race([learning, new Promise(r => setTimeout(() => r([]), 4000))]) : [];
     const notice = learnedNotice(learned);
     if (notice) { full += notice; yield { token: notice }; }
-    trace.set({ learned, model: usedModel, answer_chars: full.length, answer_head: privateMode ? '[private]' : full.slice(0, 600) }).mark('answered');
+    trace.set({ learned, windows: Object.keys(windows).length ? windows : null, model: usedModel, answer_chars: full.length, answer_head: privateMode ? '[private]' : full.slice(0, 600) }).mark('answered');
 
     // 6. remember — only a finished answer to a question that is still wanted. A private message is not kept at all.
-    if (!privateMode && !signal?.aborted && full.trim()) {
+    if (!privateMode && !dryRun && !signal?.aborted && full.trim()) {
       const saved = await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
       // keep the pictures so a later "the man in the previous image" can be answered by looking again
       if (images.length && saved?.userId) await saveImages(images, saved.userId, full).catch(e => console.warn('[chat] pictures not kept:', e.message));
@@ -406,8 +435,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       if (usage) yield { event: `tavily:${usage.remaining}/${usage.limit}` };
     }
 
-    embedBacklog({ messages: 4, docs: 8 }).catch(() => {}); // quiet top-up, never blocks the reply
-    if (stance && !privateMode && !signal?.aborted) learnStancesSoon().catch(() => {}); // what was just argued is on record before the next message, not after tomorrow's maintenance
+    if (!dryRun) embedBacklog({ messages: 4, docs: 8 }).catch(() => {}); // quiet top-up, never blocks the reply
+    if (stance && !privateMode && !dryRun && !signal?.aborted) learnStancesSoon().catch(() => {}); // what was just argued is on record before the next message, not after tomorrow's maintenance
     // A long file Boon is working with gets its digest written, a few parts at a time, whenever it is used (maintenance finishes the job)
     const toDigest = driveResult?.archived || (longNamed && !namedOutline?.complete ? namedFile : null);
     if (toDigest) digestDoc(toDigest, { left: () => 45000, maxParts: 10, pause: 1500 }).catch(() => {});
