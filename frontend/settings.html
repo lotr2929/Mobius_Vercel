@@ -225,7 +225,7 @@ section.folded > :not(h2:first-child) { display: none; }
   <div id="trash" class="card"></div>
 </section>
 
-<script src="/device.js"></script>
+<script src="/device.js?v=__MOBIUS_VERSION__"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
@@ -620,6 +620,7 @@ $('gDisconnect').onclick = async () => {
 // This device: read from the device itself each time the page opens; nothing is sent anywhere (device.js).
 (() => {
   const box = $('deviceBox'); let last = null;
+  try { // whatever goes wrong in this panel must never stop the rest of Settings loading (7 Oct 2026: a mismatched script took the profile down with it)
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const draw = () => {
     if (!last) return;
@@ -646,6 +647,7 @@ $('gDisconnect').onclick = async () => {
   setInterval(() => { if (!document.hidden) draw(); }, 1000);        // the clock
   setInterval(() => { if (!document.hidden) read(); }, 15000);       // battery, network, window size
   document.addEventListener('visibilitychange', () => { if (!document.hidden) read(); });
+  } catch (e) { box.innerHTML = `<tr><td colspan="2">The device panel could not start (${String((e && e.message) || e).replace(/[<>&]/g, '')}). The rest of Settings is unaffected. Close and reopen the app once, so it loads the newest files.</td></tr>`; }
 })();
 
 Promise.all([loadProfile(), loadProjects(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));

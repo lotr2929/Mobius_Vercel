@@ -56,7 +56,8 @@ test('nothing on this page is sent anywhere, and the Settings page loads and sho
   assert.ok(!/XMLHttpRequest|sendBeacon|WebSocket|EventSource/.test(js) && (js.match(/\bfetch\s*\(/g) || []).length === 1, 'one fetch, to the helper');
   assert.ok(!/method\s*:\s*['"](?:POST|PUT|DELETE)/i.test(js), 'it only reads');
   const html = readFileSync(new URL('../frontend/settings.html', import.meta.url), 'utf8');
-  assert.ok(html.indexOf('<script src="/device.js"></script>') > 0 && html.indexOf('<script src="/device.js"></script>') < html.indexOf('MobiusDevice.collect'), 'device.js loads before it is used');
+  const tag = '<script src="/device.js?v=__MOBIUS_VERSION__"></script>';
+  assert.ok(html.indexOf(tag) > 0 && html.indexOf(tag) < html.indexOf('MobiusDevice.collect'), "device.js loads before it is used, under this version's own address");
   for (const id of ['deviceBox', 'devRefresh', 'devCopy', 'devPos', 'devicePos']) assert.ok(html.includes(`id="${id}"`), id);
   assert.ok(html.indexOf('<h2>This device</h2>') > 0 && html.indexOf('<h2>This device</h2>') < html.indexOf('<h2>Your profile</h2>'), 'it sits first on the page');
   const pos = html.slice(html.indexOf("$('devPos').onclick"), html.indexOf("$('devPos').onclick") + 900);
@@ -77,4 +78,13 @@ test('with the helper running, the computer is named properly; without it, the p
   // a phone never asks for a helper
   const p = D.text(phone, NOW);
   assert.ok(!/helper/i.test(p), 'a phone shows nothing about a helper');
+});
+
+test('a fault in the device panel can never stop the rest of Settings, and scripts are never served stale (7 Oct 2026)', () => {
+  const html = readFileSync(new URL('../frontend/settings.html', import.meta.url), 'utf8');
+  const panel = html.slice(html.indexOf('// This device: read from the device itself'), html.indexOf('Promise.all([loadProfile()'));
+  assert.ok(/try \{/.test(panel) && /catch \(e\)/.test(panel) && panel.includes('The device panel could not start'), 'the panel code is fenced in a try/catch that only touches its own box');
+  assert.ok(html.indexOf('Promise.all([loadProfile()') > html.indexOf('The device panel could not start'), 'the profile and the other sections load after the panel, whatever it does');
+  const sw = readFileSync(new URL('../frontend/sw.js', import.meta.url), 'utf8');
+  assert.match(sw, /endsWith\('\.html'\)\s*\|\|\s*url\.pathname\.endsWith\('\.js'\)/, 'sw.js serves .js network-first, as it says it does for the app shell');
 });

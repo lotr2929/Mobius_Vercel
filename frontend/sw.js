@@ -1,5 +1,5 @@
 // Mobius Service Worker
-const CACHE = 'mobius-v70'; // bump this on every deploy that changes index.html/app shell
+const CACHE = 'mobius-v71'; // bump this on every deploy that changes index.html/app shell
 const STATIC = ['/manifest.json', '/logo.png', '/favicon.ico', '/icon-192.png', '/icon-512.png', '/icon-maskable-192.png', '/icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
@@ -22,7 +22,9 @@ self.addEventListener('fetch', e => {
   }
   // Network-first for the app shell (HTML/JS) — never serve a stale version
   // of the app itself. Cache-first only for truly static assets (logo etc).
-  if (url.pathname === '/' || url.pathname.endsWith('.html')) {
+  // HTML and JS are both network-first: a new page must never run on an old cached copy of its script, nor the reverse.
+  // (7 Oct 2026: the new Settings page met a cached older device.js, the page's script stopped partway, and the profile did not load.)
+  if (url.pathname === '/' || url.pathname.endsWith('.html') || url.pathname.endsWith('.js')) {
     e.respondWith(
       fetch(e.request).then(res => {
         if (res.ok) { const clone = res.clone(); caches.open(CACHE).then(c => c.put(e.request, clone)); }
