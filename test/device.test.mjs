@@ -112,3 +112,17 @@ test('the helper is asked once at a time, a failed ask is not repeated by the ti
     assert.equal(calls, 2, 'a good answer is kept for a minute');
   } finally { globalThis.fetch = real; }
 });
+
+test('the service worker leaves other addresses alone, so the browser can ask its permission question (7 Oct 2026)', () => {
+  const sw = readFileSync(new URL('../frontend/sw.js', import.meta.url), 'utf8');
+  const guard = sw.indexOf('if (url.origin !== self.location.origin) return;');
+  assert.ok(guard > 0, 'sw.js ignores requests that are not for Mobius itself');
+  assert.ok(guard < sw.indexOf('e.respondWith'), 'and does so before it answers anything');
+  // behaviour: run the handler with a request to the helper and one to Mobius, and see which it answers
+  const handlers = []; const answered = [];
+  const self_ = { location: { origin: 'https://mobius.test' }, addEventListener: (t, f) => handlers.push([t, f]), clients: { claim() {} }, skipWaiting() {} };
+  new Function('self', 'caches', 'fetch', 'URL', 'Response', sw)(self_, { open: async () => ({ addAll: async () => {}, put() {} }), match: async () => null, keys: async () => [] }, async () => ({ ok: true, clone() { return this; } }), URL, Response);
+  const onFetch = handlers.find(([t]) => t === 'fetch')[1];
+  for (const u of ['http://127.0.0.1:3777/device', 'https://fonts.example/x.woff2', 'https://mobius.test/logo.png', 'https://mobius.test/api/status']) onFetch({ request: { url: u, method: 'GET' }, respondWith: () => answered.push(u) });
+  assert.deepEqual(answered, ['https://mobius.test/logo.png', 'https://mobius.test/api/status'], 'only Mobius\'s own requests are answered by the service worker');
+});

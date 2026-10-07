@@ -1,5 +1,5 @@
 // Mobius Service Worker
-const CACHE = 'mobius-v73'; // bump this on every deploy that changes index.html/app shell
+const CACHE = 'mobius-v74'; // bump this on every deploy that changes index.html/app shell
 const STATIC = ['/manifest.json', '/logo.png', '/favicon.ico', '/icon-192.png', '/icon-512.png', '/icon-maskable-192.png', '/icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
@@ -15,6 +15,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+  // Only Mobius's own requests are handled here. Anything bound for another address (the device helper on this computer, another site) goes
+  // straight from the page, so that the browser can ask its permission question: it cannot ask for a request made from a service worker, and
+  // the old catch-all answered a failed one with the home page. (7 Oct 2026)
+  if (url.origin !== self.location.origin) return;
   // Always network-first for API calls
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(fetch(e.request).catch(() => new Response(JSON.stringify({error:'offline'}),{headers:{'Content-Type':'application/json'}})));
