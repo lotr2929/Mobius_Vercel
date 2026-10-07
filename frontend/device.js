@@ -15,11 +15,12 @@
     const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
     return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${u[i]}`;
   };
-  const minutes = s => { s = Number(s); if (!isFinite(s) || s <= 0) return ''; const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
+  // Android's battery estimate is often nonsense (the A55 once claimed 2,398 hours), so a time over two days is not shown at all
+  const minutes = s => { s = Number(s); if (!isFinite(s) || s <= 0 || s > 172800) return ''; const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
 
   // "ANGLE (Intel, Intel(R) Arc(TM) Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)"  ->  "Intel Arc Graphics"
   function cleanGpu(raw) {
-    let s = clean(raw, 200).replace(/^ANGLE \((.*)\)$/i, '$1');
+    let s = clean(raw, 200).replace(/^.*ANGLE \((.+?)\)(?: on .*)?$/i, '$1'); // "ANGLE (...)" and, on Android, "Samsung Electronics Co., Ltd., ANGLE (Samsung Xclipse 530) on Vulkan 1.3"
     s = s.replace(/,?\s*(Direct3D\d+|OpenGL ES|OpenGL|Vulkan|Metal)\b.*$/i, '').replace(/\(0x[0-9a-f]+\)/gi, '').replace(/\((?:R|TM)\)/g, '');
     s = s.replace(/^([A-Za-z]+),\s*(?=\1\b)/i, '').replace(/^[A-Za-z]+,\s*/, m => (/^(?:Intel|NVIDIA|AMD|ARM|Qualcomm|Samsung|Apple|Google),\s*/i.test(m) ? '' : m));
     return s.replace(/\s+/g, ' ').replace(/[,\s]+$/, '').trim();

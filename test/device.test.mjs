@@ -126,3 +126,12 @@ test('the service worker leaves other addresses alone, so the browser can ask it
   for (const u of ['http://127.0.0.1:3777/device', 'https://fonts.example/x.woff2', 'https://mobius.test/logo.png', 'https://mobius.test/api/status']) onFetch({ request: { url: u, method: 'GET' }, respondWith: () => answered.push(u) });
   assert.deepEqual(answered, ['https://mobius.test/logo.png', 'https://mobius.test/api/status'], 'only Mobius\'s own requests are answered by the service worker');
 });
+
+test('what the A55 really reports (7 Oct 2026): its graphics name is tidied and an absurd battery estimate is left out', () => {
+  assert.equal(D.cleanGpu('Samsung Electronics Co., Ltd., ANGLE (Samsung Xclipse 530) on Vulkan 1.3.128'), 'Samsung Xclipse 530');
+  assert.equal(D.cleanGpu('ANGLE (Intel, Intel(R) Arc(TM) Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)'), 'Intel Arc Graphics');
+  const t = D.text({ ...phone, battery: { level: 76, charging: false, toEmpty: 8634660 } }, NOW);
+  assert.ok(t.includes('76%, on battery') && !/2398|left/.test(t), t);
+  const ok = D.text({ ...phone, battery: { level: 76, charging: false, toEmpty: 7500 } }, NOW);
+  assert.ok(ok.includes('about 2 h 5 min left'), 'a sensible estimate is still shown');
+});
