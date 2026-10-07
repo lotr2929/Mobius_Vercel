@@ -49,6 +49,11 @@ td{padding:4px 6px;border-bottom:1px solid var(--border);vertical-align:top;}
 tr:last-child td{border-bottom:none;}
 .ready{color:var(--green);} .rest{color:var(--amber);} .bad{color:var(--red);}
 ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
+/* This device: read by the page from the device it is open on; nothing is sent anywhere */
+#deviceBox td:first-child{width:34%;color:var(--muted);}
+#deviceBox tr.grp td{padding-top:12px;font-weight:bold;color:var(--green);border-bottom:1px solid var(--border2);}
+#deviceBox tr.grp:first-child td{padding-top:2px;}
+#devicePos{font-size:13px;margin-top:6px;word-break:break-word;}
 /* Each section folds away under its heading (6 Oct 2026, dev note 6) */
 section > h2:first-child { cursor: pointer; user-select: none; }
 section > h2:first-child::before { content: "\25BE"; display: inline-block; width: 1.1em; color: #888; }
@@ -68,6 +73,19 @@ section.folded > :not(h2:first-child) { display: none; }
   <a href="/">&larr; Back to Mobius</a>
 </header>
 <div id="status"></div>
+
+<!-- ───────────── This device ───────────── -->
+<section>
+  <h2>This device</h2>
+  <p class="hint">What the device you are using now reports about itself, read by this page each time you open it, so it shows the laptop on the laptop and the phone on the phone, with nothing to keep up to date. None of it is sent to Mobius's server or to any AI. A browser will not tell a page the make and model of a PC, so a computer shows its system, processor and graphics instead; an Android phone shows its model.</p>
+  <div class="card"><table id="deviceBox"><tr><td>Reading this device&hellip;</td><td></td></tr></table></div>
+  <div class="row">
+    <button class="plain small" id="devRefresh">Refresh</button>
+    <button class="plain small" id="devCopy">Copy details</button>
+    <button class="plain small" id="devPos">Show my position</button>
+  </div>
+  <div id="devicePos" class="sub"></div>
+</section>
 
 <!-- ───────────── Profile ───────────── -->
 <section>
@@ -202,6 +220,7 @@ section.folded > :not(h2:first-child) { display: none; }
   <div id="trash" class="card"></div>
 </section>
 
+<script src="/device.js"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
@@ -593,6 +612,35 @@ $('gDisconnect').onclick = async () => {
   } catch { /* offline: the stamp on the page is all there is */ }
 })();
 
+// This device: read from the device itself each time the page opens; nothing is sent anywhere (device.js).
+(() => {
+  const box = $('deviceBox'); let last = null;
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const draw = () => {
+    if (!last) return;
+    box.innerHTML = MobiusDevice.rows(last).map(g => `<tr class="grp"><td colspan="2">${esc(g.title)}</td></tr>` + g.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')).join('');
+  };
+  const read = async () => { try { last = await MobiusDevice.collect(); draw(); } catch (e) { box.innerHTML = `<tr><td colspan="2">This browser would not describe the device (${esc(e.message)}).</td></tr>`; } };
+  $('devRefresh').onclick = read;
+  $('devCopy').onclick = async () => {
+    if (!last) return;
+    try { await navigator.clipboard.writeText(MobiusDevice.text(last)); say('Device details copied.', 'ok'); } catch { say('This browser would not allow copying.', 'err'); }
+  };
+  $('devPos').onclick = () => {
+    const out = $('devicePos');
+    if (!navigator.geolocation) { out.textContent = 'This browser cannot report a position.'; return; }
+    out.textContent = 'Asking the device for its position...';
+    navigator.geolocation.getCurrentPosition(
+      p => { out.textContent = `Position ${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} (within about ${Math.round(p.coords.accuracy)} m). Shown here only; not sent anywhere.`; read(); },
+      e => { out.textContent = e.code === 1 ? 'Position is blocked for this site: allow it in the browser settings to use this.' : `The device could not work out its position (${e.message}).`; read(); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  };
+  read();
+  setInterval(() => { if (!document.hidden) draw(); }, 1000);        // the clock
+  setInterval(() => { if (!document.hidden) read(); }, 15000);       // battery, network, window size
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) read(); });
+})();
+
 Promise.all([loadProfile(), loadProjects(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
 // Suggestions waiting for you folds under its heading; remembered on this device. Default: folded.
 (() => {
@@ -610,6 +658,8 @@ Promise.all([loadProfile(), loadProjects(), loadSources(), loadDev(), loadNotes(
   const secs = [...document.querySelectorAll('section')];
   const nameOf = s => (s.querySelector('h2')?.textContent || '').trim();
   const open = new Set(saved || ['Development notes']);
+  // "This device" is open the first time it is seen on a device (this device's choice is remembered after that)
+  try { if (!localStorage.getItem('mobius-device-seen')) { open.add('This device'); localStorage.setItem('mobius-device-seen', '1'); } } catch { open.add('This device'); }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(secs.filter(s => !s.classList.contains('folded')).map(nameOf))); } catch { /* private mode */ } };
   for (const s of secs) {
     if (!open.has(nameOf(s))) s.classList.add('folded');
