@@ -75,6 +75,29 @@ export function readMachine() {
 
 const HOST_OK = /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/i; // refuses a page that reaches this port through another name (DNS rebinding)
 
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// The same facts as a page of its own, for opening in a browser tab on this computer. A page reaching the helper from the Mobius site needs
+// the browser's permission to contact this computer, which a managed laptop may withhold; simply opening this address needs none.
+export function renderPage(d, now = new Date()) {
+  const rows = [
+    ['Make and model', d.model && d.manufacturer && d.model.toLowerCase().startsWith(d.manufacturer.toLowerCase()) ? d.model : [d.manufacturer, d.model].filter(Boolean).join(' ')],
+    ['Processor', [d.cpu, d.cores && d.threads && `${d.cores} cores, ${d.threads} threads`].filter(Boolean).join(', ')],
+    ['Memory installed', d.ramGB != null ? `${d.ramGB} GB` : ''],
+    ['Graphics adapters', (d.gpus || []).join('; ')],
+    ['Windows', [d.os, d.osVersion && `version ${d.osVersion}`].filter(Boolean).join(', ')],
+    ['BIOS', [d.biosVersion, d.biosDate].filter(Boolean).join(', ')],
+    ['Disks', (d.disks || []).map(k => `${k.drive} ${k.sizeGB} GB, ${k.freeGB} GB free`).join('; ')],
+    ['Running since', d.bootTime ? new Date(d.bootTime).toLocaleString('en-GB') : ''],
+    ['Computer name', d.computerName],
+    ['Partial reading', d.partial ? 'Windows would not answer everything' : ''],
+  ].filter(([, v]) => v);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>This computer — Mobius device helper</title>
+<style>body{max-width:760px;margin:24px auto;padding:0 14px;font:15px/1.5 'Century Gothic','Segoe UI',sans-serif;background:#e2dccd;color:#1b1510}h1{font-size:20px;color:#2e5231}table{width:100%;border-collapse:collapse;background:#f5eedd;border:1px solid #c9bfae}td{padding:6px 10px;border-bottom:1px solid #c9bfae;vertical-align:top}td:first-child{width:32%;color:#443a2d}.s{font-size:12px;color:#8d7c64;margin-top:10px}</style></head><body>
+<h1>This computer</h1><table>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
+<p class="s">Read just now (${esc(now.toLocaleString('en-GB'))}) from this computer by the Mobius device helper. Nothing here leaves it. Refresh the page to read again.</p></body></html>`;
+}
+
 export function createServer({ collect = readMachine, origins = ORIGINS, ttlMs = 20000, log = null } = {}) {
   let cache = null, at = 0;
   const lastLogged = new Map();
@@ -105,6 +128,11 @@ export function createServer({ collect = readMachine, origins = ORIGINS, ttlMs =
       if (req.method !== 'GET') return send(res, 405, { error: 'read only' }, { ...cors, Allow: 'GET' });
       const path = String(req.url || '').split('?')[0];
       if (path === '/ping') return send(res, 200, { ok: true, helper: 1 }, cors);
+      if (path === '/') { // the same facts as a page, for opening on this computer; it cannot be framed or run scripts
+        if (!cache || Date.now() - at > ttlMs) { cache = tidy(await collect()); at = Date.now(); }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" });
+        return res.end(renderPage(cache));
+      }
       if (path === '/device') {
         if (!cache || Date.now() - at > ttlMs) { cache = tidy(await collect()); at = Date.now(); }
         return send(res, 200, cache, cors);

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createServer, tidy, readMachine, ORIGINS } from '../backend/device-helper.mjs';
+import { createServer, tidy, readMachine, renderPage, ORIGINS } from '../backend/device-helper.mjs';
 
 const RAW = { manufacturer: 'HP', model: 'HP Elite x360 1040 14 inch G11 2-in-1 Notebook PC', cpu: 'Intel(R) Core(TM) Ultra 7 155H', cores: 16, threads: 22, ramGB: 31.5,
   gpus: ['Intel(R) Arc(TM) Graphics', 'DisplayLink USB Device'], os: 'Microsoft Windows 11 Enterprise', osVersion: '10.0.26200', osBuild: '26200', biosVersion: 'W90 Ver. 01.10.00', biosDate: '2026-06-04',
@@ -64,4 +64,21 @@ test('on this computer it can really read the machine', { skip: process.platform
   const d = tidy(await readMachine());
   assert.ok(d.cpu && d.threads > 0 && d.ramGB > 0, JSON.stringify(d));
   assert.ok(d.model, 'a make and model were found');
+});
+
+test("the helper's own page shows the machine, cannot be framed or run scripts, and keeps the same guards", async () => {
+  await withServer(async ask => {
+    const r = await ask('/');
+    assert.equal(r.status, 200);
+    assert.match(r.headers['content-type'], /text\/html/);
+    assert.ok(r.body.includes('HP Elite x360 1040 14 inch G11 2-in-1 Notebook PC') && r.body.includes('Intel(R) Core(TM) Ultra 7 155H') && r.body.includes('CD-TEST'), r.body);
+    assert.ok(!/SECRET|someone|AA:BB|10\.0\.0\.5/.test(r.body), 'no serial number, user name, MAC or IP address on the page either');
+    assert.ok(!/HP HP/.test(r.body), 'the maker is said once');
+    assert.equal(r.headers['x-frame-options'], 'DENY');
+    assert.match(r.headers['content-security-policy'], /default-src 'none'/);
+    assert.ok(!/<script/i.test(r.body), 'no script on the page');
+    assert.equal((await ask('/', { headers: { Host: 'evil.example:3777' } })).status, 403, 'another name for this port is refused');
+    assert.equal((await ask('/', { method: 'POST' })).status, 405);
+  });
+  assert.ok(renderPage({ model: '<img src=x onerror=alert(1)>', manufacturer: '', gpus: ['<b>x</b>'], disks: [] }).indexOf('<img') === -1, 'anything odd in a reading is escaped');
 });

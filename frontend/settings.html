@@ -54,6 +54,7 @@ ul.plainlist{list-style:none;font-size:13px;} ul.plainlist li{padding:2px 0;}
 #deviceBox tr.grp td{padding-top:12px;font-weight:bold;color:var(--green);border-bottom:1px solid var(--border2);}
 #deviceBox tr.grp:first-child td{padding-top:2px;}
 #devicePos{font-size:13px;margin-top:6px;word-break:break-word;}
+a.btn{font-size:12px;padding:4px 9px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--muted);text-decoration:none;}
 /* Each section folds away under its heading (6 Oct 2026, dev note 6) */
 section > h2:first-child { cursor: pointer; user-select: none; }
 section > h2:first-child::before { content: "\25BE"; display: inline-block; width: 1.1em; color: #888; }
@@ -83,6 +84,7 @@ section.folded > :not(h2:first-child) { display: none; }
     <button class="plain small" id="devRefresh">Refresh</button>
     <button class="plain small" id="devCopy">Copy details</button>
     <button class="plain small" id="devPos">Show my position</button>
+    <a class="btn" id="devOpen" href="http://127.0.0.1:3777/" target="_blank" rel="noopener">Open this computer's full details</a>
   </div>
   <div id="devicePos" class="sub"></div>
   <div class="row">
@@ -632,6 +634,7 @@ $('gDisconnect').onclick = async () => {
     try {
       const prev = last && last.helper;
       last = await MobiusDevice.collect();
+      $('devOpen').style.display = last.mobile ? 'none' : '';   // only a computer has a helper to open
       if (!last.mobile) last.helper = prev || { pending: true };
       draw();
       if (!last.mobile) { const mine = last; const h = await MobiusDevice.readHelper(force === true); mine.helper = h; if (mine === last) draw(); }

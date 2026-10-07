@@ -124,7 +124,7 @@
   function helperGroup(info, hd) {
     if (info.mobile || !info.helper) return [];
     if (info.helper.pending) return [['The computer itself', [['Make, model and processor name', 'asking the helper on this computer…']]]];
-    if (!hd) return [['The computer itself', [['Make, model and processor name', `not available: the Mobius device helper was not reached (${clean(info.helper.why, 240) || 'unknown reason'}). See the note below the table, or name the device yourself`]]]];
+    if (!hd) return [['The computer itself', [['Make, model and processor name', `not available: the Mobius device helper was not reached (${clean(info.helper.why, 240) || 'unknown reason'}). See the note below the table, use "Open this computer's full details", or name the device yourself`]]]];
     const when = iso => { try { return new Intl.DateTimeFormat(info.locale || 'en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: info.tz || undefined }).format(new Date(iso)); } catch { return ''; } };
     return [['The computer itself (from the Mobius device helper)', [
       ['Processor', [clean(hd.cpu, 80), hd.cores && hd.threads && `${Number(hd.cores)} cores, ${Number(hd.threads)} threads`].filter(Boolean).join(', ')],
