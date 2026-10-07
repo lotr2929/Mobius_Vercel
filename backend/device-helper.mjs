@@ -75,13 +75,24 @@ export function readMachine() {
 
 const HOST_OK = /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/i; // refuses a page that reaches this port through another name (DNS rebinding)
 
-export function createServer({ collect = readMachine, origins = ORIGINS, ttlMs = 20000 } = {}) {
+export function createServer({ collect = readMachine, origins = ORIGINS, ttlMs = 20000, log = null } = {}) {
   let cache = null, at = 0;
+  const lastLogged = new Map();
+  // What reached the helper, so "the page could not reach it" can be told from "it asked and was refused": every refusal, and a successful
+  // request once per ten minutes per page. No request bodies, no data from the machine.
+  const note = (req, res) => {
+    if (!log) return;
+    const key = `${req.method} ${String(req.url || '').split('?')[0]} ${req.headers.origin ?? '-'}`, now = Date.now();
+    if (res.statusCode < 400 && now - (lastLogged.get(key) || 0) < 600000) return;
+    lastLogged.set(key, now);
+    log(`${new Date().toISOString()}  ${key}  host=${req.headers.host || '-'}  ->  ${res.statusCode}`);
+  };
   const send = (res, code, body, extra = {}) => {
     res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra });
     res.end(JSON.stringify(body));
   };
   return http.createServer(async (req, res) => {
+    res.on('finish', () => note(req, res));
     try {
       if (!HOST_OK.test(String(req.headers.host || ''))) return send(res, 403, { error: 'wrong host' });
       const origin = req.headers.origin;
@@ -105,7 +116,7 @@ export function createServer({ collect = readMachine, origins = ORIGINS, ttlMs =
 
 // Run directly (npm run device-helper, or the Startup script)
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = createServer();
+  const server = createServer({ log: console.log });
   server.on('error', e => { if (e.code === 'EADDRINUSE') { console.log(`already running on port ${PORT}`); process.exit(0); } console.error(e.message); process.exit(1); });
   server.listen(PORT, '127.0.0.1', () => console.log(`Mobius device helper on 127.0.0.1:${PORT}: read-only; answers only the Mobius pages. Stop it by deleting MobiusDeviceHelper.vbs from the Startup folder and ending this process.`));
 }

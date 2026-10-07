@@ -42,13 +42,22 @@
   // read what a browser cannot: the make, model and processor name. It is read-only and local; nothing here goes to Mobius's server.
   const HELPER = 'http://127.0.0.1:3777';
   let helperSeen = null; // the last answer and when: the helper is asked at most about once a minute, not at every refresh
-  async function readHelper(force) {
-    if (!force && helperSeen && Date.now() - helperSeen.at < (helperSeen.v.ok ? 60000 : 30000)) return helperSeen.v;
+  let inflight = null;
+  // A good answer is kept for a minute. A failed one is kept until Refresh is pressed, so that a browser's permission question is asked
+  // once, on a press of the button, and not over and over by the timer. Only one question is ever in flight at a time.
+  function readHelper(force) {
+    if (!force && helperSeen && (!helperSeen.v.ok || Date.now() - helperSeen.at < 60000)) return Promise.resolve(helperSeen.v);
+    if (!inflight) inflight = askHelper().finally(() => { inflight = null; });
+    return inflight;
+  }
+  async function askHelper() {
     let v;
     try {
-      const r = await fetch(HELPER + '/device', { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+      // targetAddressSpace tells the browser plainly that this request is meant for this same computer, so that it asks for the "devices on
+      // your computer" permission instead of refusing without a word (browsers that do not know the option ignore it)
+      const r = await fetch(HELPER + '/device', { cache: 'no-store', signal: AbortSignal.timeout(30000), targetAddressSpace: 'loopback' });
       v = r.ok ? { ok: true, data: await r.json() } : { ok: false, why: 'it refused the request' };
-    } catch (e) { v = { ok: false, why: e && e.name === 'TimeoutError' ? 'it did not answer' : 'it is not running, or this browser did not allow the request' }; }
+    } catch (e) { v = { ok: false, why: e && e.name === 'TimeoutError' ? 'it did not answer in time: if the browser showed a permission question, answer it and press Refresh' : 'it is not running, or this browser did not allow the request: press Refresh and allow the browser\'s question about devices on this computer' }; }
     helperSeen = { at: Date.now(), v };
     return v;
   }
@@ -93,8 +102,7 @@
     info.serviceWorker = !!(n.serviceWorker && n.serviceWorker.controller);
     info.geoPermission = await tryIt(async () => (await n.permissions.query({ name: 'geolocation' })).state);
     info.label = getLabel();
-    if (!info.mobile) info.helper = await readHelper(force);   // a phone describes itself; only a computer needs the helper
-    return info;
+    return info;   // the helper is asked separately (readHelper), so that a slow answer or a permission question never holds the rest back
   }
 
   const yesNo = v => (v ? 'yes' : 'no');
@@ -115,7 +123,8 @@
   // What only the helper on this computer can tell: its own group, or a note on why it is missing
   function helperGroup(info, hd) {
     if (info.mobile || !info.helper) return [];
-    if (!hd) return [['The computer itself', [['Make, model and processor name', `not available: the Mobius device helper was not reached (${clean(info.helper.why, 100) || 'unknown reason'}). See the note below the table, or name the device yourself`]]]];
+    if (info.helper.pending) return [['The computer itself', [['Make, model and processor name', 'asking the helper on this computer…']]]];
+    if (!hd) return [['The computer itself', [['Make, model and processor name', `not available: the Mobius device helper was not reached (${clean(info.helper.why, 240) || 'unknown reason'}). See the note below the table, or name the device yourself`]]]];
     const when = iso => { try { return new Intl.DateTimeFormat(info.locale || 'en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: info.tz || undefined }).format(new Date(iso)); } catch { return ''; } };
     return [['The computer itself (from the Mobius device helper)', [
       ['Processor', [clean(hd.cpu, 80), hd.cores && hd.threads && `${Number(hd.cores)} cores, ${Number(hd.threads)} threads`].filter(Boolean).join(', ')],
@@ -180,5 +189,5 @@
     return rows(info, now).map(g => `${g.title}\n${g.rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`).join('\n\n');
   }
 
-  globalThis.MobiusDevice = { collect, rows, text, cleanGpu, KNOWN_MODELS, getLabel, setLabel, HELPER };
+  globalThis.MobiusDevice = { collect, readHelper, rows, text, cleanGpu, KNOWN_MODELS, getLabel, setLabel, HELPER };
 })();

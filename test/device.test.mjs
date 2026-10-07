@@ -88,3 +88,27 @@ test('a fault in the device panel can never stop the rest of Settings, and scrip
   const sw = readFileSync(new URL('../frontend/sw.js', import.meta.url), 'utf8');
   assert.match(sw, /endsWith\('\.html'\)\s*\|\|\s*url\.pathname\.endsWith\('\.js'\)/, 'sw.js serves .js network-first, as it says it does for the app shell');
 });
+
+test('the helper is asked once at a time, a failed ask is not repeated by the timer, and Refresh asks again', async () => {
+  const real = globalThis.fetch; let calls = 0, mode = 'fail', release;
+  globalThis.fetch = async (url, opts) => {
+    calls++;
+    assert.equal(String(url), D.HELPER + '/device'); assert.equal(opts.targetAddressSpace, 'loopback'); assert.ok(!opts.method || opts.method === 'GET');
+    if (mode === 'fail') throw new TypeError('Failed to fetch');
+    if (mode === 'slow') await new Promise(r => (release = r));
+    return { ok: true, json: async () => ({ helper: 1, model: 'x' }) };
+  };
+  try {
+    const a = await D.readHelper(false);
+    assert.equal(a.ok, false); assert.match(a.why, /press Refresh/); assert.equal(calls, 1);
+    await D.readHelper(false); await D.readHelper(false);
+    assert.equal(calls, 1, 'the timer does not ask again after a failure');
+    mode = 'slow';
+    const p1 = D.readHelper(true), p2 = D.readHelper(true), p3 = D.readHelper(true);
+    assert.equal(calls, 2, 'three presses while one question is waiting make one question');
+    release(); const [r1, r2] = await Promise.all([p1, p2, p3]);
+    assert.equal(r1.ok, true); assert.equal(r2.data.model, 'x');
+    await D.readHelper(false);
+    assert.equal(calls, 2, 'a good answer is kept for a minute');
+  } finally { globalThis.fetch = real; }
+});
