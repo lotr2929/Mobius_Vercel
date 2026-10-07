@@ -38,7 +38,25 @@
   }
 
   // Ask the browser. Every reading is optional: a browser that will not say leaves a gap, never an error.
-  async function collect() {
+  // The one thing this file ever contacts is the Mobius device helper running on this same computer (backend/device-helper.mjs), which can
+  // read what a browser cannot: the make, model and processor name. It is read-only and local; nothing here goes to Mobius's server.
+  const HELPER = 'http://127.0.0.1:3777';
+  let helperSeen = null; // the last answer and when: the helper is asked at most about once a minute, not at every refresh
+  async function readHelper(force) {
+    if (!force && helperSeen && Date.now() - helperSeen.at < (helperSeen.v.ok ? 60000 : 30000)) return helperSeen.v;
+    let v;
+    try {
+      const r = await fetch(HELPER + '/device', { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+      v = r.ok ? { ok: true, data: await r.json() } : { ok: false, why: 'it refused the request' };
+    } catch (e) { v = { ok: false, why: e && e.name === 'TimeoutError' ? 'it did not answer' : 'it is not running, or this browser did not allow the request' }; }
+    helperSeen = { at: Date.now(), v };
+    return v;
+  }
+  const LABEL_KEY = 'mobius-device-name';
+  const getLabel = () => { try { return clean(localStorage.getItem(LABEL_KEY), 60); } catch { return ''; } };
+  const setLabel = v => { try { v = clean(v, 60); if (v) localStorage.setItem(LABEL_KEY, v); else localStorage.removeItem(LABEL_KEY); return true; } catch { return false; } };
+
+  async function collect(force) {
     const n = navigator, s = screen, ua = n.userAgentData, info = {};
     const tryIt = async (fn) => { try { return await fn(); } catch { return undefined; } };
     info.tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -74,6 +92,8 @@
     if (est) info.storage = { usage: est.usage, quota: est.quota, persisted: await tryIt(() => n.storage.persisted()) };
     info.serviceWorker = !!(n.serviceWorker && n.serviceWorker.controller);
     info.geoPermission = await tryIt(async () => (await n.permissions.query({ name: 'geolocation' })).state);
+    info.label = getLabel();
+    if (!info.mobile) info.helper = await readHelper(force);   // a phone describes itself; only a computer needs the helper
     return info;
   }
 
@@ -87,13 +107,39 @@
     } catch { return { date: now.toDateString(), time: now.toTimeString().slice(0, 8) }; }
   }
 
+  // "HP" + "HP Elite x360 ..." should read once
+  function makeModel(h) {
+    const m = clean(h.model, 100), mf = clean(h.manufacturer, 60);
+    return m && mf && m.toLowerCase().startsWith(mf.toLowerCase()) ? m : [mf, m].filter(Boolean).join(' ');
+  }
+  // What only the helper on this computer can tell: its own group, or a note on why it is missing
+  function helperGroup(info, hd) {
+    if (info.mobile || !info.helper) return [];
+    if (!hd) return [['The computer itself', [['Make, model and processor name', `not available: the Mobius device helper was not reached (${clean(info.helper.why, 100) || 'unknown reason'}). See the note below the table, or name the device yourself`]]]];
+    const when = iso => { try { return new Intl.DateTimeFormat(info.locale || 'en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: info.tz || undefined }).format(new Date(iso)); } catch { return ''; } };
+    return [['The computer itself (from the Mobius device helper)', [
+      ['Processor', [clean(hd.cpu, 80), hd.cores && hd.threads && `${Number(hd.cores)} cores, ${Number(hd.threads)} threads`].filter(Boolean).join(', ')],
+      ['Memory installed', hd.ramGB && `${Number(hd.ramGB)} GB`],
+      ['Graphics adapters', (hd.gpus || []).map(x => clean(x, 60)).filter(Boolean).join('; ')],
+      ['Windows', [clean(hd.os, 60), hd.osVersion && `version ${clean(hd.osVersion, 20)}`].filter(Boolean).join(', ')],
+      ['BIOS', [clean(hd.biosVersion, 40), clean(hd.biosDate, 12)].filter(Boolean).join(', ')],
+      ['Disks', (hd.disks || []).map(d => `${clean(d.drive, 4)} ${Number(d.sizeGB)} GB, ${Number(d.freeGB)} GB free`).join('; ')],
+      ['Running since', hd.bootTime ? when(hd.bootTime) : ''],
+      ['Computer name', clean(hd.computerName, 40)],
+      ['Partial reading', hd.partial ? 'the helper could not ask Windows for everything' : ''],
+    ]]];
+  }
+
   // Groups of [label, value]; blank values are left out, so a missing reading simply does not appear.
   function rows(info, now = new Date()) {
     info = info || {};
     const t = timeText(info, now), c = info.connection, bat = info.battery, st = info.storage, g = info.webgpu;
+    const hd = info.helper && info.helper.ok ? info.helper.data : null;
     const mem = info.memoryGB ? (Number(info.memoryGB) >= 8 ? '8 GB or more (browsers report no higher than 8)' : `about ${Number(info.memoryGB)} GB (browsers round this)`) : '';
     const groups = [
       ['Device', [
+        ['Called', clean(info.label, 60)],
+        ['Make and model', hd ? makeModel(hd) : ''],
         ['Type', kindName(info)],
         ['System', osName(info)],
         ['Browser', clean(info.browser, 80)],
@@ -102,6 +148,7 @@
         ['Graphics', clean(info.gpu, 80)],
         ['Local AI (WebGPU)', g ? (g.ok ? `available${g.name ? `: ${g.name}` : ''}${g.maxBuffer ? `; largest buffer ${bytes(g.maxBuffer)}` : ''}` : g.absent ? 'not available in this browser' : 'present, but no graphics adapter was offered') : ''],
       ]],
+      ...helperGroup(info, hd),
       ['Screen and input', [
         ['Screen', info.screen && `${clean(info.screen, 20)} at ${Number(info.dpr) || 1}x pixel density${info.colourDepth ? `, ${Number(info.colourDepth)}-bit colour` : ''}`],
         ['Window', [clean(info.viewport, 20), clean(info.orientation, 24)].filter(Boolean).join(', ')],
@@ -133,5 +180,5 @@
     return rows(info, now).map(g => `${g.title}\n${g.rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`).join('\n\n');
   }
 
-  globalThis.MobiusDevice = { collect, rows, text, cleanGpu, KNOWN_MODELS };
+  globalThis.MobiusDevice = { collect, rows, text, cleanGpu, KNOWN_MODELS, getLabel, setLabel, HELPER };
 })();

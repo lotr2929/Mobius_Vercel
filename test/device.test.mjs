@@ -51,11 +51,30 @@ test('graphics names are tidied', () => {
 
 test('nothing on this page is sent anywhere, and the Settings page loads and shows it', () => {
   const js = readFileSync(new URL('../frontend/device.js', import.meta.url), 'utf8');
-  assert.ok(!/\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource/.test(js), 'device.js makes no network calls');
+  const urls = [...new Set(js.match(/https?:\/\/[^\s'"`)]+/g) || [])];
+  assert.deepEqual(urls, ['http://127.0.0.1:3777'], 'the only address device.js ever contacts is the helper on this same computer');
+  assert.ok(!/XMLHttpRequest|sendBeacon|WebSocket|EventSource/.test(js) && (js.match(/\bfetch\s*\(/g) || []).length === 1, 'one fetch, to the helper');
+  assert.ok(!/method\s*:\s*['"](?:POST|PUT|DELETE)/i.test(js), 'it only reads');
   const html = readFileSync(new URL('../frontend/settings.html', import.meta.url), 'utf8');
   assert.ok(html.indexOf('<script src="/device.js"></script>') > 0 && html.indexOf('<script src="/device.js"></script>') < html.indexOf('MobiusDevice.collect'), 'device.js loads before it is used');
   for (const id of ['deviceBox', 'devRefresh', 'devCopy', 'devPos', 'devicePos']) assert.ok(html.includes(`id="${id}"`), id);
   assert.ok(html.indexOf('<h2>This device</h2>') > 0 && html.indexOf('<h2>This device</h2>') < html.indexOf('<h2>Your profile</h2>'), 'it sits first on the page');
   const pos = html.slice(html.indexOf("$('devPos').onclick"), html.indexOf("$('devPos').onclick") + 900);
   assert.ok(!/fetch\(|api\(/.test(pos), 'the position is shown, never posted');
+});
+
+test('with the helper running, the computer is named properly; without it, the panel says why and a typed name still shows', () => {
+  const helper = { ok: true, data: { helper: 1, manufacturer: 'HP', model: 'HP Elite x360 1040 14 inch G11 2-in-1 Notebook PC', cpu: 'Intel(R) Core(TM) Ultra 7 155H', cores: 16, threads: 22, ramGB: 31.5,
+    gpus: ['Intel(R) Arc(TM) Graphics', 'DisplayLink USB Device'], os: 'Microsoft Windows 11 Enterprise', osVersion: '10.0.26200', biosVersion: 'W90 Ver. 01.10.00', biosDate: '2026-06-04',
+    disks: [{ drive: 'C:', sizeGB: 477, freeGB: 131 }], bootTime: '2026-10-07T00:10:00.000+08:00', computerName: 'CD-TEST' } };
+  const t = D.text({ ...laptop, helper, label: 'Office laptop' }, NOW);
+  for (const want of ['Called: Office laptop', 'Make and model: HP Elite x360 1040 14 inch G11 2-in-1 Notebook PC', 'Intel(R) Core(TM) Ultra 7 155H, 16 cores, 22 threads', 'Memory installed: 31.5 GB',
+    'Intel(R) Arc(TM) Graphics; DisplayLink USB Device', 'C: 477 GB, 131 GB free', 'W90 Ver. 01.10.00, 2026-06-04', 'Computer name: CD-TEST', 'The computer itself (from the Mobius device helper)'])
+    assert.ok(t.includes(want), `missing: ${want}\n${t}`);
+  assert.ok(!/HP HP/.test(t), 'the maker is not said twice');
+  const none = D.text({ ...laptop, helper: { ok: false, why: 'it is not running, or this browser did not allow the request' }, label: 'Office laptop' }, NOW);
+  assert.ok(none.includes('the Mobius device helper was not reached (it is not running') && none.includes('Called: Office laptop'), none);
+  // a phone never asks for a helper
+  const p = D.text(phone, NOW);
+  assert.ok(!/helper/i.test(p), 'a phone shows nothing about a helper');
 });

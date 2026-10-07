@@ -77,7 +77,7 @@ section.folded > :not(h2:first-child) { display: none; }
 <!-- ───────────── This device ───────────── -->
 <section>
   <h2>This device</h2>
-  <p class="hint">What the device you are using now reports about itself, read by this page each time you open it, so it shows the laptop on the laptop and the phone on the phone, with nothing to keep up to date. None of it is sent to Mobius's server or to any AI. A browser will not tell a page the make and model of a PC, so a computer shows its system, processor and graphics instead; an Android phone shows its model.</p>
+  <p class="hint">What the device you are using now reports about itself, read by this page each time you open it, so it shows the laptop on the laptop and the phone on the phone, with nothing to keep up to date. None of it is sent to Mobius's server or to any AI. A browser will not tell a page the make and model of a PC, so on a computer a small helper program running on that computer supplies them (see the note below the buttons); an Android phone reports its own model.</p>
   <div class="card"><table id="deviceBox"><tr><td>Reading this device&hellip;</td><td></td></tr></table></div>
   <div class="row">
     <button class="plain small" id="devRefresh">Refresh</button>
@@ -85,6 +85,11 @@ section.folded > :not(h2:first-child) { display: none; }
     <button class="plain small" id="devPos">Show my position</button>
   </div>
   <div id="devicePos" class="sub"></div>
+  <div class="row">
+    <input type="text" id="devName" maxlength="60" placeholder="A name for this device, e.g. HP Elite x360 1040 G11" style="flex:1;min-width:200px;">
+    <button class="plain small" id="devNameSave">Save name</button>
+  </div>
+  <p class="hint" style="margin-top:8px">The name is kept on this device only. About the helper: a browser cannot read a computer's make or processor name, but a small read-only program on that computer can (<code>npm run device-helper</code> in the Mobius folder; once set up it starts by itself at login). It listens on the computer itself only, answers only these Mobius pages, and never sends anything out. A phone needs no helper.</p>
 </section>
 
 <!-- ───────────── Profile ───────────── -->
@@ -620,8 +625,10 @@ $('gDisconnect').onclick = async () => {
     if (!last) return;
     box.innerHTML = MobiusDevice.rows(last).map(g => `<tr class="grp"><td colspan="2">${esc(g.title)}</td></tr>` + g.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')).join('');
   };
-  const read = async () => { try { last = await MobiusDevice.collect(); draw(); } catch (e) { box.innerHTML = `<tr><td colspan="2">This browser would not describe the device (${esc(e.message)}).</td></tr>`; } };
-  $('devRefresh').onclick = read;
+  const read = async (force) => { try { last = await MobiusDevice.collect(force === true); draw(); } catch (e) { box.innerHTML = `<tr><td colspan="2">This browser would not describe the device (${esc(e.message)}).</td></tr>`; } };
+  $('devRefresh').onclick = () => read(true);
+  $('devName').value = MobiusDevice.getLabel();
+  $('devNameSave').onclick = () => { if (MobiusDevice.setLabel($('devName').value)) say($('devName').value.trim() ? 'Name saved on this device.' : 'Name cleared.', 'ok'); else say('This browser would not keep the name.', 'err'); read(); };
   $('devCopy').onclick = async () => {
     if (!last) return;
     try { await navigator.clipboard.writeText(MobiusDevice.text(last)); say('Device details copied.', 'ok'); } catch { say('This browser would not allow copying.', 'err'); }

@@ -14,6 +14,7 @@
     "identity": "node backend/identity-cli.mjs",
     "compare": "node backend/compare-cli.mjs",
     "bench": "node backend/bench-cli.mjs",
+    "device-helper": "node backend/device-helper.mjs",
     "models": "node backend/models-cli.mjs"
   },
   "dependencies": {
