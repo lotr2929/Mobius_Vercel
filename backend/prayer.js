@@ -43,7 +43,9 @@ const CUES = {
   protection: /\b(?:protect\w*|safe\w*|travel\w*|overseas|abroad|guid\w*|peace\w*|anxi\w*|worr\w*|decision\w*|journey\w*|far from home|homesick|missing home|lonel\w*)\b/i,
   strength: /\b(?:include me|for me|and me|me too|myself|Boon|strength\w*|weary|tired\w*|hope\w*|courage\w*|burden\w*|carer|caring|exhaust\w*)\b/i,
 };
-const PER_THEME = { healing: 5, strength: 1, protection: 2, marriage: 2, work: 2 }; // about a dozen passages: room is short in a small model's window
+// Candidates, not a quota (8 Oct 2026: with a dozen the model quoted nearly all of them, in blocks, and the prayer became a string of
+// quotations). A few for the model to choose from; it is told to quote two or three at most, only where a verse bears directly on the request.
+const PER_THEME = { healing: 4, strength: 1, protection: 1, marriage: 1, work: 1 };
 
 // A request for a prayer to be WRITTEN ("give me a healing prayer", "write a prayer for"), not a talk about prayer
 const REQUEST = /\b(?:give|write|compose|draft|offer|prepare|say|pray)\b[^.?!]{0,40}\bprayers?\b|\b(?:need|want|like|have|get|try)\s+(?:a|another|new|fresh|one more)\s+(?:\w+\s+){0,2}prayers?\b|\bpray (?:for|with|over)\b/i;
@@ -102,7 +104,7 @@ export async function prayerScripture({ query, pastTexts = [], today = new Date(
   for (const { theme, ref: text } of picks) {
     const ref = extractRefs(text, { chapterOnlyOk: true })[0];
     try {
-      const { verses } = await fetchRef('WEB', ref, { maxVerses: 6 });
+      const { verses } = await fetchRef('WEB', ref, { maxVerses: 4 });
       if (!verses.length) continue;
       lines.push(`${ref.label} (${theme}): ${verses.map(v => clean(v.text)).join(' ')}`);
       refs.push(ref.text);

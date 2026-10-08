@@ -38,8 +38,8 @@ test('passages used before are left out, none is chosen twice, and the choice va
   const refs = a.map(p => extractRefs(p.ref, { chapterOnlyOk: true })[0]);
   for (const r of refs) for (const u of used) assert.equal(overlaps(r, u), false, `${r.label} was used before`);
   for (let i = 0; i < refs.length; i++) for (let j = i + 1; j < refs.length; j++) assert.equal(overlaps(refs[i], refs[j]), false, `${refs[i].label} twice`);
-  assert.equal(a.filter(p => p.theme === 'healing').length, 5);
-  assert.ok(a.length >= 10 && a.length <= 14, `about a dozen passages (${a.length})`);
+  assert.equal(a.filter(p => p.theme === 'healing').length, 4);
+  assert.ok(a.length >= 6 && a.length <= 9, `a few candidates, not a dozen (${a.length})`);
   const again = pickPassages({ themes: ['healing', 'strength', 'protection', 'marriage', 'work'], used, seed: '2026-10-07|x' });
   assert.deepEqual(again, a, 'the same request on the same day gives the same passages');
   const other = pickPassages({ themes: ['healing', 'strength', 'protection', 'marriage', 'work'], used, seed: '2026-10-08|x' });
@@ -59,6 +59,7 @@ test('chat.js gives a prayer its own scripture and leaves out the positions and 
   const src = readFileSync(new URL('../backend/chat.js', import.meta.url), 'utf8');
   assert.match(src, /prayerScripture\(/);
   assert.match(src, /title: 'Scripture for this prayer: the exact words of the WEB[^\n]*rank: 1/, 'rank 1: it is kept when room is short');
+  assert.match(src, /title: 'Scripture for this prayer[^\n]*at most three[^\n]*round brackets[^\n]*at least four-fifths/, 'few quotations, the reference in the text, and mostly petition');
   assert.match(src, /!prayerRequest && !attached\.length/, 'no theology shelf for a prayer');
   assert.match(src, /plan\.aboutSelf \|\| prayerRequest \? '' : safe\(async \(\) => stancesFor/, 'no positions for a prayer');
 });
