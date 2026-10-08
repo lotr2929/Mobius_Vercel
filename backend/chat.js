@@ -319,7 +319,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Dated notes since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
-      { title: 'Web search results (a live internet search and any pages Boon linked, made just now for this message: use them, name the source, and if they do not settle the question say what was searched and what is missing; never claim you cannot search the web)', rank: 6, cap: 6500, text: web },
+      { title: 'Web search results (a live internet search and any pages Boon linked, made just now for this message: use them, name the source, and if they do not settle the question say what was searched and what is missing; never claim you cannot search the web)', rank: 1, cap: 6500, text: web },
     ];
     const partsAll = plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart];
     const context = assembleContext(partsAll);
