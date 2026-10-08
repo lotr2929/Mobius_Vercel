@@ -25,7 +25,7 @@ export async function tavilySearch(query, { depth = 'advanced' } = {}) {
 
 // Several targeted searches at once (the planner's webQueries), de-duplicated by address. The first runs in 'advanced' depth
 // (two credits) and carries Tavily's summary; the others run 'basic' (one credit each). Returns text, or null if nothing came back.
-export async function tavilySearchMany(queries, { max = 3 } = {}) {
+export async function tavilySearchMany(queries, { max = 3, recent = false } = {}) {
   const qs = [...new Set((queries || []).map(q => String(q || '').trim()).filter(Boolean))].slice(0, max);
   if (!KEYS.tavily || !qs.length) return null;
   const runs = await Promise.all(qs.map(async (q, i) => {
@@ -33,7 +33,8 @@ export async function tavilySearchMany(queries, { max = 3 } = {}) {
       const r = await fetch('https://api.tavily.com/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + KEYS.tavily },
-        body: JSON.stringify({ query: q, max_results: 5, search_depth: i === 0 ? 'advanced' : 'basic', include_answer: i === 0 }),
+        // recent: only the past year, and news-ranked, so that old articles do not crowd out the new ones
+        body: JSON.stringify({ query: q, max_results: 5, search_depth: i === 0 ? 'advanced' : 'basic', include_answer: i === 0, ...(recent ? { time_range: 'year', topic: i === 0 ? 'general' : 'news' } : {}) }),
         signal: AbortSignal.timeout(15000),
       });
       if (!r.ok) return null;
@@ -47,7 +48,7 @@ export async function tavilySearchMany(queries, { max = 3 } = {}) {
     for (const h of (run.data.results || []).slice(0, 5)) {
       if (!h.url || seen.has(h.url)) continue;
       seen.add(h.url);
-      out.push('\n- ' + h.title + ' - ' + h.url);
+      out.push('\n- ' + h.title + (h.published_date ? ' (' + String(h.published_date).slice(0, 16) + ')' : '') + ' - ' + h.url);
       if (h.content) out.push('  ' + h.content.slice(0, 500));
     }
     out.push('');
