@@ -19,7 +19,7 @@ const MAX_AUTO = 1;
 const MAX_SUGGESTED = 1;
 
 // → [{ id, text, kind, status: 'active' | 'proposed' }]  (only notes that are new)
-export async function learnFromExchange({ query, previousAnswer = '', notes = [], dryRun = false }) {
+export async function learnFromExchange({ query, previousAnswer = '', notes = [], dryRun = false, privateOnly = false }) {
   const mode = (await getSettings()).learnMode; // set on the Settings page: auto | suggest | off
   if (mode === 'off' || String(query).trim().length < 25) return [];
 
@@ -49,6 +49,7 @@ Also ignore, and never record:
 - his clarifications or corrections of the current discussion ("I haven't made that claim", "that's not what I meant", "you're avoiding the issue")
 - anything the assistant said, even if Boon quotes it back or asks about it
 - his questions, hypotheticals and devil's-advocate moves
+- how he feels, his mood, energy or health: these are kept elsewhere, never as notes (notes go to the AI with every message)
 Keep only what will still matter in a month: his own definitions, standing preferences for how he works, decisions, and lasting facts about his work or circumstances.
 Write each note as one self-contained sentence in the third person that will still make sense months later: name the term being defined ("Boon defines Scriptura Fidelium as ...", "Boon prefers ..."). At most 300 characters each. If one idea is both a definition and a correction, write it as a single note.
 "explicit" is true only when Boon clearly stated or defined it himself in this message, not when you inferred it.
@@ -56,7 +57,7 @@ Reply with ONLY JSON: {"notes":[{"text":"...","kind":"definition|correction|pref
 If nothing qualifies reply {"notes":[]}.`;
 
   let items;
-  try { items = parseJson(await askModel(prompt, { role: 'learn', timeoutMs: 9000 })).notes; }
+  try { items = parseJson(await askModel(prompt, { role: 'learn', timeoutMs: 9000, privateOnly })).notes; }
   catch { return []; }
   if (!Array.isArray(items)) return [];
 

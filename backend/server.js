@@ -29,6 +29,7 @@ import { getSettings, saveSettings } from './pcm/settings.js';
 import { listTrash, trashStats, restoreTrash, deleteTrash, canMirror } from './pcm/backup.js';
 import { housekeeping, storageReport } from './pcm/housekeeping.js';
 import { listNotes, addNote, updateNote, setStatus } from './pcm/notes.js';
+import { recentMood, deleteMood, deleteAllMood, backfillMood, moodStats } from './mood.js';
 import { listDevNotes, addDevNote, updateDevNote, setDevNoteDone, removeDevNote } from './pcm/devnotes.js';
 import { runMaintenance } from './pcm/maintain.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
@@ -360,6 +361,24 @@ app.post('/api/devnotes/:id/:action', async (req, res) => { // action: done | re
 app.delete('/api/devnotes/:id', async (req, res) => {
   try { await removeDevNote(Number(req.params.id)); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Mood record (mood.js): everything Mobius has noted about how Boon says he is, with his own words, and the means to remove it.
+app.get('/api/mood', async (req, res) => {
+  const rows = await recentMood(400);
+  res.json({ items: rows.filter(r => r.kind === 'report'), stats: moodStats(rows), greetings: rows.filter(r => r.kind === 'asked').length });
+});
+app.post('/api/mood/backfill', async (req, res) => { // reads his earlier chats a bounded amount at a time; call again until done
+  try { res.json(await backfillMood({ budgetMs: 25000 })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/mood/:id', async (req, res) => {
+  try { await deleteMood(Number(req.params.id)); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/mood', async (req, res) => {
+  try { await deleteAllMood(); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Notes (same things the chat commands do: "Remember ...", "Forget #14", "Save 14", "Drop 15").

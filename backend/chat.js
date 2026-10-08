@@ -39,6 +39,7 @@ import { describeContext, selfReport } from './self.js';
 import { tavilySearch, tavilySearchMany, tavilyExtract, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
 import { clip, safe } from './util.js';
+import { GREETING, DEFAULT_TZ, FEELING_CUE, MOOD_ASK, MOOD_REPORT_ASK, recentMood, addReport, addMarker, moodFromMessage, isChatStart, shouldGreet, shouldRaisePattern, moodStats, moodText } from './mood.js';
 
 const ATTACHED_TITLE = "Attached document(s) — full text — CONFIRM RECEIPT: start your reply by explicitly listing these exact filenames as received before addressing the user's message";
 const NO_DOCS_NOTE = 'No documents were attached to this message, and no matching document was found by search either. Tell the user plainly that nothing was received with THIS message and ask them to re-attach.';
@@ -172,7 +173,25 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     trace.set({ direct, drive: plan.drive || null, driveResult: driveResult?.text?.slice(0, 300) || null, earlierImages: earlier?.images?.length || 0, sendImages: sendImages.length });
 
     // 3. recall, with the web search running alongside
-    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !prayerRequest && !privateMode; // none for greetings, questions about Mobius, answers already in hand, prayers, or private messages
+    // Mood (mood.js): what Boon says about how he is gets read quietly afterwards; on a few random days a week the first reply of a
+    // chat opens with a friendly greeting; a short computed summary is given to the model only when he asks about his mood or
+    // speaks of his feelings, and a turn that asks about his mood goes only to models that do not train on prompts.
+    const moodAsk = !privateMode && !memoryAction && MOOD_ASK.test(userQuery);
+    const moodReportAsk = moodAsk && MOOD_REPORT_ASK.test(userQuery);
+    const moodCue = !privateMode && FEELING_CUE.test(userQuery);
+    const prevReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
+    const answeringCheckin = !privateMode && prevReply.startsWith(GREETING);
+    const moodTz = ctx.tz || DEFAULT_TZ;
+    const moodRows = !privateMode && !dryRun ? await safe(() => recentMood(120), []) : [];
+    const moodNow = new Date();
+    const moodNums = moodStats(moodRows, moodNow, moodTz);
+    const atChatStart = !reopened && isChatStart(recent.at(-1)?.created_at, moodNow);
+    const quietTurn = direct || !!memoryAction || prayerRequest || plan.aboutSelf || !!plan.bible || attached.length > 0 || sendImages.length > 0 || moodAsk || moodCue || answeringCheckin;
+    const greet = !privateMode && !dryRun && !quietTurn && atChatStart && shouldGreet({ rows: moodRows, tz: moodTz, now: moodNow }) ? `${GREETING}\n\n` : '';
+    const raiseLow = !greet && !privateMode && !dryRun && !quietTurn && atChatStart && shouldRaisePattern({ stats: moodNums, rows: moodRows, tz: moodTz, now: moodNow });
+    const moodContext = moodAsk || moodCue || answeringCheckin ? moodText(moodNums, moodRows, { detail: moodReportAsk, tz: moodTz, now: moodNow }) : '';
+    trace.set({ mood: { asked: moodAsk, report: moodReportAsk, cue: moodCue, checkin: answeringCheckin, greeted: !!greet, raised: raiseLow, reports14: moodNums.n14 } });
+    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !prayerRequest && !privateMode && !moodAsk; // none for greetings, questions about Mobius, answers already in hand, prayers, or private messages
     // Pages whose addresses he typed ("can you open this?") are opened and read (Tavily extract); Drive links go through the Drive tools instead.
     const linkedUrls = privateMode || !KEYS.tavily || memoryAction ? [] : [...new Set((userQuery.match(/https?:\/\/[^\s<>()\[\]"'“”]+/gi) || []).map(u => u.replace(/[.,;:!?]+$/, '')).filter(u => !/(?:drive|docs)\.google\.com/i.test(u)))].slice(0, 3);
     // Searches are the planner's targeted webQueries (up to three, in parallel); the whole question is the fallback.
@@ -315,6 +334,9 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'What you have come to understand about Boon by working with him (what he has said and argued, in his own provisional words: not evidence, and not settled fact)', rank: 2, cap: 2000, text: working },
       { title: 'Scripture for this prayer: the exact words of the WEB, offered as CANDIDATES for what Boon asks, leaving out what he has had in recent prayers. They are not a quota, and most prayers need only two or three of them: quote at most three in the whole prayer, and only where a verse speaks directly to the very thing being asked at that point; leave the others unused. Quote briefly (one verse, or a clause of it), never a block, and set it inside the petition as the ground of the asking (for example: you who said ...). Put the reference in the text straight after the quoted words, in round brackets, for example (Psalm 103:2-5), in the form given here. Quote only from this block, word for word, never from memory and never any other verse, each verse once. The prayer itself is mostly your own faithful petition in plain words, at least four-fifths of it, in the voice of a believer at prayer and not of a scholar: begin with the address to God (no introduction, and no remark about instructions, earlier chats or the format); a brief adoration or thanksgiving; then the petitions, specific and asked boldly, one need at a time. Give the healing of the person he names first about twice the space of any other petition: ask plainly for restored health, for strength and rest, for wisdom and skill for those who care for them, for peace in the body and for hope, in the language of prayer and without medical detail. For a marriage, pray concretely and not in generalities: for the two to be united in love and in purpose, for patience and forgiveness between them, for honest and gentle speech and ears that truly listen, for faithfulness and trust, for tenderness, joy and time for each other, for a shared faith and prayer together, for strength to carry burdens side by side so that nothing divides them, and for each to put the other first, without referring to any personal difficulty. Boon speaks this prayer, so he prays for himself as me and my, never by name; then trust and surrender to the will of God, without hedging the asking; and a closing blessing. It is spoken to God in the second person, in flowing paragraphs, with no headings, lists or commentary', rank: 1, cap: 4000, text: prayer?.text || '' },
       { title: 'Notes saved from Boon\'s earlier statements (a record of what he said, first person means Boon). Follow his standing instructions about HOW he wants something done when the request is of that kind (for example how a prayer is to be written). On questions of fact or opinion they are not evidence, and not conclusions to defend or to agree with', rank: 1, cap: 3000, text: notesForPrompt(activeNotes, plan.standalone) },
+      { title: 'Mood record, worked out by plain arithmetic from what Boon himself has said about how he feels. Use it only to answer a question about how he has been, or to give his feelings context when he speaks of them. Speak plainly and warmly, never as a diagnosis; say how many reports a statement rests on and that it rests only on what he told Mobius; give figures only if he asks; quote his words only if they are listed here and he asked for a summary. A sustained low is a reason to take the trend to his GP, said once and gently. If he asks for a summary for his GP or counsellor, write it as short plain lines he can show them: week by week, then his own words, then one sentence on what the record cannot tell', rank: 1, cap: 2600, text: moodContext },
+      { title: 'One thing to raise, once, gently, AFTER you have answered what he asked', rank: 1, cap: 900,
+        text: raiseLow ? `Boon has said he is low more than usual over the last two weeks (${moodNums.n14} reports on ${moodNums.days14} days, lower than his own usual). At the very end of your reply, after answering what he asked, add one or two plain, kind sentences: you have noticed he has seemed lower than usual lately, and it may be worth taking that to his GP. No questions, no further advice, no dramatising, and do not mention scores, records or tracking.` : '' },
       { title: 'Active projects: where each one stands. Use them when Boon asks where you left off or returns to a project. Whatever is listed under "Covered so far" has been worked through: say so in a line and build on it, never go over it again', rank: 2, cap: 3200, text: fmtProjects(chosen) },
       { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Dated notes since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
@@ -357,7 +379,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       sections: context.sections,
       system_chars: system.length, system: system.slice(0, 6000),
       messages: messages.map(m => ({ role: m.role, chars: m.content.length })),
-      prompt: privateMode ? '[private — not recorded]' : finalContent.slice(0, 30000), // exactly what the model was asked
+      prompt: privateMode || moodAsk ? '[private — not recorded]' : finalContent.slice(0, 30000), // exactly what the model was asked
     }).mark('assembled');
 
     // 5. answer. Learning (pcm/learn.js) starts with the first token and runs alongside the rest of
@@ -365,12 +387,18 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // A factual, theological or research answer is checked by a model of another provider before it is sent (pcm/review.js). That is
     // decided now, because a reviewed answer is held back instead of streamed: Boon sees "thinking" a little longer, then the checked reply.
     const reviewing = shouldReview({
-      mode: REVIEW_MODE, query: userQuery, plan, theology, trivial: isTrivial(plan.standalone), privateMode, direct,
+      mode: REVIEW_MODE, query: userQuery, plan, theology, trivial: isTrivial(plan.standalone), privateMode: privateMode || moodAsk, direct,
       memoryAction: !!memoryAction, attached: attached.length > 0, forced: !!forceProvider,
     });
     trace.set({ reviewing });
     let full = '', usedModel = '', learning = null, cutOff = false;
     const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
+    // How he says he is (mood.js): read by a model that does not train, started now so it adds no waiting, filed once his message is saved
+    const moodJob = !privateMode && !dryRun && !memoryAction && !direct && (moodCue || answeringCheckin)
+      ? moodFromMessage({ query: userQuery, answeringCheckin }).catch(() => null) : null;
+    // The friendly check-in opens the reply (it is kept with the answer, so his reply to it is recognised next time)
+    if (greet) { await safe(() => addMarker('asked'), null); yield { token: greet }; }
+    if (raiseLow) await safe(() => addMarker('noted'), null);
     if (bibleShown) {
       const shownText = (bibleShown.source ? `*${bibleShown.source}*\n\n` : '') + bibleShown.text + (bibleShown.notes.length ? '\n\n' + bibleShown.notes.map(n => `*${n}*`).join('\n') : '');
       yield { event: 'model:Scripture lookup' };
@@ -384,11 +412,11 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       full = directAnswer;
       yield { token: full };
     }
-    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode, rebuild: windowFor })) {
+    if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode || moodAsk, rebuild: windowFor })) {
       if (typeof chunk === 'string') {
         if (!full) {
           trace.mark('first_token');
-          if (!memoryAction && !direct && !privateMode && !dryRun) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes }).catch(() => []);
+          if (!memoryAction && !direct && !privateMode && !dryRun) learning = learnFromExchange({ query: userQuery, previousAnswer: lastReply, notes, privateOnly: moodCue || answeringCheckin }).catch(() => []);
         }
         full += chunk;
         if (!reviewing) yield { token: chunk };
@@ -433,11 +461,17 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const learned = learning && !signal?.aborted ? await Promise.race([learning, new Promise(r => setTimeout(() => r([]), 4000))]) : [];
     const notice = learnedNotice(learned);
     if (notice) { full += notice; yield { token: notice }; }
-    trace.set({ learned, windows: Object.keys(windows).length ? windows : null, model: usedModel, answer_chars: full.length, answer_head: privateMode ? '[private]' : full.slice(0, 600) }).mark('answered');
+    trace.set({ learned, windows: Object.keys(windows).length ? windows : null, model: usedModel, answer_chars: full.length, answer_head: privateMode || moodAsk ? '[private]' : full.slice(0, 600) }).mark('answered');
 
     // 6. remember — only a finished answer to a question that is still wanted. A private message is not kept at all.
     if (!privateMode && !dryRun && !signal?.aborted && full.trim()) {
-      const saved = await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: full, model: usedModel });
+      const saved = await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: greet + full, model: usedModel });
+      // what he said about how he is (the model was started before the answer; a slow one is simply left)
+      if (moodJob && saved?.userId) {
+        const report = await Promise.race([moodJob, new Promise(r => setTimeout(() => r(null), 5000))]);
+        if (report) await safe(() => addReport({ ...report, messageId: saved.userId }), null);
+        trace.set({ moodReport: report ? { score: report.score } : null });
+      }
       // keep the pictures so a later "the man in the previous image" can be answered by looking again
       if (images.length && saved?.userId) await saveImages(images, saved.userId, full).catch(e => console.warn('[chat] pictures not kept:', e.message));
     }

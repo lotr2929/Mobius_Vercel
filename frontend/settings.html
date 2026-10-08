@@ -189,6 +189,17 @@ section.folded > :not(h2:first-child) { display: none; }
 
 <!-- ───────────── Learning ───────────── -->
 <section>
+  <h2>How you've been</h2>
+  <p class="hint">When you say how you are in a chat, Mobius scores it from -2 (very low) to +2 (very good) and keeps your own words as the evidence. Once or twice a week, at the start of a chat, it may ask how you're keeping. Only a short computed line (for example "lower than your usual this fortnight") is ever given to an AI, and your own words go only to models that do not train on what they read, and only when you ask for a summary. Delete any entry, or everything.</p>
+  <div id="moodSummary" class="hint"></div>
+  <div id="moodList" class="card"></div>
+  <div class="row">
+    <button id="moodBackfill" class="plain">Read my earlier chats</button>
+    <button id="moodClear" class="warn">Delete everything</button>
+  </div>
+</section>
+
+<section>
   <h2>Learning from your messages</h2>
   <p class="hint">What Mobius does when you clearly define a term of your own, correct it, or state a preference, without being told to remember.</p>
   <select id="learnMode">
@@ -324,6 +335,41 @@ $('saveAll').onclick = async () => { for (const n of window.__suggested || []) a
 $('dropAll').onclick = async () => { for (const n of window.__suggested || []) await api('POST', `/api/pcm/notes/${n.id}/drop`).catch(() => {}); await loadNotes(); say('All suggestions dropped.', 'ok'); };
 
 // ── Settings, models, storage, housekeeping ──────────────────────────────────
+// ── How you've been ──────────────────────────────────────────────────────────
+const sign = x => (x > 0 ? '+' : '') + x.toFixed(1);
+async function loadMood() {
+  const d = await api('GET', '/api/mood'), s = d.stats, box = $('moodList');
+  box.replaceChildren();
+  $('moodSummary').textContent = s.total
+    ? `${s.total} entr${s.total === 1 ? 'y' : 'ies'} on record. Last 14 days: ${s.n14} report${s.n14 === 1 ? '' : 's'}${s.n14 ? ', average ' + sign(s.mean14) : ''}. Check-ins asked in the last four months: ${d.greetings}.`
+    : 'Nothing recorded yet. Mobius only notes what you say about how you are.';
+  if (!d.items.length) box.append(el('div', 'empty', 'No entries.'));
+  d.items.slice(0, 60).forEach(m => {
+    const row = el('div', 'note');
+    row.append(el('span', 'id', sign(m.score)), el('span', 'text', `${when(m.created_at)} \u2014 \u201c${m.quote || ''}\u201d`));
+    const b = el('button', 'small warn', 'Delete');
+    b.onclick = async () => { try { await api('DELETE', '/api/mood/' + m.id); await loadMood(); } catch (e) { say(e.message, 'err'); } };
+    row.append(b); box.append(row);
+  });
+  if (d.items.length > 60) box.append(el('div', 'empty', `Showing the newest 60 of ${d.items.length}.`));
+}
+$('moodBackfill').onclick = async () => {
+  const btn = $('moodBackfill'); btn.disabled = true;
+  try {
+    let found = 0, r;
+    do {
+      say('Reading your earlier chats\u2026' + (r ? ` ${r.remaining} messages to go.` : ''));
+      r = await api('POST', '/api/mood/backfill'); found += r.found;
+    } while (!r.done);
+    await loadMood(); say(`Finished: ${found} entr${found === 1 ? 'y' : 'ies'} added from your earlier chats.`, 'ok');
+  } catch (e) { say(e.message, 'err'); await loadMood().catch(() => {}); }
+  btn.disabled = false;
+};
+$('moodClear').onclick = async () => {
+  if (!confirm('Delete every entry in the mood record? This cannot be undone. (Your chats are not touched.)')) return;
+  try { await api('DELETE', '/api/mood'); await loadMood(); say('The mood record has been deleted.', 'ok'); } catch (e) { say(e.message, 'err'); }
+};
+
 function hkLines(r) {
   const out = [];
   if (!r) return out;
@@ -663,7 +709,7 @@ $('gDisconnect').onclick = async () => {
   } catch (e) { box.innerHTML = `<tr><td colspan="2">The device panel could not start (${String((e && e.message) || e).replace(/[<>&]/g, '')}). The rest of Settings is unaffected. Close and reopen the app once, so it loads the newest files.</td></tr>`; }
 })();
 
-Promise.all([loadProfile(), loadProjects(), loadSources(), loadDev(), loadNotes(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
+Promise.all([loadProfile(), loadProjects(), loadSources(), loadDev(), loadNotes(), loadMood(), loadSettings(), loadTrash()]).catch(e => say(e.message, 'err'));
 // Suggestions waiting for you folds under its heading; remembered on this device. Default: folded.
 (() => {
   const KEY = 'mobius-suggestions-open', box = $('suggestionBox'), h = box.querySelector('h2');
