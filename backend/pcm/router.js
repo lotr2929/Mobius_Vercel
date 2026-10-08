@@ -133,6 +133,7 @@ function accept(j, query, projects, fallback, hasState, recent = [], hasFile = f
     sinceDays: days,
     aboutSelf: typeof j.aboutSelf === 'boolean' ? j.aboutSelf : fallback.aboutSelf,
     needsWeb: typeof j.needsWeb === 'boolean' ? j.needsWeb : true,
+    webQueries: (Array.isArray(j.webQueries) ? j.webQueries : []).filter(q => typeof q === 'string' && q.trim()).map(q => q.trim().slice(0, 140)).slice(0, 3),
     refersToImage: (typeof j.refersToImage === 'boolean' ? j.refersToImage : false) || fallback.refersToImage,
     imageHint: typeof j.imageHint === 'string' ? j.imageHint.trim().slice(0, 80) : '',
     refersToChat: (typeof j.refersToChat === 'boolean' ? j.refersToChat : false) || fallback.refersToChat,
@@ -180,6 +181,7 @@ Reply with ONLY a JSON object, no commentary:
   "sinceDays": integer or null,
   "aboutSelf": true or false,
   "needsWeb": true or false,
+  "webQueries": ["one to three web-search queries, written the way a person would type them into a search engine, when needsWeb is true; otherwise empty"],
   "refersToImage": true or false,
   "imageHint": "a few words saying which earlier picture (for example: whiteboard photo), or empty",
   "refersToChat": true or false,
@@ -191,6 +193,8 @@ Reply with ONLY a JSON object, no commentary:
 }
 
 needsWeb is false when the answer comes from information already given (the date, time or location above), from Boon's own memory, or from the conversation: for example "what time is it", "what do you know about me", "summarise what we discussed". It is true for facts about the world, current events, or anything that could be looked up.
+
+webQueries (only when needsWeb is true) are what a person would type into a search engine: names and distinctive terms, not the whole question. Give two or three that approach the question from different angles. When the message asks what happened next, afterwards, later or most recently ("look into what happened afterwards", "do some research", "find out everything you can"), use the conversation to name the person or event and the likely later stages (for example "Rhys Bellinge sentenced", "Rhys Bellinge Supreme Court sentencing 2026"); never repeat the earlier stage that is already known. If the message is only a request to search or research, take the subject from the recent conversation.
 
 aboutSelf is true when the message asks about this assistant itself: what Mobius is, how it works, its models, memory or version, where or on what device it is running, what it knows about itself. It is false for questions about Boon or the world.
 

@@ -36,7 +36,7 @@ import { runBible } from './bible.js';
 import { isPrayerRequest, prayerScripture } from './prayer.js';
 import { findReadings } from './readings.js';
 import { describeContext, selfReport } from './self.js';
-import { tavilySearch, tavilyUsage } from './web.js';
+import { tavilySearch, tavilySearchMany, tavilyExtract, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
 import { clip, safe } from './util.js';
 
@@ -173,7 +173,19 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     // 3. recall, with the web search running alongside
     const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !prayerRequest && !privateMode; // none for greetings, questions about Mobius, answers already in hand, prayers, or private messages
-    if (useWeb) yield { event: 'searching web...' };
+    // Pages whose addresses he typed ("can you open this?") are opened and read (Tavily extract); Drive links go through the Drive tools instead.
+    const linkedUrls = privateMode || !KEYS.tavily || memoryAction ? [] : [...new Set((userQuery.match(/https?:\/\/[^\s<>()\[\]"'“”]+/gi) || []).map(u => u.replace(/[.,;:!?]+$/, '')).filter(u => !/(?:drive|docs)\.google\.com/i.test(u)))].slice(0, 3);
+    // Searches are the planner's targeted webQueries (up to three, in parallel); the whole question is the fallback.
+    const webP = useWeb || linkedUrls.length
+      ? (async () => {
+          const [pages, found] = await Promise.all([
+            linkedUrls.length ? tavilyExtract(linkedUrls) : null,
+            useWeb ? (plan.webQueries?.length ? tavilySearchMany(plan.webQueries) : tavilySearch(plan.standalone)) : null,
+          ]);
+          return [pages, found].filter(Boolean).join('\n\n') || null;
+        })()
+      : null;
+    if (useWeb || linkedUrls.length) yield { event: 'searching web...' };
     // Theology talk draws on Boon's library shelves (docs/library.js); a private message does not search outside, so nor does it embed.
     const theology = !direct && !memoryAction && !prayerRequest && !attached.length && !plan.aboutSelf && isTheology(`${plan.standalone} ${userQuery}`);
     // A shelf Boon has marked private (mobius_sources.sensitivity) is kept out of every prompt that goes to a model which trains on
@@ -182,7 +194,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const hidden = name => privateLabels.some(l => String(name).startsWith(l + '/'));
 
     const [web, profile, week, archive0, namedFile0, selfText, live0, overview0, library, stance, working] = await Promise.all([
-      useWeb ? tavilySearch(plan.standalone) : null,
+      useWeb || linkedUrls.length ? webP : null,
       safe(getProfile, ''),
       safe(() => getWeek(recent[0]?.created_at), { digest: '', gap: '' }),
       plan.needsArchive && !direct
@@ -307,7 +319,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Dated notes since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
-      { title: 'Web search results', rank: 6, cap: 2600, text: web },
+      { title: 'Web search results (a live internet search and any pages Boon linked, made just now for this message: use them, name the source, and if they do not settle the question say what was searched and what is missing; never claim you cannot search the web)', rank: 6, cap: 6500, text: web },
     ];
     const partsAll = plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart];
     const context = assembleContext(partsAll);

@@ -106,7 +106,7 @@ Memory is imperfect: summaries can be stale or wrong. If something Boon mentions
 
 ## How each message is handled
 1. A fast model analyses the message: it rewrites it as a standalone question, picks relevant projects, and decides whether the archive is needed.
-2. Mobius recalls from the tiers, searches the web (Tavily) for any non-trivial message, and checks whether a stored document is named.
+2. Mobius recalls from the tiers, searches the web (Tavily: up to three targeted searches, plus any page whose address Boon types) for any non-trivial message, and checks whether a stored document is named.
 3. It assembles a size-limited "Memory context" and sends it with the message; for small-context models it is trimmed.
 4. The answer streams back and both messages are saved. Embeddings and summaries are filled in afterwards by background jobs, which run every six hours when Boon's PC is running and once a day on Vercel.
 
