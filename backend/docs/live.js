@@ -119,11 +119,11 @@ export async function liveDriveSearch(query, plan = {}, { budgetMs = 9000, drive
   const parts = await Promise.all(top.map(async f => {
     const text = await within(extractText(f.drive, f).catch(() => ''), Math.max(2500, deadline - Date.now()));
     if (!text || !text.trim()) return null;
-    return { name: `${f.source}/${f.name}`, body: passages(text.slice(0, 250000), terms), modified: f.modifiedTime };
+    return { name: `${f.source}/${f.name}`, body: passages(text.slice(0, 250000), terms), modified: f.modifiedTime, link: f.id ? `https://drive.google.com/file/d/${f.id}/view` : '' };
   }));
   const ok = parts.filter(Boolean);
   if (!ok.length) return null;
   const per = Math.floor(OUT_CHARS / ok.length);
-  const text = ok.map(p => `[${p.name}] (changed ${String(p.modified).slice(0, 10)})\n${p.body.slice(0, per)}`).join('\n\n');
+  const text = ok.map(p => `[${p.name}] (changed ${String(p.modified).slice(0, 10)}${p.link ? `; link: ${p.link}` : ''})\n${p.body.slice(0, per)}`).join('\n\n');
   return { text, files: ok.map(p => p.name), ms: Date.now() - t0 };
 }
