@@ -21,7 +21,7 @@ import { auditModels, probeModels } from './ai/audit.js';
 import { chatTurn } from './chat.js';
 import { geoFromHeaders, memoryStats } from './self.js';
 import { startTrace, saveTrace, recentTraces, getTrace } from './trace.js';
-import { getMessages } from './pcm/messages.js';
+import { getMessages, saveExchange } from './pcm/messages.js';
 import { getActive, history, getState } from './pcm/memory.js';
 import { saveProfile, PROFILE_MAX } from './pcm/profile.js';
 import { listProjects, saveProject, removeProject, PROJECT_MAX } from './pcm/projects.js';
@@ -31,7 +31,8 @@ import { housekeeping, storageReport } from './pcm/housekeeping.js';
 import { listNotes, addNote, updateNote, setStatus } from './pcm/notes.js';
 import { recentMood, deleteMood, deleteAllMood, backfillMood, moodStats } from './mood.js';
 import { listDevNotes, addDevNote, updateDevNote, setDevNoteDone, removeDevNote } from './pcm/devnotes.js';
-import { runMaintenance } from './pcm/maintain.js';
+import { runMaintenance, embedBacklog } from './pcm/maintain.js';
+import { LOCAL_MODEL } from './ai/models.js';
 import { saveDoc, listDocs, deleteDoc } from './docs/store.js';
 import { extractFromBuffer } from './docs/extract.js';
 import { driveConfigured, browse, importFile, uploadToDrive, syncDrive, backfillFull } from './docs/drive.js';
@@ -108,7 +109,7 @@ const cleanImages = list => (Array.isArray(list) ? list : [])
   .map(i => ({ base64: i.base64, mimeType: i.mimeType.toLowerCase() }));
 
 app.post('/api/chat', async (req, res) => {
-  const { messages, query: q, docs, client, images, viewing } = req.body;
+  const { messages, query: q, docs, client, images, viewing, local } = req.body;
   const query = q || messages?.slice(-1)[0]?.content || '';
   if (!query) return res.status(400).json({ error: 'No query' });
 
@@ -121,13 +122,30 @@ app.post('/api/chat', async (req, res) => {
   res.on('close', () => { if (!res.writableEnded) controller.abort(); }); // client went away
 
   try {
-    for await (const item of chatTurn({ query, docs, images: cleanImages(images), client, geo: geoFromHeaders(req.headers), viewing: (typeof viewing === 'number' || (typeof viewing === 'string' && viewing.length <= 64)) ? viewing : null, signal: controller.signal })) send(item);
+    for await (const item of chatTurn({ query, docs, images: cleanImages(images), client, geo: geoFromHeaders(req.headers), viewing: (typeof viewing === 'number' || (typeof viewing === 'string' && viewing.length <= 64)) ? viewing : null, local: local === true, signal: controller.signal })) send(item);
   } catch (e) {
     console.error('[chat]', e.message);
     send({ error: e.message });
   }
   res.write('data: [DONE]\n\n');
   res.end();
+});
+
+// An exchange answered on Boon's laptop (Ask: Local): his browser wrote the answer, so it comes back here to be filed exactly like any other
+// (saved as one question-and-answer pair; embeddings topped up in the background). Behind the same login as the rest of the API.
+app.post('/api/chat/local-save', async (req, res) => {
+  const { query, answer, docs } = req.body || {};
+  if (typeof query !== 'string' || typeof answer !== 'string' || !query.trim() || !answer.trim()) return res.status(400).json({ error: 'query and answer are needed' });
+  try {
+    const saved = await saveExchange({
+      query: query.slice(0, 20000),
+      docs: (Array.isArray(docs) ? docs : []).filter(d => typeof d === 'string').slice(0, 20),
+      answer: answer.slice(0, 60000),
+      model: LOCAL_MODEL.name,
+    });
+    embedBacklog({ messages: 4, docs: 8 }).catch(() => {});
+    res.json({ ok: !!saved });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Documents ────────────────────────────────────────────────────────────────

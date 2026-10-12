@@ -234,6 +234,13 @@ function fit(messages, system, maxChars) {
   return msgs;
 }
 
+// The turns for a model that is NOT called from the cascade (the local one, which the browser calls): built for its window exactly as
+// runCascade builds them for a cloud model, so the two cannot drift apart. `rebuild` is chat.js's windowFor.
+export function fitForRoom(messages, system, room, rebuild = null) {
+  const base = rebuild && room < 60000 ? rebuild(room - system.length) : messages;
+  return fit(normalise(base), system, room);
+}
+
 // ── Streaming a chat answer ──────────────────────────────────────────────────
 // Yields token strings and { event } objects (model:, fallback:, continuing:, cut-off, error:).
 // `only` forces one model; `task` (a tag such as 'code') tries models strong at it first.

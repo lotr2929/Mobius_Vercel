@@ -263,6 +263,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 <script src="/vendor/marked.min.js"></script>
 <script src="/scripture.js"></script>
 <script src="/render.js"></script>
+<script src="/local.js"></script>
 <script>
 'use strict';
 
@@ -661,11 +662,32 @@ async function handleSend() {
   const input = document.getElementById('qinput');
   const typed = input.value.trim();
   if ((!typed && !attachedImgs.length) || busy) return;
-  const q = typed || 'Describe this image and read any text in it.';
+  let q = typed || 'Describe this image and read any text in it.';
   busy = true;
   if (!queryHistory.length || queryHistory[queryHistory.length - 1] !== q) queryHistory.push(q);
   queryHistIdx = -1; queryHistDraft = '';
   input.value = ''; input.style.height = 'auto';
+  // "Ask: Local" / "Ask: Cloud" (frontend/local.js) choose who writes the answers from now on, on this device. With nothing after it,
+  // that is all the message does; with a question after it, the question is sent in the new mode. Local is only taken on if Ollama answers.
+  let localNote = '';
+  const sw = MobiusLocal.parseSwitch(q);
+  if (sw) {
+    const reachable = sw.mode === 'cloud' || await MobiusLocal.ping();
+    MobiusLocal.setMode(reachable ? sw.mode : 'cloud');
+    const note = sw.mode === 'cloud' ? 'Back on **Cloud**: the cloud models answer again until you type **Ask: Local**.'
+      : reachable ? 'On **Local**: Qwen on this laptop writes the answers until you type **Ask: Cloud**. If it cannot be reached, the cloud answers instead and says so.'
+      : '**Local** cannot be reached from this device (is Ollama running on the laptop, and has the browser been allowed to reach this computer?), so I am staying on **Cloud**.';
+    if (!sw.rest) {
+      const f = document.getElementById('feed'); f.innerHTML = '';
+      f.appendChild(makeBubble('user', q, { docs: [] }));
+      const nb = makeBubble('assistant', ''); f.appendChild(nb);
+      document.getElementById(nb._ansId).innerHTML = md(note);
+      busy = false; scrollFeed();
+      return;
+    }
+    if (!reachable) localNote = 'Local could not be reached';
+    q = sw.rest;
+  }
   const viewingId = histIdx !== -1 ? (history[histIdx]?.id ?? null) : null; // the exchange on screen, if he has browsed back to one
   histIdx = -1;
   const imgs = attachedImgs.slice(); attachedImgs = []; renderImgPreviews();
@@ -699,6 +721,12 @@ async function handleSend() {
     if (imgs.length) body.images = imgs.map(i=>({base64:i.base64,mimeType:i.mimeType}));
     if (docs.length) body.docs = docs.map(d=>({filename:d.filename,text:d.text}));
 
+    // Local is only for a message without pictures (Qwen 2.5 7B cannot see them); the server decides the rest (a named cloud model,
+    // a lookup done by code). When it is on, the server answers with { local: prompt } instead of text and this page writes the answer.
+    if (MobiusLocal.getMode() === 'local' && !imgs.length) body.local = true;
+    let localJob = null;
+
+    const pump = async () => {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -721,6 +749,7 @@ async function handleSend() {
         const raw = line.slice(6).trim(); if (raw === '[DONE]') break;
         try {
           const obj = JSON.parse(raw);
+          if (obj.local) localJob = obj.local; // the prompt for the laptop's own model (see below)
           if (obj.event) {
             if (obj.event.startsWith('model:')) { usedModel = obj.event.slice(6); weakModel = false; }
             if (obj.event === 'weak-model') weakModel = true; // a small model is answering: the badge below carries a warning
@@ -742,13 +771,39 @@ async function handleSend() {
               ansEl.innerHTML = md(full);
             }
             if (obj.event.startsWith('error:unknown-model:')) {
-              full += '\n\n⚠ Unknown model — try Ask: Gemini, Qwen, GPT-OSS, Mistral, Lite or Codestral.';
+              full += '\n\n⚠ Unknown model — try Ask: Gemini, Qwen, GPT-OSS, Mistral, Lite or Codestral. (Ask: Local and Ask: Cloud choose between this laptop and the cloud.)';
               ansEl.innerHTML = md(full);
             }
           }
           if (obj.token) { full += obj.token; ansEl.innerHTML = md(full); scrollFeed(); }
           if (obj.error) { ansEl.innerHTML += '<div style="color:var(--red);font-size:12px;margin-top:6px">⚠ '+esc(obj.error)+'</div>'; reportError('server error: ' + obj.error, { source: q.slice(0, 80) }); }
         } catch {}
+      }
+    }
+    };
+    await pump();
+
+    // The server sent a local job: this page writes the answer with Qwen on the laptop (Ollama), then files the exchange. If Ollama
+    // gives nothing at all, the same message is sent again for the cloud models to answer, and the bubble says so.
+    if (localJob) {
+      const job = localJob; usedModel = job.name; weakModel = false;
+      const file = () => job.save ? fetch('/api/chat/local-save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, answer: full, docs: docs.map(d => d.filename) }) }).catch(() => {}) : null;
+      try {
+        await MobiusLocal.stream(job, { onToken: t => { full += t; ansEl.innerHTML = md(full); scrollFeed(); } });
+        await file();
+      } catch (e) {
+        if (e.noToken) {
+          localNote = 'Local model unavailable: answered by the cloud (' + String(e.message || e).slice(0, 90) + ')';
+          reportError('local model: ' + (e.message || e), { source: q.slice(0, 80) });
+          localJob = null; full = ''; usedModel = ''; body.local = false;
+          ansEl.innerHTML = '<span class="thinking-dots">thinking…</span>';
+          await pump();
+        } else {
+          full += '\n\n⚠ The local model stopped before it finished.';
+          ansEl.innerHTML = md(full);
+          await file();
+        }
       }
     }
 
@@ -760,6 +815,7 @@ async function handleSend() {
         '<span>'+fmtDT(new Date().toISOString())+'</span>'+
         (usedModel ? '<span class="ai-badge"'+(weakModel ? ' style="color:#b45309;border-color:#b45309" title="A small model answered because the stronger ones were unavailable. Check anything important."' : '')+'>'+(weakModel ? '&#x26A0; ' : '')+esc(usedModel)+'</span>' : '')+
         (searched ? '<span class="search-badge">&#x1F50D; web</span>' : '')+
+        (localNote ? '<span class="ai-badge" style="color:#b45309;border-color:#b45309" title="'+esc(localNote)+'">&#x26A0; local unavailable</span>' : '')+
         (tavilyRemaining ? '<span class="ai-badge" title="Tavily credits remaining this month">&#x1F50D; '+esc(tavilyRemaining)+'</span>' : '')+
         '<button class="copy-btn" onclick="copyBubble(this)" title="Copy">&#x2398;</button>';
     }

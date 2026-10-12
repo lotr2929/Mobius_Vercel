@@ -10,7 +10,8 @@
 
 import { KEYS, RECENT_MESSAGES, REVIEW_MODE, TURN_BUDGET_MS } from './config.js';
 import { buildSystem } from './ai/prompt.js';
-import { runCascade, parseAskPrefix } from './ai/cascade.js';
+import { runCascade, parseAskPrefix, fitForRoom } from './ai/cascade.js';
+import { LOCAL_MODEL } from './ai/models.js';
 import { restoreAudit } from './ai/audit.js';
 import { analyse, isTrivial } from './pcm/router.js';
 import { getMessages, saveExchange, settled } from './pcm/messages.js';
@@ -78,7 +79,11 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 
 // Yields { event } and { token } objects for server.js to relay as SSE.
 // client = what the browser reported about the device; geo = approximate location from the request.
-export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false }) {
+// local = "Ask: Local" is on (frontend/local.js): the answer is written by Qwen on Boon's laptop, which only his browser can reach. The turn
+// then builds everything as usual but, instead of calling the cascade, hands the finished prompt to the page ({ local }) and ends;
+// the page streams the answer from Ollama and files the exchange itself (POST /api/chat/local-save). Not done for such a turn:
+// the review, the plain-code checks and automatic learning (they would send the answer to cloud models), and the saving here.
+export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false, local = false }) {
   const turnStart = Date.now(); // the review (pcm/review.js) must finish inside the turn's time budget
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
@@ -386,7 +391,10 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     //    the answer, so it adds no waiting time and never runs for an answer that failed.
     // A factual, theological or research answer is checked by a model of another provider before it is sent (pcm/review.js). That is
     // decided now, because a reviewed answer is held back instead of streamed: Boon sees "thinking" a little longer, then the checked reply.
-    const reviewing = shouldReview({
+    // Answered on Boon's laptop (see `local` above) unless a particular cloud model was asked for, a picture must be read (Qwen 2.5 7B
+    // cannot see), or the answer was already produced by code (a scripture or Drive lookup) and needs no model at all.
+    const localTurn = local && !forceProvider && !sendImages.length && !bibleOnly && !(directAnswer && !bibleShown);
+    const reviewing = !localTurn && shouldReview({
       mode: REVIEW_MODE, query: userQuery, plan, theology, trivial: isTrivial(plan.standalone), privateMode: privateMode || moodAsk, direct,
       memoryAction: !!memoryAction, attached: attached.length > 0, forced: !!forceProvider,
     });
@@ -394,7 +402,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     let full = '', usedModel = '', learning = null, cutOff = false;
     const lastReply = recent.at(-1)?.role === 'assistant' ? recent.at(-1).content : '';
     // How he says he is (mood.js): read by a model that does not train, started now so it adds no waiting, filed once his message is saved
-    const moodJob = !privateMode && !dryRun && !memoryAction && !direct && (moodCue || answeringCheckin)
+    const moodJob = !privateMode && !dryRun && !localTurn && !memoryAction && !direct && (moodCue || answeringCheckin)
       ? moodFromMessage({ query: userQuery, answeringCheckin }).catch(() => null) : null;
     // The friendly check-in opens the reply (it is kept with the answer, so his reply to it is recognised next time)
     if (greet) { await safe(() => addMarker('asked'), null); yield { token: greet }; }
@@ -411,6 +419,14 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       usedModel = directLabel.toLowerCase();
       full = directAnswer;
       yield { token: full };
+    }
+    if (localTurn) {
+      // The page writes this answer. What it needs is the system prompt and the turns, cut to the local model's window the same way the
+      // cascade cuts them for a cloud model. Nothing more happens here: the page files the exchange when the answer is complete.
+      const turns = fitForRoom(messages, system, LOCAL_MODEL.maxChars, windowFor);
+      trace.set({ local: { model: LOCAL_MODEL.ollama, system_chars: system.length, turns: turns.map(m => ({ role: m.role, chars: m.content.length })) } }).mark('local-handoff');
+      yield { local: { model: LOCAL_MODEL.ollama, name: LOCAL_MODEL.name, numCtx: LOCAL_MODEL.numCtx, system, messages: turns, save: !privateMode && !dryRun } };
+      return;
     }
     if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode || moodAsk, rebuild: windowFor })) {
       if (typeof chunk === 'string') {

@@ -139,3 +139,13 @@ export function parseAskPrefix(query) {
 }
 
 export const askKeywords = () => MODELS.map(m => m.ask[0] || m.key);
+
+// The local model: Qwen run by Ollama on Boon's laptop. It is NOT in MODELS on purpose: the cascade is a list of cloud models that the
+// server can call, and the server cannot reach his laptop. "Ask: Local" (frontend/local.js) makes the browser call Ollama itself:
+// chat.js builds the same system prompt and memory block as for any model, cut to this window (`maxChars`, system prompt included),
+// hands them to the page, and the page streams the answer from Ollama and files the exchange (POST /api/chat/local-save).
+//   ollama    the model's name in Ollama (`ollama list`); change it here when a newer Qwen is pulled
+//   maxChars  most prompt text sent (a 7B model on a CPU slows sharply with long prompts)
+//   numCtx    Ollama's context length in tokens (its default, 4096, would silently cut the prompt); must hold maxChars plus the reply
+//   trains    false: nothing leaves the laptop once the prompt has been built
+export const LOCAL_MODEL = { key: 'local', name: 'Qwen 2.5 7B (local)', ollama: 'qwen2.5:7b', maxChars: 30000, numCtx: 10240, trains: false };
