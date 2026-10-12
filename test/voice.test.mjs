@@ -15,3 +15,13 @@ test('the system prompt tells Mobius to speak to Boon, in the voice of a scholar
 test('the earlier rules about prose and house style are still there beside it', () => {
   for (const rule of ['NEVER use tables', 'Use British English', 'Take a position', 'Never open with "You are right"']) assert.ok(BASE_PROMPT.includes(rule), `system prompt lost: ${rule}`);
 });
+
+test('web answers end with links, a plain list with bold phrases is welcome, tables are never used (12 Oct 2026)', async () => {
+  // Local Qwen answered a news question from search results that carried addresses, and gave no links; Boon likes list-with-bold-phrases answers.
+  assert.match(BASE_PROMPT, /ALWAYS end it with a brief closing line of short links/);
+  assert.match(BASE_PROMPT, /a plain list is welcome, each item opening with a short bold phrase/);
+  assert.match(BASE_PROMPT, /NEVER use tables/);
+  const { readFileSync } = await import('node:fs');
+  const chat = readFileSync(new URL('../backend/chat.js', import.meta.url), 'utf8');
+  assert.match(chat, /End your answer with a brief closing line of short markdown links to the pages you used/, 'the reminder sits beside the web results, where a small model reads it');
+});
