@@ -10,7 +10,7 @@
     "maintain": "node backend/maintain-cli.mjs",
     "ingest": "node backend/ingest-cli.mjs",
     "backup": "node backend/backup-cli.mjs",
-    "test": "node --test",
+    "test": "node --test test/*.test.mjs",
     "identity": "node backend/identity-cli.mjs",
     "compare": "node backend/compare-cli.mjs",
     "bench": "node backend/bench-cli.mjs",

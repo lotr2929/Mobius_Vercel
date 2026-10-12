@@ -5,7 +5,7 @@
 //   npm run backup -- --daemon     stay running, check every 3 hours (started at login by the Startup folder)
 // Written into "<Drive>\My Drive\Atlas\_mobius" through the Google Drive desktop app (no sign-in or write permission
 // is needed for Mobius itself), as one compressed file per run; the newest 7 are kept. If that folder is not there
-// (Drive not mounted) it goes to C:\_myProjects\_Mobius\Backup\db instead.
+// (Drive not mounted) it goes to C:\_Personal\_Mobius\Backup\db instead.
 // Saved: conversations, memory (profile, projects, week), notes, settings and state, development notes, linked-folder list,
 // digests, the trash (everything Mobius has removed), and the text of documents that were uploaded by hand.
 // Not saved: what can be rebuilt (search passages, embeddings, books read from Drive, scripture texts, traces) and what is secret
@@ -17,7 +17,7 @@ import { supabase } from './db.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
 const DRIVE_DIR = process.env.BACKUP_DRIVE_DIR || 'J:\\My Drive\\Atlas\\_mobius'; // the atlas is the shared "Atlas" folder inside My Drive (moved there 10 Oct 2026)
-const LOCAL_DIR = 'C:\\_myProjects\\_Mobius\\Backup\\db';
+const LOCAL_DIR = 'C:\\_Personal\\_Mobius\\Backup\\db';
 const KEEP = 7, DUE_HOURS = 20, CHECK_EVERY_MS = 3 * 3600e3;
 const SKIP = new Set(['mobius_docs', 'mobius_bible', 'mobius_traces', 'mobius_google', 'mobius_passkeys']);
 const DROP_COLUMNS = ['embedding', 'fts'];
