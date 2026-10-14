@@ -116,3 +116,36 @@ test('wiring: the server hands the prompt over and files nothing; the page write
   assert.match(html, /MobiusLocal\.getMode\(\) === 'local' && !imgs\.length/, 'a message with pictures is never sent for Local');
   assert.match(sw, /endsWith\('\.js'\)/, 'local.js is served network-first like the rest of the app');
 });
+
+test('tools (desktop app only): the model asks, the app runs the read-only tool, the result goes back, and the model answers; a browser never offers tools', async () => {
+  const realFetch = globalThis.fetch, realTauri = globalThis.__TAURI__;
+  const enc = new TextEncoder();
+  const body = lines => { const parts = lines.map(l => enc.encode(l + '\n')); let i = 0; return { getReader: () => ({ read: async () => (i < parts.length ? { done: false, value: parts[i++] } : { done: true }) }) }; };
+  const sent = []; let turn = 0;
+  globalThis.fetch = async (url, opts) => {
+    sent.push(JSON.parse(opts.body)); turn++;
+    return { ok: true, body: turn === 1
+      ? body([JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'files__list_directory', arguments: { path: 'E:\\Personal Details' } } }] } }), JSON.stringify({ done: true })])
+      : body([JSON.stringify({ message: { content: 'It holds a CV folder.' } }), JSON.stringify({ done: true })]) };
+  };
+  const calls = [];
+  globalThis.__TAURI__ = { core: { invoke: async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'shell_info') return { api: 2, mcp: true };
+    if (cmd === 'mcp_tools') return [{ name: 'files__list_directory', description: 'List a folder', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }];
+    if (cmd === 'mcp_call') return '[DIR] CV';
+    throw new Error('unexpected ' + cmd);
+  } } };
+  try {
+    const seen = [];
+    const text = await L.stream({ model: 'm', system: 'SYS', messages: [{ role: 'user', content: 'what is in my Personal Details folder?' }] }, { onTool: t => seen.push(t.name) });
+    assert.equal(text, 'It holds a CV folder.'); assert.deepEqual(seen, ['files__list_directory']);
+    assert.equal(sent[0].tools[0].function.name, 'files__list_directory'); assert.match(sent[0].messages[0].content, /read-only/);
+    const second = sent[1].messages; assert.equal(second[second.length - 1].role, 'tool'); assert.equal(second[second.length - 1].content, '[DIR] CV');
+    assert.deepEqual(calls.find(c => c[0] === 'mcp_call')[1], { name: 'files__list_directory', arguments: { path: 'E:\\Personal Details' } });
+    // in a browser (no desktop app) no tools are offered and the prompt is untouched
+    delete globalThis.__TAURI__; turn = 1; sent.length = 0;
+    await L.stream({ model: 'm', system: 'SYS', messages: [] });
+    assert.equal(sent[0].tools, undefined); assert.equal(sent[0].messages[0].content, 'SYS');
+  } finally { globalThis.fetch = realFetch; if (realTauri === undefined) delete globalThis.__TAURI__; else globalThis.__TAURI__ = realTauri; }
+});

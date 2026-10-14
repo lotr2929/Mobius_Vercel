@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Mobius window: the local launcher page and the live Mobius site, and nothing else",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://mobius-pwa.vercel.app/*"]
+  },
+  "permissions": ["allow-shell-info", "allow-mcp-status", "allow-mcp-tools", "allow-mcp-call", "allow-mcp-config-path"]
+}

@@ -8,3 +8,7 @@ _dev/
 deploy.env
 google-service-account.json
 .tmp.driveupload/
+
+# desktop shell build output
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mcp-config-path"
+description = "Enables the mcp_config_path command without any pre-configured scope."
+commands.allow = ["mcp_config_path"]
+
+[[permission]]
+identifier = "deny-mcp-config-path"
+description = "Denies the mcp_config_path command without any pre-configured scope."
+commands.deny = ["mcp_config_path"]

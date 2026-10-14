@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mobius</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light; }
+  html, body { height: 100%; margin: 0; background: #e2dccd; color: #2e5231; font-family: "Segoe UI", system-ui, sans-serif; }
+  main { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; box-sizing: border-box; }
+  h1 { margin: 0; font-size: 28px; font-weight: 600; }
+  p { margin: 0; max-width: 420px; line-height: 1.5; color: #4b5a4c; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2e5231; animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+  button { background: #2e5231; color: #f5efdf; border: 0; border-radius: 6px; padding: 9px 18px; font-size: 14px; cursor: pointer; }
+  button.quiet { background: transparent; color: #2e5231; text-decoration: underline; padding: 4px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mobius</h1>
+  <div id="wait"><div class="dot"></div></div>
+  <div id="off" hidden>
+    <p>Mobius could not be reached. Check the internet connection, then try again.</p>
+    <p style="margin-top:14px"><button id="retry">Try again</button></p>
+    <p style="margin-top:6px"><button id="force" class="quiet">Open anyway</button></p>
+  </div>
+</main>
+<script>
+  // The live Mobius site. Changing this line is the only edit needed if the address ever moves
+  // (the allowed address in src-tauri/capabilities/default.json must be changed to match).
+  const MOBIUS_URL = 'https://mobius-pwa.vercel.app/';
+
+  const wait = document.getElementById('wait');
+  const off = document.getElementById('off');
+
+  async function start() {
+    off.hidden = true; wait.hidden = false;
+    try {
+      // no-cors: only reachability matters, not the reply; any answer from the server means we are online
+      await fetch(MOBIUS_URL, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      location.replace(MOBIUS_URL);
+    } catch {
+      wait.hidden = true; off.hidden = false;
+    }
+  }
+  document.getElementById('retry').onclick = start;
+  document.getElementById('force').onclick = () => location.replace(MOBIUS_URL);
+  start();
+</script>
+</body>
+</html>
