@@ -83,7 +83,7 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 // then builds everything as usual but, instead of calling the cascade, hands the finished prompt to the page ({ local }) and ends;
 // the page streams the answer from Ollama and files the exchange itself (POST /api/chat/local-save). Not done for such a turn:
 // the review, the plain-code checks and automatic learning (they would send the answer to cloud models), and the saving here.
-export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false, local = false }) {
+export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false, local = false, laptopTools = false }) {
   const turnStart = Date.now(); // the review (pcm/review.js) must finish inside the turn's time budget
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
@@ -139,7 +139,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
     // Requests about his cloud drives ("what drives are linked?", "list the files in the GPR folder", "read the second one")
     // are carried out here; the model is handed the result to present.
-    const driveResult = !memoryAction && plan.drive ? await safe(() => runWorkspace(plan.drive), null) : null;
+    // (Not when this device has tools for the laptop's own files: then the question is for Qwen and those tools, not the cloud Drive.)
+    const driveResult = !memoryAction && !laptopTools && plan.drive ? await safe(() => runWorkspace(plan.drive), null) : null;
     const chatList = !memoryAction && plan.listChats ? await safe(async () => (await listChats(12)).map((c, i) => `${i + 1}. ${describeChat(c)}`).join('\n'), '') : '';
     // A question about a picture sent earlier gets that picture back, not just the earlier description of it.
     const earlier = !images.length && !driveResult?.images?.length && !memoryAction && plan.refersToImage ? await safe(() => earlierImages(plan.imageHint), null) : null;

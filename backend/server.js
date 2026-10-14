@@ -109,7 +109,7 @@ const cleanImages = list => (Array.isArray(list) ? list : [])
   .map(i => ({ base64: i.base64, mimeType: i.mimeType.toLowerCase() }));
 
 app.post('/api/chat', async (req, res) => {
-  const { messages, query: q, docs, client, images, viewing, local } = req.body;
+  const { messages, query: q, docs, client, images, viewing, local, laptopTools } = req.body;
   const query = q || messages?.slice(-1)[0]?.content || '';
   if (!query) return res.status(400).json({ error: 'No query' });
 
@@ -122,7 +122,7 @@ app.post('/api/chat', async (req, res) => {
   res.on('close', () => { if (!res.writableEnded) controller.abort(); }); // client went away
 
   try {
-    for await (const item of chatTurn({ query, docs, images: cleanImages(images), client, geo: geoFromHeaders(req.headers), viewing: (typeof viewing === 'number' || (typeof viewing === 'string' && viewing.length <= 64)) ? viewing : null, local: local === true, signal: controller.signal })) send(item);
+    for await (const item of chatTurn({ query, docs, images: cleanImages(images), client, geo: geoFromHeaders(req.headers), viewing: (typeof viewing === 'number' || (typeof viewing === 'string' && viewing.length <= 64)) ? viewing : null, local: local === true, laptopTools: laptopTools === true, signal: controller.signal })) send(item);
   } catch (e) {
     console.error('[chat]', e.message);
     send({ error: e.message });

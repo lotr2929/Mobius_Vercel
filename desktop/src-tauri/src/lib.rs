@@ -1,4 +1,4 @@
-// Mobius desktop shell, version 2: the live Mobius pages in a native window, with a door to local tools (MCP).
+// Mobius desktop shell, version 3 (changes need a click): the live Mobius pages in a native window, with a door to local tools (MCP).
 // The page can ask the shell who it is (shell_info) and, through the commands below, list and call the tools of the MCP servers
 // named in mcp.json on this computer. Each command is listed in build.rs and in capabilities/default.json.
 mod mcp;
@@ -33,8 +33,8 @@ async fn mcp_tools(state: State<'_, mcp::Mcp>) -> Result<Vec<mcp::ToolInfo>, Str
 }
 
 #[tauri::command]
-async fn mcp_call(state: State<'_, mcp::Mcp>, name: String, arguments: Value) -> Result<String, String> {
-    state.call(&name, arguments).await
+async fn mcp_call(app: tauri::AppHandle, state: State<'_, mcp::Mcp>, name: String, arguments: Value) -> Result<String, String> {
+    state.call(&app, &name, arguments).await
 }
 
 #[tauri::command]
@@ -47,6 +47,7 @@ const EMPTY_CONFIG: &str = "{\n  \"servers\": {}\n}\n";
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             std::fs::create_dir_all(&dir)?;

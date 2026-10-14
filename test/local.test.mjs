@@ -149,3 +149,11 @@ test('tools (desktop app only): the model asks, the app runs the read-only tool,
     assert.equal(sent[0].tools, undefined); assert.equal(sent[0].messages[0].content, 'SYS');
   } finally { globalThis.fetch = realFetch; if (realTauri === undefined) delete globalThis.__TAURI__; else globalThis.__TAURI__ = realTauri; }
 });
+
+test('laptop tools: the page says so, and the server then leaves a question about files to Qwen instead of the cloud-Drive lookup', () => {
+  const page = read('../frontend/index.html'), server = read('../backend/server.js'), chat = read('../backend/chat.js');
+  assert.match(page, /body\.laptopTools = true/);
+  assert.match(server, /laptopTools: laptopTools === true/);
+  assert.match(chat, /laptopTools = false \}\) \{/);
+  assert.match(chat, /!memoryAction && !laptopTools && plan\.drive/);
+});

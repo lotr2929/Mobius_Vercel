@@ -724,6 +724,8 @@ async function handleSend() {
     // Local is only for a message without pictures (Qwen 2.5 7B cannot see them); the server decides the rest (a named cloud model,
     // a lookup done by code). When it is on, the server answers with { local: prompt } instead of text and this page writes the answer.
     if (MobiusLocal.getMode() === 'local' && !imgs.length) body.local = true;
+    // In the desktop app Qwen has tools for files on this laptop; a question about files must reach it, not the cloud-Drive lookup.
+    if (body.local && (await MobiusLocal.toolList()).length) body.laptopTools = true;
     let localJob = null;
 
     const pump = async () => {

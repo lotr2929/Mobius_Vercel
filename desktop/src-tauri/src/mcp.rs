@@ -32,6 +32,9 @@ pub struct ServerCfg {
     // Only these tools are offered or callable. Empty = none.
     #[serde(default)]
     pub allow_tools: Vec<String>,
+    // Tools that change things. Each call shows a box on screen and runs only if Boon clicks Allow.
+    #[serde(default)]
+    pub confirm_tools: Vec<String>,
     #[serde(default = "yes")]
     pub enabled: bool,
 }
@@ -159,6 +162,32 @@ fn text_of(result: &Value) -> (String, bool) {
     (s, is_err)
 }
 
+// Shows the exact action on screen and waits for Allow / Deny. No answer in two minutes counts as Deny.
+async fn confirm(app: &tauri::AppHandle, server: &str, tool: &str, args: &Value) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let mut shown = serde_json::to_string_pretty(args).unwrap_or_default();
+    if shown.chars().count() > 1200 {
+        shown = shown.chars().take(1200).collect::<String>() + "\n...";
+    }
+    let msg = format!(
+        "The assistant wants to change something on this computer.\n\nTool: {server} / {tool}\n\n{shown}\n\nAllow it?"
+    );
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(msg)
+        .title("Mobius AI - please confirm")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Allow".into(), "Deny".into()))
+        .show(move |ok| {
+            let _ = tx.send(ok);
+        });
+    match timeout(Duration::from_secs(120), rx).await {
+        Ok(Ok(true)) => Ok(()),
+        Ok(_) => Err("Boon declined this action. Nothing was changed.".into()),
+        Err(_) => Err("No answer to the confirmation in time. Nothing was changed.".into()),
+    }
+}
+
 impl Mcp {
     pub fn new(cfg: Config, config_path: PathBuf) -> Self {
         let slots = cfg.servers.keys().map(|k| (k.clone(), Arc::new(Mutex::new(None)))).collect();
@@ -212,11 +241,14 @@ impl Mcp {
         out
     }
 
-    pub async fn call(&self, full: &str, args: Value) -> Result<String, String> {
+    pub async fn call(&self, app: &tauri::AppHandle, full: &str, args: Value) -> Result<String, String> {
         let (server, tool) = full.split_once("__").ok_or("unknown tool")?;
         let cfg = self.cfg.servers.get(server).ok_or("unknown tool server")?;
         if !cfg.enabled || !cfg.allow_tools.iter().any(|a| a == tool) {
             return Err(format!("the tool '{tool}' is not allowed"));
+        }
+        if cfg.confirm_tools.iter().any(|a| a == tool) {
+            confirm(app, server, tool, &args).await?;
         }
         let slot = self.slots.get(server).ok_or("unknown tool server")?;
         let mut guard = slot.lock().await;
