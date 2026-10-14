@@ -33,6 +33,7 @@
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.6;overflow:hidden;}
 #app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:var(--max-w);margin:0 auto;position:relative;}
+html.vh-js #app{height:var(--app-h);} /* set by viewport.js: the visible height, measured again every time the page comes back */
 
 /* ── Header ── */
 #header{display:flex;align-items:center;gap:8px;padding:6px 12px 4px;background:var(--bg);flex-shrink:0;border-bottom:1px solid var(--border);}
@@ -260,6 +261,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
 <!-- Hidden inputs -->
 <input type="file" id="imgInput" accept="image/*" multiple style="display:none" onchange="handleImgFiles(this.files)">
 
+<script src="/viewport.js"></script>
 <script src="/vendor/marked.min.js"></script>
 <script src="/scripture.js"></script>
 <script src="/render.js"></script>
@@ -635,6 +637,7 @@ async function getClientInfo() {
     screen: s.width + 'x' + s.height,
     dpr: window.devicePixelRatio,
     viewport: innerWidth + 'x' + innerHeight,
+    viewportLog: (window.__vp || []).slice(-6),
     cores: n.hardwareConcurrency,
     memoryGB: n.deviceMemory,
     touch: n.maxTouchPoints,

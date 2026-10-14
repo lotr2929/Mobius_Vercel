@@ -157,3 +157,12 @@ test('laptop tools: the page says so, and the server then leaves a question abou
   assert.match(chat, /laptopTools = false \}\) \{/);
   assert.match(chat, /!memoryAction && !laptopTools && plan\.drive/);
 });
+
+test('viewport: the chat page re-measures its height each time it comes back, so the message box never slips under the navigation bar', () => {
+  const page = read('../frontend/index.html'), js = read('../frontend/viewport.js');
+  assert.match(page, /<script src="\/viewport\.js"><\/script>/);
+  assert.match(page, /html\.vh-js #app\{height:var\(--app-h\);\}/);
+  assert.match(page, /height:100vh;height:100dvh;/, 'browsers without the script keep the old height rule');
+  for (const ev of ["'pageshow'", "'visibilitychange'", "'focus'", "'orientationchange'", "'resize'"]) assert.ok(js.includes(ev), ev + ' is watched');
+  assert.match(js, /setProperty\('--app-h'/);
+});
