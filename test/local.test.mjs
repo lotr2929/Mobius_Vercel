@@ -140,7 +140,7 @@ test('tools (desktop app only): the model asks, the app runs the read-only tool,
     const seen = [];
     const text = await L.stream({ model: 'm', system: 'SYS', messages: [{ role: 'user', content: 'what is in my Personal Details folder?' }] }, { onTool: t => seen.push(t.name) });
     assert.equal(text, 'It holds a CV folder.'); assert.deepEqual(seen, ['files__list_directory']);
-    assert.equal(sent[0].tools[0].function.name, 'files__list_directory'); assert.match(sent[0].messages[0].content, /ONLY folders you can reach/); assert.match(sent[0].messages[0].content, /_personal\\_mobius/); assert.match(sent[0].messages[0].content, /Atlas/); assert.match(sent[0].messages[0].content, /click Allow/);
+    assert.equal(sent[0].tools[0].function.name, 'files__list_directory'); assert.match(sent[0].messages[0].content, /ONLY folders you can reach/); assert.match(sent[0].messages[0].content, /C:\/_personal\/_mobius/); assert.match(sent[0].messages[0].content, /forward slashes/); assert.match(sent[0].messages[0].content, /Atlas/); assert.match(sent[0].messages[0].content, /click Allow/);
     const second = sent[1].messages; assert.equal(second[second.length - 1].role, 'tool'); assert.equal(second[second.length - 1].content, '[DIR] CV');
     assert.deepEqual(calls.find(c => c[0] === 'mcp_call')[1], { name: 'files__list_directory', arguments: { path: 'E:\\Personal Details' } });
     // in a browser (no desktop app) no tools are offered and the prompt is untouched
