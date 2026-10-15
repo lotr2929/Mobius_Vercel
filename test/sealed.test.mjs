@@ -72,3 +72,9 @@ test('the Drive backup (in the shared Atlas folder) never includes the sealed ch
   assert.match(b, /await backupSealedLocally\(\)/);
   assert.ok(!/DRIVE_DIR[^\n]*sealed|sealed[^\n]*DRIVE_DIR/i.test(b.replace(/\/\/[^\n]*/g, '')), 'no code path writes the sealed chats to the Drive folder');
 });
+
+test('the Drive backup folder is outside Atlas, which other AIs read', () => {
+  const line = read('../backend/backup-cli.mjs').split('\n').find(l => l.startsWith('const DRIVE_DIR ='));
+  assert.match(line, /J:\\\\My Drive\\\\_mobiusstore/);
+  assert.ok(!/Atlas/.test(line.split('//')[0]), 'the backup folder is not inside Atlas');
+});
