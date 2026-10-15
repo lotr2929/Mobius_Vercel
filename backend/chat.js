@@ -37,6 +37,7 @@ import { runBible } from './bible.js';
 import { isPrayerRequest, prayerScripture } from './prayer.js';
 import { findReadings } from './readings.js';
 import { describeContext, selfReport } from './self.js';
+import { turnsForLocal } from './laptop.js';
 import { tavilySearch, tavilySearchMany, tavilyExtract, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
 import { clip, safe } from './util.js';
@@ -424,7 +425,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     if (localTurn) {
       // The page writes this answer. What it needs is the system prompt and the turns, cut to the local model's window the same way the
       // cascade cuts them for a cloud model. Nothing more happens here: the page files the exchange when the answer is complete.
-      const turns = fitForRoom(messages, system, LOCAL_MODEL.maxChars, windowFor);
+      const turns = turnsForLocal(fitForRoom(messages, system, LOCAL_MODEL.maxChars, windowFor), userQuery, laptopTools); // (after fitting: the fit rebuilds the turns from scratch)
       trace.set({ local: { model: LOCAL_MODEL.ollama, system_chars: system.length, turns: turns.map(m => ({ role: m.role, chars: m.content.length })) } }).mark('local-handoff');
       yield { local: { model: LOCAL_MODEL.ollama, name: LOCAL_MODEL.name, numCtx: LOCAL_MODEL.numCtx, system, messages: turns, save: !privateMode && !dryRun } };
       return;

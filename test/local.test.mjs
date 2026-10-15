@@ -106,7 +106,7 @@ test('wiring: the server hands the prompt over and files nothing; the page write
   assert.match(chat, /const localTurn = local && !forceProvider && !sendImages\.length && !bibleOnly && !\(directAnswer && !bibleShown\)/, 'a named cloud model, a picture or a lookup done by code is not answered locally');
   assert.match(chat, /const reviewing = !localTurn && shouldReview/, 'a local answer is not sent to a cloud reviewer');
   const branch = chat.slice(chat.indexOf('if (localTurn) {'), chat.indexOf('if (!bibleOnly && !(directAnswer && !bibleShown)) for await'));
-  assert.match(branch, /fitForRoom\(messages, system, LOCAL_MODEL\.maxChars, windowFor\)/);
+  assert.match(branch, /turnsForLocal\(fitForRoom\(messages, system, LOCAL_MODEL\.maxChars, windowFor\), userQuery, laptopTools\)/);
   assert.match(branch, /save: !privateMode && !dryRun/, 'a Private: message is not filed');
   assert.match(branch, /return;/, 'and nothing else runs for the turn');
   assert.doesNotMatch(branch, /saveExchange|runCascade/, 'the server neither saves nor calls a cloud model in this branch');

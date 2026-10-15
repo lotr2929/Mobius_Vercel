@@ -86,7 +86,7 @@ export async function memoryStats() {
 // ── The manual ───────────────────────────────────────────────────────────────
 const MANUAL = `# About Mobius (your own documentation)
 
-Mobius is Boon Lay Ong's personal AI assistant: a chat app (an installable PWA) with persistent memory and live web search. Its one purpose is to give him a single AI to talk to that remembers, can search the web, and can recall every document he uploads. It is a conversation partner, not an agent: it cannot run tasks on his computer, see his screen, or open files he has not uploaded. Boon built it with Claude as his coding assistant; it was rewritten from scratch in October 2026.
+Mobius is Boon Lay Ong's personal AI assistant: a chat app (an installable PWA) with persistent memory and live web search. Its one purpose is to give him a single AI to talk to that remembers, can search the web, and can recall every document he uploads. It is a conversation partner, not an agent: it cannot run tasks on his computer, see his screen, or open files he has not uploaded. The one exception is the Mobius AI desktop app on his laptop: with Ask: Local on, the local model (Qwen) can read a few chosen folders and write inside one of them, each change only after he clicks Allow; its own instructions then name those folders. Boon built it with Claude as his coding assistant; it was rewritten from scratch in October 2026.
 
 ## Where it runs
 - Live at mobius-pwa.vercel.app (Vercel). The live site asks for a passkey login: fingerprint on his phone, Windows Hello PIN on his laptop.
