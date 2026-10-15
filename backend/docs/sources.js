@@ -9,7 +9,8 @@ import { DRIVE_CREDENTIALS } from '../config.js';
 import { client, extractText, SUPPORTED_MIME, driveConfigured } from './drive.js';
 import { saveDoc, deleteDoc, LIBRARY_CHUNK } from './store.js';
 import { storageReport } from '../pcm/housekeeping.js';
-import { userDrive, noteFailure } from '../google.js';
+import { userDrive, noteFailure, listFolders } from '../google.js';
+import { getState } from '../pcm/memory.js';
 
 const T = 'mobius_sources';
 const FOLDER = 'application/vnd.google-apps.folder';
@@ -241,6 +242,7 @@ export async function syncSources({ budgetMs = Infinity, drive: injected = null 
   if (!supabase) return { skipped: 'No database connection' };
   const t0 = Date.now();
   const left = () => budgetMs - (Date.now() - t0);
+  await ensureConfiguredLinks().catch(e => console.warn('[sources] configured links:', e.message)); // folders chosen in Atlas are linked before the sync reads them
   const { data: sources } = await supabase.from(T).select('*').eq('provider', 'gdrive').in('status', ['ok', 'pending', 'paused', 'error']).order('id');
   const ways = injected ? null : await openers();
   if (!injected && !ways.length) return { skipped: 'Google Drive is not connected' };
@@ -256,4 +258,34 @@ export async function syncSources({ budgetMs = Infinity, drive: injected = null 
     }
   }
   return out;
+}
+
+// Which folders of Atlas are linked automatically by the daily sync, and how many files of each are read (newest first). The list lives in the
+// database (mobius_state 'atlas_links', same shape as this default) so it can be changed without a new release. Large and personal folders are
+// left out on purpose: the database is the free plan (500 MB; indexing stops at 85%) and Atlas is 3 GB. "Personal Details" is not linked.
+export const DEFAULT_ATLAS_LINKS = {
+  root: 'Atlas',
+  folders: [
+    { name: '_atlas', max: 100 }, { name: '_claude', max: 100 }, { name: '_chatgpt', max: 100 }, { name: '_gemini', max: 100 },
+    { name: 'Future Pathways', max: 100 }, { name: 'Green Plot Ratio', max: 100 }, { name: 'Urban Ecological Audit', max: 100 },
+    { name: 'PhD', max: 40 },
+  ],
+};
+
+export async function ensureConfiguredLinks() {
+  if (!supabase) return [];
+  const cfg = (await getState('atlas_links')) || DEFAULT_ATLAS_LINKS;
+  const top = (await listFolders('root')).find(f => f.name === cfg.root);
+  if (!top) return [];
+  const inside = await listFolders(top.id);
+  const have = new Set((await listSources()).map(s => s.label));
+  const added = [];
+  for (const { name, max } of cfg.folders || []) {
+    if (have.has(name)) continue;
+    const f = inside.find(x => x.name === name);
+    if (!f) continue;
+    try { await addSource({ url: f.id, label: name, maxFiles: max }); added.push(name); }
+    catch (e) { console.warn(`[sources] could not link ${name}: ${e.message}`); }
+  }
+  return added;
 }

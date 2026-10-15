@@ -19,6 +19,7 @@ import { saveSealedExchange, getRecentWithSealed } from './pcm/sealed.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive, getActive, getState } from './pcm/memory.js';
 import { guardQueries, parseNames, searchFooter } from './privacy.js';
+import { asksCoverage, coverageText } from './docs/coverage.js';
 import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
 import { learnFromExchange, learnedNotice } from './pcm/learn.js';
 import { PROFILE_SEND_MAX } from './pcm/profile.js';
@@ -316,6 +317,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     // this text cut out. So what this very message needs (the drive result, the file, the earlier chat) comes first and
     // the standing background (notes, week, documentation) after it.
     const selfPart = { title: 'About Mobius and this device (your own documentation)', rank: plan.aboutSelf ? 1 : 3, cap: 8000, text: selfText };
+    const coverage = asksCoverage(userQuery) ? await safe(() => coverageText(), '') : ''; // "have you read everything in Atlas?" is answered from exact figures
     const parts = [
       // First, so it is in the part of the block that every model keeps (a small model has the middle cut out)
       { title: 'Your own positions on the question Boon is raising. They are yours: state them, give your reasons, and keep them from one conversation to the next. They move only for a new argument or new evidence, and when one moves, say what moved it. Points listed as already argued are not to be rerun: refer to them in a line ("we have been through that") and go on to what is new. Boon pressing, repeating himself or sounding sure is not an argument', rank: 1, cap: 3400, text: stance },
@@ -341,6 +343,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: `Boon's theology library — the shelf (${library?.labels?.join(', ') || ''}): the books he keeps, each with what it is and argues. This is a theological conversation, so draw on these books where they bear on the question, naming the book for every point you take from it; keep what an author says apart from your own view; test an author's argument instead of just repeating it; if the shelf does not cover the question, say so and answer from your own knowledge, marked as such`, rank: 2, cap: 4500, text: library?.shelf || '' },
       { title: 'Passages from the books on his shelf that match the question (exact words of the books, each a paragraph or two, labelled by book). They are fragments: do not claim an author never says something just because it is not among them', rank: 2, cap: 11000, text: library?.passages || '' },
       { title: `Digests of the documents ${overview?.label ? `in Boon's folder "${overview.label}"` : 'in Boon\'s folders'} — each written in advance by a model from the document's whole text. Answer the question about the collection from these; for detail from one document, name it and say that its passages can be searched. A digest is a summary written by a model and may leave things out or compress them: do not quote from it, and say so if a question needs the exact words`, rank: 2, cap: 14000, text: overview?.text || '' },
+      { title: 'What Mobius has actually read from Boon\'s linked Drive folders (exact figures: answer from these, say plainly what has NOT been read, and never claim to have read a folder that is listed as not linked)', rank: 1, cap: 3000, text: coverage },
       { title: 'Note', rank: 1, cap: 600, text: noDocs ? NO_DOCS_NOTE : (overview && !overview.n ? 'Boon asked about a whole folder, but no document in it has been digested yet (digests are written gradually in the background after files are read). Say so plainly, and answer only from the searched passages, making clear they are not the whole.' : '') },
       { title: 'Note about images', rank: 1, cap: 600, text: noImage ? NO_IMAGE_NOTE : '' },
       { title: 'Files found just now in Boon\'s linked Drive folders for this message (opened live, not stored in Mobius; refer to them by file name)', rank: 3, cap: 5300, text: live?.text || '' },
