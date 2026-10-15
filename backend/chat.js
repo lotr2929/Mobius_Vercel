@@ -16,7 +16,8 @@ import { restoreAudit } from './ai/audit.js';
 import { analyse, isTrivial } from './pcm/router.js';
 import { getMessages, saveExchange, settled } from './pcm/messages.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
-import { listActive, getActive } from './pcm/memory.js';
+import { listActive, getActive, getState } from './pcm/memory.js';
+import { guardQueries, parseNames, searchFooter } from './privacy.js';
 import { listNotes, parseCommand, runCommand, notesForPrompt } from './pcm/notes.js';
 import { learnFromExchange, learnedNotice } from './pcm/learn.js';
 import { PROFILE_SEND_MAX } from './pcm/profile.js';
@@ -198,7 +199,12 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     const raiseLow = !greet && !privateMode && !dryRun && !quietTurn && atChatStart && shouldRaisePattern({ stats: moodNums, rows: moodRows, tz: moodTz, now: moodNow });
     const moodContext = moodAsk || moodCue || answeringCheckin ? moodText(moodNums, moodRows, { detail: moodReportAsk, tz: moodTz, now: moodNow }) : '';
     trace.set({ mood: { asked: moodAsk, report: moodReportAsk, cue: moodCue, checkin: answeringCheckin, greeted: !!greet, raised: raiseLow, reports14: moodNums.n14 } });
-    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !prayerRequest && !privateMode && !moodAsk; // none for greetings, questions about Mobius, answers already in hand, prayers, or private messages
+    // A private message may search the web, but only with short generic queries that carry nothing personal (privacy.js): never the whole
+    // question, never his notes, never links he pasted. If the guard cannot read his list of names, it does not search at all.
+    const privateGuard = privateMode && plan.needsWeb
+      ? guardQueries(plan.webQueries, { names: parseNames(await safe(() => getState('private_names'), null)) })
+      : { allowed: [], blocked: [] };
+    const useWeb = !!KEYS.tavily && plan.needsWeb && !isTrivial(plan.standalone) && !plan.aboutSelf && !direct && !prayerRequest && !moodAsk && (!privateMode || privateGuard.allowed.length > 0); // none for greetings, questions about Mobius, answers already in hand, prayers, or private messages
     // Pages whose addresses he typed ("can you open this?") are opened and read (Tavily extract); Drive links go through the Drive tools instead.
     const linkedUrls = privateMode || !KEYS.tavily || memoryAction ? [] : [...new Set((userQuery.match(/https?:\/\/[^\s<>()\[\]"'“”]+/gi) || []).map(u => u.replace(/[.,;:!?]+$/, '')).filter(u => !/(?:drive|docs)\.google\.com/i.test(u)))].slice(0, 3);
     // Searches are the planner's targeted webQueries (up to three, in parallel); the whole question is the fallback.
@@ -206,7 +212,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       ? (async () => {
           const [pages, found] = await Promise.all([
             linkedUrls.length ? tavilyExtract(linkedUrls) : null,
-            useWeb ? (plan.webQueries?.length ? tavilySearchMany(plan.webQueries, { recent: !!plan.webRecent }) : tavilySearch(plan.standalone)) : null,
+            useWeb ? (privateMode ? tavilySearchMany(privateGuard.allowed, { recent: !!plan.webRecent }) : plan.webQueries?.length ? tavilySearchMany(plan.webQueries, { recent: !!plan.webRecent }) : tavilySearch(plan.standalone)) : null,
           ]);
           return [pages, found].filter(Boolean).join('\n\n') || null;
         })()
@@ -348,6 +354,10 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       { title: 'Background only — the past week (a digest, then dated notes of earlier exchanges that are already dealt with; none of it is part of the current conversation and none of it is waiting for an answer)', rank: 4, cap: 3600,
         text: [week.digest, week.gap && `Dated notes since that digest:\n${week.gap}`].filter(Boolean).join('\n\n') },
       { title: 'Relevant documents', rank: 5, cap: 3500, text: fmtChunks(chunks) },
+      ...(privateMode && plan.needsWeb && !useWeb ? [{ title: 'No web search was made for this private message', rank: 1, cap: 800,
+        text: `Boon's question was NOT searched on the web: ${privateGuard.blocked.length ? 'a search would have needed ' + [...new Set(privateGuard.blocked.map(b => b.why))].join('; ') : 'no generic, impersonal search could be made from it'}, and a private message never sends personal details out. Answer from what you know, say plainly that you did not search and that anything recent may be out of date, and tell him that if he rewords the question without personal details, you can search.` }] : []),
+      ...(privateMode && useWeb && !web ? [{ title: 'The private web search returned nothing', rank: 1, cap: 500,
+        text: 'A web search was made but nothing came back (the service may be down or this month\'s allowance used up). Say so plainly and answer from what you know, noting that anything recent may be out of date.' }] : []),
       { title: `Web search results (a live internet search and any pages Boon linked, made just now, ${ctx.now || 'today'}, for this message. These are CURRENT and override anything you remember, which stops in 2024 or earlier: report what they say, with the date of the source where given, and name the source. End your answer with a brief closing line of short markdown links to the pages you used (Sources: [name](address)), taking each address only from this block. If they do not settle the question, say what was searched and what is missing; never claim you cannot search the web, and never say the search found nothing when this block is present)`, rank: 1, cap: 6500, text: web },
     ];
     const partsAll = plan.aboutSelf ? [selfPart, ...parts] : [...parts, selfPart];
@@ -494,6 +504,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       if (images.length && saved?.userId) await saveImages(images, saved.userId, full).catch(e => console.warn('[chat] pictures not kept:', e.message));
     }
 
+    if (privateMode && useWeb && privateGuard.allowed.length) yield { token: searchFooter(privateGuard.allowed) }; // he sees exactly what was sent out
     if (useWeb) {
       const usage = await tavilyUsage();
       if (usage) yield { event: `tavily:${usage.remaining}/${usage.limit}` };
