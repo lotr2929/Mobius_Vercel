@@ -20,3 +20,10 @@ test('the manual no longer says Mobius can never touch his computer', async () =
   const src = (await import('node:fs')).readFileSync(new URL('../backend/self.js', import.meta.url), 'utf8');
   assert.match(src, /The one exception is the Mobius AI desktop app/);
 });
+test('the header shows whether Local or Cloud is on, and his own message keeps the "Ask: Local" he typed', async () => {
+  const html = (await import('node:fs')).readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="mode-badge"/);
+  assert.match(html, /function showMode\(\)/);
+  assert.match(html, /let userContent = switchLabel \+ q;/);
+  assert.match(html, /switchLabel = 'Ask: '/);
+});

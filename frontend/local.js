@@ -36,10 +36,10 @@
   // there is no such app, so toolList() is empty and everything below behaves exactly as before.
   const MAX_ROUNDS = 6;           // tool calls the model may chain before it must answer
   const TOOL_RESULT_CHARS = 12000; // of one tool result handed to a 7B model with a small window
-  const TOOL_NOTE = '\n\nYou can use tools on Boon\'s laptop. The ONLY folders you can reach are: C:/_personal/_mobiustest (read), C:/_personal/_mobius (read and write) and J:/My Drive/Atlas (read only, including everything inside it). ' +
-'You can read and list files in all three. You can create, edit and move files ONLY inside C:/_personal/_mobius, and each change waits for Boon to click Allow. ' +
-'Any other path, including the rest of the J: drive and C:/_myProjects, is refused, so never offer or try one: if Boon asks for a file anywhere else, say it is outside your folders and offer C:/_personal/_mobius instead. ' +
-'Always write paths with forward slashes, as in C:/_personal/_mobius/hello.md, even when Boon types backslashes. Never ask Boon whether to proceed, and never suggest other folders: call the tool at once, because his click on Allow is the confirmation. Use tools only when Boon asks about files or folders on his computer. Use a tool, read what it returns, then answer from it. Say plainly if a tool returns nothing or an error. Never invent file names or contents.';
+  const TOOL_NOTE = '\n\nYou can use tools on Boon\'s laptop. The ONLY folders you can reach are: C:/_personal/_mobiustest (read), C:/_personal/_mobiusfiles (read and write) and J:/My Drive/Atlas (read only, including everything inside it). ' +
+'You can read and list files in all three. You can create, edit and move files ONLY inside C:/_personal/_mobiusfiles, and each change waits for Boon to click Allow. ' +
+'Any other path, including the rest of the J: drive and C:/_myProjects, is refused, so never offer or try one: if Boon asks for a file anywhere else, say it is outside your folders and offer C:/_personal/_mobiusfiles instead. ' +
+'Always write paths with forward slashes, as in C:/_personal/_mobiusfiles/hello.md, even when Boon types backslashes. Never ask Boon whether to proceed, and never suggest other folders: call the tool at once, because his click on Allow is the confirmation. Use tools only when Boon asks about files or folders on his computer. Use a tool, read what it returns, then answer from it. Say plainly if a tool returns nothing or an error. Never invent file names or contents.';
 
   function shellCore() { const t = globalThis.__TAURI__; return t && t.core && typeof t.core.invoke === 'function' ? t.core : null; }
 

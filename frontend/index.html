@@ -42,6 +42,8 @@ html.vh-js #app{height:var(--app-h);} /* set by viewport.js: the visible height,
 #header-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
 #model-badge{font-size:11px;color:var(--text-dim);}
 #status-row{display:flex;align-items:center;gap:5px;}
+#mode-badge{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:9px;border:1px solid currentColor;opacity:.65;cursor:default;}
+#mode-badge.local{background:#2e5233;border-color:#2e5233;color:#fff;opacity:1;}
 #status-dot{width:7px;height:7px;border-radius:50%;background:var(--green-light);flex-shrink:0;transition:background .3s;}
 #status-dot.offline{background:var(--border2);}
 #status-dot.searching{background:#c8a84b;}
@@ -180,6 +182,7 @@ textarea#qinput::placeholder{color:var(--text-dim);}
   </a>
   <div id="header-right">
     <div id="status-row">
+      <span id="mode-badge"></span>
       <span id="status-dot" class="offline"></span>
       <span id="model-badge">connecting…</span>
     </div>
@@ -661,6 +664,15 @@ async function getClientInfo() {
 }
 
 // ── Send ───────────────────────────────────────────────────────────────────
+// The Local / Cloud switch (Ask: Local, Ask: Cloud) stays on until changed, so the header always says which one is on.
+function showMode() {
+  const b = document.getElementById('mode-badge'); if (!b) return;
+  const local = !!(window.MobiusLocal && MobiusLocal.getMode() === 'local');
+  b.textContent = local ? 'Local' : 'Cloud';
+  b.className = local ? 'local' : '';
+  b.title = local ? 'Qwen on this laptop is answering. Type Ask: Cloud to go back to the cloud models.' : 'The cloud models are answering. Type Ask: Local to use Qwen on this laptop.';
+}
+showMode(); document.addEventListener('DOMContentLoaded', showMode);
 async function handleSend() {
   const input = document.getElementById('qinput');
   const typed = input.value.trim();
@@ -673,10 +685,11 @@ async function handleSend() {
   // "Ask: Local" / "Ask: Cloud" (frontend/local.js) choose who writes the answers from now on, on this device. With nothing after it,
   // that is all the message does; with a question after it, the question is sent in the new mode. Local is only taken on if Ollama answers.
   let localNote = '';
+  let switchLabel = '';
   const sw = MobiusLocal.parseSwitch(q);
   if (sw) {
     const reachable = sw.mode === 'cloud' || await MobiusLocal.ping();
-    MobiusLocal.setMode(reachable ? sw.mode : 'cloud');
+    MobiusLocal.setMode(reachable ? sw.mode : 'cloud'); showMode();
     const note = sw.mode === 'cloud' ? 'Back on **Cloud**: the cloud models answer again until you type **Ask: Local**.'
       : reachable ? 'On **Local**: Qwen on this laptop writes the answers until you type **Ask: Cloud**. If it cannot be reached, the cloud answers instead and says so.'
       : '**Local** cannot be reached from this device (is Ollama running on the laptop, and has the browser been allowed to reach this computer?), so I am staying on **Cloud**.';
@@ -690,6 +703,7 @@ async function handleSend() {
     }
     if (!reachable) localNote = 'Local could not be reached';
     q = sw.rest;
+    switchLabel = 'Ask: ' + (sw.mode === 'local' ? 'Local' : 'Cloud') + ' ';
   }
   const viewingId = histIdx !== -1 ? (history[histIdx]?.id ?? null) : null; // the exchange on screen, if he has browsed back to one
   histIdx = -1;
@@ -703,9 +717,9 @@ async function handleSend() {
   feed.innerHTML = '';
 
   // User bubble
-  let userContent = q;
+  let userContent = switchLabel + q;
   if (imgs.length) {
-    userContent = '[image attached] ' + q;
+    userContent = '[image attached] ' + switchLabel + q;
   }
   feed.appendChild(makeBubble('user', userContent, { docs: docs.map(d=>d.filename) }));
 
