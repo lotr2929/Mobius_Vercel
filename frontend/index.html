@@ -685,6 +685,7 @@ async function handleSend() {
   // "Ask: Local" / "Ask: Cloud" (frontend/local.js) choose who writes the answers from now on, on this device. With nothing after it,
   // that is all the message does; with a question after it, the question is sent in the new mode. Local is only taken on if Ollama answers.
   let localNote = '';
+  let switchLabel = '';
   const sw = MobiusLocal.parseSwitch(q);
   if (sw) {
     const reachable = sw.mode === 'cloud' || await MobiusLocal.ping();
@@ -702,6 +703,7 @@ async function handleSend() {
     }
     if (!reachable) localNote = 'Local could not be reached';
     q = sw.rest;
+    switchLabel = 'Ask: ' + (sw.mode === 'local' ? 'Local' : 'Cloud') + ' ';
   }
   const viewingId = histIdx !== -1 ? (history[histIdx]?.id ?? null) : null; // the exchange on screen, if he has browsed back to one
   histIdx = -1;
@@ -715,9 +717,9 @@ async function handleSend() {
   feed.innerHTML = '';
 
   // User bubble
-  let userContent = q;
+  let userContent = switchLabel + q;
   if (imgs.length) {
-    userContent = '[image attached] ' + q;
+    userContent = '[image attached] ' + switchLabel + q;
   }
   feed.appendChild(makeBubble('user', userContent, { docs: docs.map(d=>d.filename) }));
 
