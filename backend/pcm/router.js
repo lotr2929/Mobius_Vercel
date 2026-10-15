@@ -2,6 +2,7 @@
 // One cheap model call decides what to look up; a rule-based fallback keeps
 // working if every model is unavailable.
 import { askModel } from '../ai/cascade.js';
+import { isContentQuestion } from './contentq.js';
 import { parseJson, nowIn } from '../util.js';
 import { extractRefs, refStrings } from '../bible.js';
 
@@ -218,9 +219,12 @@ Use null for drive for everything else, including general questions that merely 
 
   try {
     const raw = await askModel(prompt, { role: 'quick', timeoutMs: 10000, privateOnly: !!opts.privateOnly });
-    return accept(parseJson(raw), query, projects, fallback, hasState, recent, hasFile);
+    return fixContent(accept(parseJson(raw), query, projects, fallback, hasState, recent, hasFile), query);
   } catch (e) {
     console.warn('[pcm] router fell back to rules:', e.message);
-    return fallback;
+    return fixContent(fallback, query);
   }
 }
+
+// A question about what one of his own documents says is answered from its stored text: not a search of Google Drive, not the web.
+const fixContent = (plan, query) => isContentQuestion(query) ? { ...plan, drive: null, needsWeb: false, needsArchive: true } : plan;

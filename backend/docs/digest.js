@@ -242,11 +242,30 @@ export async function digestOutline(filename, query, { budget = 18000, totalChar
 
 // Passages of one file that contain the question's words (full-text search, so it works before any embedding exists).
 // → text, or '' when nothing matches
-export async function passagesFrom(filename, query, { max = 6 } = {}) {
+// Ranks passages by how well they match the question. A word found in few of the candidates ("turf") counts for more than a word found
+// in most ("leaf", "area"), so the passage that actually holds the answer comes first. (The database's own search returned its first matches in
+// file order, and the passage that held the answer was often not among them.)
+export function rankPassages(chunks, rawTerms, max = 6) {
+  const terms = rawTerms.map(t => t.length > 6 ? t.slice(0, 6) : t); // word beginnings, so "collaborated" finds "collaboration"
+  const lower = chunks.map(c => String(c).toLowerCase());
+  const weight = terms.map(t => { const df = lower.filter(c => c.includes(t)).length; return df ? 1 / df : 0; });
+  return chunks
+    .map((c, i) => ({ c, score: terms.reduce((s, t, k) => s + (lower[i].includes(t) ? weight[k] : 0), 0), i }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .slice(0, max)
+    .map(x => x.c);
+}
+
+// Passages of one file that contain the question's words (full-text search, so it works before any embedding exists), best first.
+// -> text, or '' when nothing matches
+export async function passagesFrom(filename, query, { max = 10 } = {}) {
   if (!supabase) return '';
-  const terms = termsOf(query).slice(0, 8);
+  // the words of the document's own title are in nearly every passage of it, so they say nothing about which passage is wanted (and a question that quotes the title would use up its search words on them)
+  const own = new Set(termsOf(titleOf(filename)));
+  const terms = termsOf(query).filter(t => !own.has(t)).slice(0, 16);
   if (!terms.length) return '';
   const { data } = await supabase.from('mobius_docs').select('chunk').eq('filename', filename)
-    .textSearch('fts', terms.join(' or '), { type: 'websearch', config: 'english' }).limit(max);
-  return (data || []).map(r => r.chunk.replace(/\s+/g, ' ').trim()).join('\n…\n');
+    .textSearch('fts', terms.join(' or '), { type: 'websearch', config: 'english' }).limit(150);
+  return rankPassages((data || []).map(r => r.chunk.replace(/\s+/g, ' ').trim()), terms, max).join('\n\u2026\n');
 }
