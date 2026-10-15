@@ -15,6 +15,7 @@ import { LOCAL_MODEL } from './ai/models.js';
 import { restoreAudit } from './ai/audit.js';
 import { analyse, isTrivial } from './pcm/router.js';
 import { getMessages, saveExchange, settled } from './pcm/messages.js';
+import { saveSealedExchange, getRecentWithSealed } from './pcm/sealed.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive, getActive, getState } from './pcm/memory.js';
 import { guardQueries, parseNames, searchFooter } from './privacy.js';
@@ -107,7 +108,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
 
   try {
     // 1–2. verbatim window (complete exchanges only), then the plan
-    const raw = await getMessages(RECENT_MESSAGES + 4);
+    const raw = privateMode ? await getRecentWithSealed(RECENT_MESSAGES + 4) : await getMessages(RECENT_MESSAGES + 4); // a private turn also sees the sealed exchanges, so it can carry on
     let recent = settled(raw).slice(-RECENT_MESSAGES);
     // Boon has navigated back to an earlier exchange and is writing from there: that chat, up to the exchange on screen, becomes
     // the conversation this message continues (instead of the newest messages in the log, which may be about something else).
@@ -437,7 +438,7 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
       // cascade cuts them for a cloud model. Nothing more happens here: the page files the exchange when the answer is complete.
       const turns = turnsForLocal(fitForRoom(messages, system, LOCAL_MODEL.maxChars, windowFor), userQuery, laptopTools); // (after fitting: the fit rebuilds the turns from scratch)
       trace.set({ local: { model: LOCAL_MODEL.ollama, system_chars: system.length, turns: turns.map(m => ({ role: m.role, chars: m.content.length })) } }).mark('local-handoff');
-      yield { local: { model: LOCAL_MODEL.ollama, name: LOCAL_MODEL.name, numCtx: LOCAL_MODEL.numCtx, system, messages: turns, save: !privateMode && !dryRun } };
+      yield { local: { model: LOCAL_MODEL.ollama, name: LOCAL_MODEL.name, numCtx: LOCAL_MODEL.numCtx, system, messages: turns, save: !dryRun, sealed: privateMode } };
       return;
     }
     if (!bibleOnly && !(directAnswer && !bibleShown)) for await (const chunk of runCascade(messages, { signal, system, only: forceProvider, images: sendImages, privateOnly: privateMode || moodAsk, rebuild: windowFor })) {
@@ -491,6 +492,8 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
     if (notice) { full += notice; yield { token: notice }; }
     trace.set({ learned, windows: Object.keys(windows).length ? windows : null, model: usedModel, answer_chars: full.length, answer_head: privateMode || moodAsk ? '[private]' : full.slice(0, 600) }).mark('answered');
 
+    // A private exchange is kept only in the sealed compartment (pcm/sealed.js), where no search, digest, mood or learning job can read it.
+    if (privateMode && !dryRun && !signal?.aborted && full.trim()) await safe(() => saveSealedExchange({ query: userQuery, answer: full, model: usedModel }), null);
     // 6. remember — only a finished answer to a question that is still wanted. A private message is not kept at all.
     if (!privateMode && !dryRun && !signal?.aborted && full.trim()) {
       const saved = await saveExchange({ query: images.length ? `[${images.length} image${images.length > 1 ? 's' : ''} attached] ${userQuery}` : userQuery, docs: attached.map(d => d.filename), answer: greet + full, model: usedModel });

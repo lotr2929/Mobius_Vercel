@@ -22,6 +22,7 @@ import { chatTurn } from './chat.js';
 import { geoFromHeaders, memoryStats } from './self.js';
 import { startTrace, saveTrace, recentTraces, getTrace } from './trace.js';
 import { getMessages, saveExchange } from './pcm/messages.js';
+import { saveSealedExchange, getHistoryWithSealed, latestStamp, stripPrivatePrefix } from './pcm/sealed.js';
 import { getActive, history, getState } from './pcm/memory.js';
 import { saveProfile, PROFILE_MAX } from './pcm/profile.js';
 import { listProjects, saveProject, removeProject, PROJECT_MAX } from './pcm/projects.js';
@@ -64,7 +65,7 @@ app.use(express.static(FRONTEND_DIR));
 // Status. `cascade` feeds the header, so it is kept short; `latest` lets other devices notice new messages.
 app.get('/api/status', async (req, res) => {
   const names = availableNames();
-  const latest = (await getMessages(1))[0]?.created_at || null;
+  const latest = await latestStamp();
   res.json({
     ok: true, startTime: START_TIME, supabase: !!supabase, updated: lastUpdated(), version: appVersion(), latest,
     cascade: names.length > 3 ? [...names.slice(0, 3), `+${names.length - 3} more`] : names,
@@ -73,7 +74,7 @@ app.get('/api/status', async (req, res) => {
 
 app.get('/api/history', async (req, res) => {
   try {
-    res.json({ messages: await getMessages(parseInt(req.query.limit) || 100) });
+    res.json({ messages: await getHistoryWithSealed(parseInt(req.query.limit) || 100) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -134,9 +135,13 @@ app.post('/api/chat', async (req, res) => {
 // An exchange answered on Boon's laptop (Ask: Local): his browser wrote the answer, so it comes back here to be filed exactly like any other
 // (saved as one question-and-answer pair; embeddings topped up in the background). Behind the same login as the rest of the API.
 app.post('/api/chat/local-save', async (req, res) => {
-  const { query, answer, docs } = req.body || {};
+  const { query, answer, docs, sealed } = req.body || {};
   if (typeof query !== 'string' || typeof answer !== 'string' || !query.trim() || !answer.trim()) return res.status(400).json({ error: 'query and answer are needed' });
   try {
+    if (sealed === true) { // a private exchange answered on the laptop: filed in the sealed compartment, never embedded or summarised
+      const kept = await saveSealedExchange({ query: stripPrivatePrefix(query).slice(0, 20000), answer: answer.slice(0, 60000), model: LOCAL_MODEL.name });
+      return res.json({ ok: !!kept });
+    }
     const saved = await saveExchange({
       query: query.slice(0, 20000),
       docs: (Array.isArray(docs) ? docs : []).filter(d => typeof d === 'string').slice(0, 20),

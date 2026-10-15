@@ -814,7 +814,7 @@ async function handleSend() {
     if (localJob) {
       const job = localJob; usedModel = job.name; weakModel = false;
       const file = () => job.save ? fetch('/api/chat/local-save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, answer: full, docs: docs.map(d => d.filename) }) }).catch(() => {}) : null;
+        body: JSON.stringify({ query: q, answer: full, docs: docs.map(d => d.filename), sealed: !!job.sealed }) }).catch(() => {}) : null;
       try {
         await MobiusLocal.stream(job, { onToken: t => { full += t; ansEl.innerHTML = md(full); scrollFeed(); }, onTool: t => { ansEl.innerHTML = md(full + (full ? '\n\n' : '') + '_Reading from this laptop: ' + String((t && t.name) || '').split('__').pop() + '..._'); scrollFeed(); } });
         await file();

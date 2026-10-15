@@ -107,7 +107,7 @@ test('wiring: the server hands the prompt over and files nothing; the page write
   assert.match(chat, /const reviewing = !localTurn && shouldReview/, 'a local answer is not sent to a cloud reviewer');
   const branch = chat.slice(chat.indexOf('if (localTurn) {'), chat.indexOf('if (!bibleOnly && !(directAnswer && !bibleShown)) for await'));
   assert.match(branch, /turnsForLocal\(fitForRoom\(messages, system, LOCAL_MODEL\.maxChars, windowFor\), userQuery, laptopTools\)/);
-  assert.match(branch, /save: !privateMode && !dryRun/, 'a Private: message is not filed');
+  assert.match(branch, /save: !dryRun, sealed: privateMode/, 'a Private: message is filed, but sealed (never in the ordinary log)');
   assert.match(branch, /return;/, 'and nothing else runs for the turn');
   assert.doesNotMatch(branch, /saveExchange|runCascade/, 'the server neither saves nor calls a cloud model in this branch');
   assert.match(server, /local: local === true/); assert.match(server, /app\.post\('\/api\/chat\/local-save'/);

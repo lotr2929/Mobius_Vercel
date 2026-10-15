@@ -468,3 +468,15 @@ language sql stable as $$
   order by 4 desc
   limit match_count;
 $$;
+
+-- Sealed private exchanges ("Private:" messages). No embedding, no full-text index, no chat id: no search, digest, summary, mood or learning job
+-- reads this table. Only a private turn and the history screen do (backend/pcm/sealed.js; test/sealed.test.mjs guards that).
+create table if not exists mobius_sealed_messages (
+  id          bigserial primary key,
+  role        text not null check (role in ('user','assistant')),
+  content     text not null,
+  ai_provider text,
+  created_at  timestamptz not null default now()
+);
+alter table mobius_sealed_messages enable row level security;
+create index if not exists mobius_sealed_messages_created_idx on mobius_sealed_messages (created_at desc);
