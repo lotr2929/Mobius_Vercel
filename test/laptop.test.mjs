@@ -26,5 +26,9 @@ test('the header shows whether Local or Cloud is on, and his own message keeps t
   assert.match(html, /function showMode\(\)/);
   assert.match(html, /MobiusLocal\.setMode\(reachable \? sw\.mode : 'cloud'\); showMode\(\);/);
   assert.match(html, /let userContent = switchLabel \+ q;/);
+  assert.doesNotMatch(html, /id="model-badge"/);          // the list of models is gone from the header
+  assert.match(html, /id="mode-badge"[\s\S]*id="header-right"/);   // the badge sits next to the title, before the right-hand side
+  assert.match(html, /MobiusLocal\.ping\(2500\)/);          // Local is tested before the badge is shown
+  assert.match(html, /serverOk = !!d\.ok; showMode\(\);/);   // Cloud: after the server check
   assert.match(html, /switchLabel = 'Ask: '/);
 });

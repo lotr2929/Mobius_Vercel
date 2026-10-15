@@ -40,10 +40,11 @@ html.vh-js #app{height:var(--app-h);} /* set by viewport.js: the visible height,
 #logo{height:44px;width:44px;object-fit:contain;flex-shrink:0;}
 #appname{font-size:26px;font-weight:bold;color:var(--green);letter-spacing:-0.5px;}
 #header-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
-#model-badge{font-size:11px;color:var(--text-dim);}
 #status-row{display:flex;align-items:center;gap:5px;}
-#mode-badge{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:9px;border:1px solid currentColor;opacity:.65;cursor:default;}
+#mode-badge{display:none;margin-left:8px;align-self:center;font-size:9px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;line-height:15px;padding:0 6px;border-radius:8px;border:1px solid currentColor;opacity:.65;cursor:default;white-space:nowrap;}
+#mode-badge.show{display:inline-block;}
 #mode-badge.local{background:#2e5233;border-color:#2e5233;color:#fff;opacity:1;}
+#mode-badge.off{opacity:.45;border-style:dashed;}
 #status-dot{width:7px;height:7px;border-radius:50%;background:var(--green-light);flex-shrink:0;transition:background .3s;}
 #status-dot.offline{background:var(--border2);}
 #status-dot.searching{background:#c8a84b;}
@@ -180,11 +181,10 @@ textarea#qinput::placeholder{color:var(--text-dim);}
     <img id="logo" src="/logo.png" alt="Mobius — Settings" onerror="this.style.display='none'">
     <span id="appname">Mobius</span>
   </a>
+  <span id="mode-badge"></span>
   <div id="header-right">
     <div id="status-row">
-      <span id="mode-badge"></span>
       <span id="status-dot" class="offline"></span>
-      <span id="model-badge">connecting…</span>
     </div>
     <span id="clock"></span>
   </div>
@@ -309,13 +309,11 @@ async function checkStatus() {
     const res = await fetch('/api/status');
     if (res.status === 401) { location.reload(); return; } // login expired: reload shows the sign-in page
     const d = await res.json();
-    document.getElementById('status-dot').className = d.ok ? '' : 'offline';
+    document.getElementById('status-dot').className = d.ok ? '' : 'offline'; serverOk = !!d.ok; showMode();
     if (d.updated) document.getElementById('build-info').textContent = 'Last updated ' + d.updated;
     if (d.latest && d.latest !== lastLatest) { lastLatest = d.latest; loadHistory(true); } // another device chatted: refresh the history list
-    document.getElementById('model-badge').textContent = (d.cascade||[]).join(' → ') || 'no AI';
   } catch {
-    document.getElementById('status-dot').className = 'offline';
-    document.getElementById('model-badge').textContent = 'offline';
+    document.getElementById('status-dot').className = 'offline'; serverOk = false; showMode();
   }
 }
 setInterval(checkStatus, 30000); checkStatus();
@@ -664,15 +662,24 @@ async function getClientInfo() {
 }
 
 // ── Send ───────────────────────────────────────────────────────────────────
-// The Local / Cloud switch (Ask: Local, Ask: Cloud) stays on until changed, so the header always says which one is on.
-function showMode() {
+// The Local / Cloud switch (Ask: Local, Ask: Cloud) stays on until changed. The badge beside the title says which is on, but only once the
+// connection has been tested: Ollama for Local, the Mobius server for Cloud. Until then it stays hidden; if the test fails it says "offline".
+var serverOk, modeCheck = 0;
+async function showMode() {
   const b = document.getElementById('mode-badge'); if (!b) return;
+  const mine = ++modeCheck;
   const local = !!(window.MobiusLocal && MobiusLocal.getMode() === 'local');
-  b.textContent = local ? 'Local' : 'Cloud';
-  b.className = local ? 'local' : '';
-  b.title = local ? 'Qwen on this laptop is answering. Type Ask: Cloud to go back to the cloud models.' : 'The cloud models are answering. Type Ask: Local to use Qwen on this laptop.';
+  let ok;
+  if (local) ok = await MobiusLocal.ping(2500);
+  else if (serverOk == null) return;   // Cloud: wait for the server check (checkStatus)
+  else ok = serverOk;
+  if (mine !== modeCheck) return;      // a newer check has started
+  b.textContent = (local ? 'Local' : 'Cloud') + (ok ? '' : ' offline');
+  b.className = 'show' + (local ? ' local' : '') + (ok ? '' : ' off');
+  b.title = !ok ? (local ? 'Local is selected but Qwen on this laptop cannot be reached, so the cloud answers instead.' : 'Cloud is selected but the Mobius server cannot be reached.')
+    : local ? 'Qwen on this laptop is answering. Type Ask: Cloud to go back to the cloud models.' : 'The cloud models are answering. Type Ask: Local to use Qwen on this laptop.';
 }
-showMode(); document.addEventListener('DOMContentLoaded', showMode);
+showMode();
 async function handleSend() {
   const input = document.getElementById('qinput');
   const typed = input.value.trim();
