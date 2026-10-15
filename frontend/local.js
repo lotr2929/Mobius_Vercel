@@ -63,6 +63,32 @@
     } catch (e) { return 'Error: ' + (e && e.message ? e.message : String(e)); }
   }
 
+  // Qwen sometimes writes its tool call as plain text instead of a real call: <tool_call>{"name": ..., "arguments": {...}}</tool_call>.
+  // Ollama turns that into a real call only when the JSON is valid, and for a file's text it often is not (single quotes around the content,
+  // raw \n, unescaped double quotes), so the call used to appear on screen as words and nothing was done. parseTextToolCall reads such a
+  // call anyway; if it cannot, stream() sends the model one reminder of how to write it.
+  const TC = '<tool_call>';
+  const FIX_NOTE = 'That tool call could not be read, so nothing was done. Send it again as valid JSON: every string in double quotes, every double quote inside the file text written as \\" , every line break written as \\n, and no strings in single quotes.';
+  const UNESC = { n: '\n', t: '\t', r: '\r', '"': '"', "'": "'", '\\': '\\' };
+  const unesc = s => String(s).replace(/\\([ntr"'\\])/g, (m, ch) => UNESC[ch]);
+  function parseTextToolCall(text) {
+    const m = String(text || '').match(/<tool_call>\s*([\s\S]*?)\s*(?:<\/tool_call>\s*)?$/);
+    if (!m) return null;
+    const body = m[1];
+    try { const o = JSON.parse(body); if (o && o.name) return { name: String(o.name), args: o.arguments && typeof o.arguments === 'object' ? o.arguments : {} }; } catch {}
+    const name = (body.match(/"name"\s*:\s*"([^"]+)"/) || [])[1];
+    if (!name) return null;
+    const args = {};
+    for (const key of ['path', 'source', 'destination']) {
+      const k = body.match(new RegExp('"' + key + '"\\s*:\\s*(["\'])((?:(?!\\1)[^\\\\]|\\\\.)*)\\1'));
+      if (k) args[key] = unesc(k[2]);
+    }
+    const c = body.match(/"content"\s*:\s*(["'])([\s\S]*)\1\s*\}\s*\}\s*$/);
+    if (c) args.content = unesc(c[2]);
+    if (/write_file$/.test(name) && (args.path === undefined || args.content === undefined)) return null;
+    return Object.keys(args).length ? { name, args } : null;
+  }
+
   // Streams the answer. job = { model, numCtx, system, messages } from the server. Calls onToken(text) as words arrive and resolves
   // with the whole text. If nothing at all arrived the error has noToken = true, so the caller can fall back to the cloud.
   // In the desktop app the model may first ask for tools (onTool({ name, args }) is called for each); in a browser it never does.
@@ -77,6 +103,7 @@
     try {
       const tools = await toolList();
       const msgs = [{ role: 'system', content: job.system + (tools.length ? TOOL_NOTE : '') }, ...job.messages];
+      let fixes = 0;
       for (let round = 0; round <= MAX_ROUNDS; round++) {
         const offerTools = tools.length > 0 && round < MAX_ROUNDS;
         let res;
@@ -98,7 +125,18 @@
           throw fail(new Error('Ollama answered HTTP ' + res.status + (why ? ': ' + why : '')), { noToken: !text });
         }
         const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''; let done = false;
-        let roundText = ''; const calls = [];
+        let roundText = ''; const calls = []; let mode = 'unknown'; // unknown | text | toolcall
+        const feed = t => {
+          roundText += t;
+          if (mode === 'unknown') {
+            const s = roundText.trimStart();
+            if (s.length < TC.length && TC.startsWith(s)) return; // may still turn out to be a tool call written as text: hold it back
+            mode = s.startsWith(TC) ? 'toolcall' : 'text';
+            if (mode === 'text') { text += roundText; onToken(roundText); }
+            return;
+          }
+          if (mode === 'text') { text += t; onToken(t); }
+        };
         while (!done) {
           const chunk = await reader.read(); if (chunk.done) break;
           buf += dec.decode(chunk.value, { stream: true });
@@ -110,13 +148,25 @@
             const m = obj.message || {};
             if (m.tool_calls && m.tool_calls.length) { if (first) { clearTimeout(first); first = null; } calls.push(...m.tool_calls); }
             const t = m.content;
-            if (t) { if (first) { clearTimeout(first); first = null; } roundText += t; text += t; onToken(t); }
+            if (t) { if (first) { clearTimeout(first); first = null; } feed(t); }
             if (obj.done) done = true;
           }
         }
+        if (mode === 'unknown' && roundText) { text += roundText; onToken(roundText); mode = 'text'; } // a very short answer
+        if (!calls.length && mode === 'toolcall') {
+          const tc = tools.length && round < MAX_ROUNDS ? parseTextToolCall(roundText) : null;
+          if (tc) calls.push({ function: { name: tc.name, arguments: tc.args } });
+          else if (tools.length && fixes < 2 && round < MAX_ROUNDS) { // unreadable: remind it once or twice how to write the call
+            fixes++;
+            msgs.push({ role: 'assistant', content: roundText });
+            msgs.push({ role: 'user', content: FIX_NOTE });
+            first = setTimeout(() => ctl.abort(new Error('the local model gave no answer in time')), FIRST_TOKEN_MS);
+            continue;
+          } else { text += roundText; onToken(roundText); break; } // give up: show what it wrote
+        }
         if (!calls.length) break; // the model answered in words: finished
         // the model asked for tools: run them here, give the results back, and let it carry on
-        msgs.push({ role: 'assistant', content: roundText, tool_calls: calls });
+        msgs.push({ role: 'assistant', content: mode === 'toolcall' ? '' : roundText, tool_calls: calls });
         for (const c of calls) {
           const fn = c.function || {};
           try { onTool({ name: fn.name, args: fn.arguments }); } catch {}
@@ -135,5 +185,5 @@
     }
   }
 
-  globalThis.MobiusLocal = { OLLAMA, parseSwitch, getMode, setMode, ping, stream, toolList };
+  globalThis.MobiusLocal = { OLLAMA, parseSwitch, getMode, setMode, ping, stream, toolList, parseTextToolCall };
 })();
