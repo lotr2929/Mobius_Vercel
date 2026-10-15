@@ -11,6 +11,7 @@
 // limit or a time limit stops the run and the next one carries on from the last finished section.
 import { supabase } from '../db.js';
 import { askModel } from '../ai/cascade.js';
+import { unsupported, isClean, tidy } from './verify.js';
 
 export const SECTION_CHARS = 16000;
 const SHORT_FILE = 4000;     // a file this short is its own digest (no model call)
@@ -60,21 +61,35 @@ const SECTION_PROMPT = (name, i, n, text) => `You are indexing a document so tha
 
 Write 150 to 200 words of plain prose (no headings, no bullet points, no preamble): what this part is about; its main claims, events or arguments; the people, works and technical terms that matter in it; and any Bible passages it quotes or discusses (give the references as written). Say only what this text says and add nothing from memory. If the text is mostly front matter, an index, a bibliography or page furniture, say so in one sentence.
 
+Use only names, numbers, dates and quotations that appear in the TEXT below. Do not add anything from your own knowledge: do not complete a name, explain a term, or mention a person, book or event that the text does not name. Put words in quotation marks only if they are word for word in the text.
+
 TEXT:
 ${text}`;
 
 const FOLD_PROMPT = (name, parts, final) => `Below are digests of consecutive parts of "${name}". ${final
   ? 'Write one digest of the whole document in 300 to 400 words of plain prose: what it is and what it argues or records; how it is organised from beginning to end; the main people, works, themes and Bible passages that recur; and what is distinctive about its approach or conclusions.'
-  : 'Merge them into one digest of about 200 words that keeps the order, the main claims and the key names.'} No headings, no bullet points, no preamble. Say only what the digests say.
+  : 'Merge them into one digest of about 200 words that keeps the order, the main claims and the key names.'} No headings, no bullet points, no preamble. Say only what the digests say: add no name, number, date or quotation that they do not contain.
 
 ${parts.join('\n\n')}`;
 
 async function say(prompt, left) {
   const timeoutMs = Math.min(CALL_TIMEOUT, Math.max(5000, left() - 2000));
-  return (await askModel(prompt, { role: 'deep', timeoutMs })).trim();
+  return (await askModel(prompt, { role: 'deep', timeoutMs, privateOnly: true, excludeWeak: true })).trim(); // a digest carries the whole text: only models that do not train on prompts see it
 }
 
 // ── Building ─────────────────────────────────────────────────────────────────
+// A digest is checked against the text it describes (verify.js). If it holds a detail the text does not, the model is asked once to
+// remove just those details; whatever still does not hold up is cut out sentence by sentence, so an invented detail is never stored.
+const EDIT_PROMPT = (digest, items) => `Edit this digest. Remove or rephrase these details, which are not in the source text: ${items.join('; ')}. Change nothing else, add nothing. Reply with only the corrected digest.\n\nDIGEST:\n${digest}`;
+async function verifiedSection(draft, section, whole, left) {
+  let text = draft;
+  const u = unsupported(text, section);
+  if (!isClean(u)) {
+    const items = [...u.numbers, ...u.names, ...u.quotes.map(q => '"' + q.slice(0, 60) + '"')].slice(0, 12);
+    try { text = await say(EDIT_PROMPT(text, items), left); } catch { /* keep the draft: it is cut down below */ }
+  }
+  return tidy(text, section, whole).text || '(No reliable digest could be made of this part.)';
+}
 // Digests one file, resuming where an earlier run stopped. → { filename, done, sections, made, error? }
 export async function digestDoc(filename, { left = () => Infinity, pause = PAUSE_MS, maxParts = Infinity } = {}) {
   const { data: full } = await supabase.from('mobius_docs_full').select('content, updated_at').eq('filename', filename).maybeSingle();
@@ -101,7 +116,8 @@ export async function digestDoc(filename, { left = () => Infinity, pause = PAUSE
     if (done.has(i)) continue;
     if (left() < 8000 || made >= maxParts) return stopped();
     try {
-      const content = await say(SECTION_PROMPT(name, i + 1, sections.length, sections[i].text), left);
+      const draft = await say(SECTION_PROMPT(name, i + 1, sections.length, sections[i].text), left);
+      const content = await verifiedSection(draft, sections[i].text, text, left);
       const { error } = await save('section', i, content, sections[i]);
       if (error) return stopped(error.message);
       made++;
@@ -122,7 +138,7 @@ export async function digestDoc(filename, { left = () => Infinity, pause = PAUSE
       const next = [];
       for (const g of groups) {
         if (left() < 8000) return stopped();
-        try { next.push(await say(FOLD_PROMPT(name, g, final), left)); } catch (e) { return stopped(e.message); }
+        try { next.push(tidy(await say(FOLD_PROMPT(name, g, final), left), g.join('\n\n')).text || g[0].slice(0, 800)); } catch (e) { return stopped(e.message); }
         await sleep(pause);
       }
       layer = next;

@@ -351,10 +351,10 @@ export async function* runCascade(messages, { signal, system = BASE_PROMPT, only
 // Each model gets its own timeout; the first non-empty answer wins. role: 'quick' | 'deep'.
 // `exceptProvider` leaves out every model of one provider (a reviewer must not be the model it reviews); `meta`, if given, is filled
 // with the name of the model that answered.
-export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT, privateOnly = false, exceptProvider = null, meta = null } = {}) {
+export async function askModel(prompt, { role = 'quick', timeoutMs = 25000, system = UTILITY_PROMPT, privateOnly = false, excludeWeak = false, exceptProvider = null, meta = null } = {}) {
   let lastError;
   await syncRest();
-  for (const key of pickKeys(orderFor(role)).filter(k => (!privateOnly || modelByKey(k).trains === false) && (!exceptProvider || modelByKey(k).provider !== exceptProvider))) {
+  for (const key of pickKeys(orderFor(role)).filter(k => (!privateOnly || modelByKey(k).trains === false) && (!excludeWeak || !modelByKey(k).weak) && (!exceptProvider || modelByKey(k).provider !== exceptProvider))) {
     const m = modelByKey(key);
     if (!keyFor(m)) continue;
     try {
