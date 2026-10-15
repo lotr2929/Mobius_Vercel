@@ -9,12 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { mergeByTime, stripPrivatePrefix, SEALED_ID_OFFSET } from '../backend/pcm/sealed.js';
 
 const backend = fileURLToPath(new URL('../backend/', import.meta.url));
-const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? (n === 'node_modules' ? [] : walk(p)) : p.endsWith('.js') ? [p] : []; });
+const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? (n === 'node_modules' ? [] : walk(p)) : (p.endsWith('.js') || p.endsWith('.mjs')) ? [p] : []; });
 const files = walk(backend).map(p => ({ name: relative(backend, p).replace(/\\/g, '/'), text: readFileSync(p, 'utf8') }));
 const read = p => readFileSync(new URL(p, import.meta.url), 'utf8');
 
-test('only pcm/sealed.js touches the sealed table', () => {
-  assert.deepEqual(files.filter(f => f.text.includes('mobius_sealed_messages')).map(f => f.name), ['pcm/sealed.js']);
+test('only pcm/sealed.js and the backup script touch the sealed table', () => {
+  assert.deepEqual(files.filter(f => f.text.includes('mobius_sealed_messages')).map(f => f.name).sort(), ['backup-cli.mjs', 'pcm/sealed.js']); // the backup script keeps it OUT of the Drive backup and copies it to this PC only
 });
 
 test('only chat.js and server.js import the sealed module', () => {
@@ -63,4 +63,12 @@ test('the schema file carries the table, with row-level security on', () => {
   const sql = read('../supabase/schema.sql');
   assert.match(sql, /create table if not exists mobius_sealed_messages/);
   assert.match(sql, /alter table mobius_sealed_messages enable row level security/);
+});
+
+test('the Drive backup (in the shared Atlas folder) never includes the sealed chats; they are copied to this PC only', () => {
+  const b = read('../backend/backup-cli.mjs');
+  assert.match(b, /const SKIP = new Set\(\[[^\]]*'mobius_sealed_messages'/);
+  assert.match(b, /const SEALED_DIR = 'C:\\\\_Personal\\\\_Mobius\\\\Backup\\\\sealed'/);
+  assert.match(b, /await backupSealedLocally\(\)/);
+  assert.ok(!/DRIVE_DIR[^\n]*sealed|sealed[^\n]*DRIVE_DIR/i.test(b.replace(/\/\/[^\n]*/g, '')), 'no code path writes the sealed chats to the Drive folder');
 });

@@ -8,6 +8,7 @@
 // (Drive not mounted) it goes to C:\_Personal\_Mobius\Backup\db instead.
 // Saved: conversations, memory (profile, projects, week), notes, settings and state, development notes, linked-folder list,
 // digests, the trash (everything Mobius has removed), and the text of documents that were uploaded by hand.
+// Sealed private chats are NOT written there (Atlas is read by other AIs); they are copied to C:\_Personal\_Mobius\Backup\sealed on this PC only.
 // Not saved: what can be rebuilt (search passages, embeddings, books read from Drive, scripture texts, traces) and what is secret
 // (the sealed Google token, passkeys).
 import fs from 'fs';
@@ -19,7 +20,8 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 const DRIVE_DIR = process.env.BACKUP_DRIVE_DIR || 'J:\\My Drive\\Atlas\\_mobius'; // the atlas is the shared "Atlas" folder inside My Drive (moved there 10 Oct 2026)
 const LOCAL_DIR = 'C:\\_Personal\\_Mobius\\Backup\\db';
 const KEEP = 7, DUE_HOURS = 20, CHECK_EVERY_MS = 3 * 3600e3;
-const SKIP = new Set(['mobius_docs', 'mobius_bible', 'mobius_traces', 'mobius_google', 'mobius_passkeys']);
+const SKIP = new Set(['mobius_docs', 'mobius_bible', 'mobius_traces', 'mobius_google', 'mobius_passkeys', 'mobius_sealed_messages']); // sealed private chats: never in the Drive backup
+const SEALED_DIR = 'C:\\_Personal\\_Mobius\\Backup\\sealed'; // their copy stays on this PC (not in Google Drive)
 const DROP_COLUMNS = ['embedding', 'fts'];
 
 const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`; }; // 20261004-1130, local time
@@ -49,6 +51,18 @@ async function allRows(table) {
   return rows;
 }
 
+// Sealed private chats ("Private:" messages) are backed up to this PC only. The Drive backup above sits in the Atlas folder, which other AIs read.
+async function backupSealedLocally() {
+  const { data, error } = await supabase.from('mobius_sealed_messages').select('*').order('id');
+  if (error) throw new Error('mobius_sealed_messages: ' + error.message);
+  if (!data?.length) return null;
+  fs.mkdirSync(SEALED_DIR, { recursive: true });
+  const file = path.join(SEALED_DIR, `sealed-${stamp()}.json.gz`);
+  fs.writeFileSync(file, zlib.gzipSync(JSON.stringify({ made_at: new Date().toISOString(), rows: data })));
+  for (const f of fs.readdirSync(SEALED_DIR).filter(f => /^sealed-\d{8}-\d{4}\.json\.gz$/.test(f)).sort().slice(0, -KEEP)) fs.unlinkSync(path.join(SEALED_DIR, f));
+  say(`Sealed chats: ${data.length} messages copied to ${file} (this PC only).`);
+  return file;
+}
 export async function backupNow() {
   if (!supabase) throw new Error('No database connection.');
   const spec = await (await fetch(`${SUPABASE_URL}/rest/v1/`, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } })).json();
@@ -66,6 +80,7 @@ export async function backupNow() {
   const old = fs.readdirSync(dir).filter(f => /^mobius-\d{8}-\d{4}\.json\.gz$/.test(f)).sort().slice(0, -KEEP);
   for (const f of old) fs.unlinkSync(path.join(dir, f));
   say(`Backup written: ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KB). ${counts.join(', ')}.${old.length ? ` Removed ${old.length} older.` : ''}`);
+  await backupSealedLocally().catch(e => say('Sealed backup failed: ' + e.message));
   return file;
 }
 
