@@ -44,6 +44,7 @@ import { turnsForLocal } from './laptop.js';
 import { tavilySearch, tavilySearchMany, tavilyExtract, tavilyUsage } from './web.js';
 import { startTrace, saveTrace } from './trace.js';
 import { clip, safe } from './util.js';
+import { redactSecrets, redactDocs, redactionNotice } from './secrets.js';
 import { GREETING, DEFAULT_TZ, FEELING_CUE, MOOD_ASK, MOOD_REPORT_ASK, recentMood, addReport, addMarker, moodFromMessage, isChatStart, shouldGreet, shouldRaisePattern, moodStats, moodText } from './mood.js';
 
 const ATTACHED_TITLE = "Attached document(s) — full text — CONFIRM RECEIPT: start your reply by explicitly listing these exact filenames as received before addressing the user's message";
@@ -89,6 +90,13 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 // the review, the plain-code checks and automatic learning (they would send the answer to cloud models), and the saving here.
 export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false, local = false, laptopTools = false }) {
   const turnStart = Date.now(); // the review (pcm/review.js) must finish inside the turn's time budget
+  // Secrets never go anywhere: card numbers, passwords, keys and the like are cut out of the message and of any attached text before
+  // anything else sees them (secrets.js), so no model, embedding, database row, trace or backup ever holds them. Boon is told what was removed.
+  const screenedQuery = redactSecrets(query);
+  const screenedDocs = redactDocs(docs);
+  query = screenedQuery.text;
+  docs = screenedDocs.docs;
+  const redacted = [...new Set([...screenedQuery.found, ...screenedDocs.found])];
   await restoreAudit(); // learn which models the last audit found retired (matters on a fresh serverless start)
 
   const { forceProvider, cleanQuery } = parseAskPrefix(query);
@@ -103,12 +111,13 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
   const ctx = describeContext(client, geo); // { tz, now, where }
 
   const trace = startTrace('chat', {
-    query: privateMode ? '[private message — not recorded]' : userQuery, forced: forceProvider, attached: attached.map(d => d.filename), private: privateMode, dryRun,
+    query: privateMode ? '[private message — not recorded]' : userQuery, forced: forceProvider, attached: attached.map(d => d.filename), private: privateMode, dryRun, redacted,
     where: ctx.where, tz: ctx.tz, client: clientBrief(client), events: [],
   });
 
   try {
     // 1–2. verbatim window (complete exchanges only), then the plan
+    if (redacted.length) yield { token: redactionNotice(redacted) }; // shown to Boon at the head of the reply; not part of the saved answer
     const raw = privateMode ? await getRecentWithSealed(RECENT_MESSAGES + 4) : await getMessages(RECENT_MESSAGES + 4); // a private turn also sees the sealed exchanges, so it can carry on
     let recent = settled(raw).slice(-RECENT_MESSAGES);
     // Boon has navigated back to an earlier exchange and is writing from there: that chat, up to the exchange on screen, becomes

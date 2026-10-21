@@ -9,6 +9,7 @@
 //   Forget ... | Forget #14
 //   Show notes | Show suggestions | Save 14, 16 | Save all | Drop 15 | Drop all
 import { supabase } from '../db.js';
+import { redactSecrets } from '../secrets.js';
 
 const T = 'mobius_notes';
 const STOP = new Set('the and that this with for you your are was were have has had not but about from they them his her its our can will would should what when where who how why all any out too very also just than then into over under boon'.split(' '));
@@ -26,7 +27,7 @@ export async function listNotes(statuses = ['active', 'proposed']) {
 
 // Rewrite the text of a note (from the Memory page).
 export async function updateNote(id, content) {
-  const text = String(content).trim().replace(/\s+/g, ' ').slice(0, 500);
+  const text = redactSecrets(String(content)).text.trim().replace(/\s+/g, ' ').slice(0, 500);
   if (!text) throw new Error('A note cannot be empty');
   const { error } = await supabase.from(T).update({ content: text, updated_at: new Date().toISOString() }).eq('id', id);
   if (error) throw new Error('notes: ' + error.message);
@@ -41,7 +42,7 @@ export async function setStatus(ids, status) {
 // Adds a note unless the same words are already there. A note Boon once forgot comes back if he
 // asks for it again; one he rejected is not suggested a second time.
 export async function addNote(content, { source = 'asked', status = 'active' } = {}) {
-  const text = String(content).trim().replace(/\s+/g, ' ').slice(0, 500);
+  const text = redactSecrets(String(content)).text.trim().replace(/\s+/g, ' ').slice(0, 500);
   if (!text) return { error: 'empty' };
   const all = await listNotes(['active', 'proposed', 'forgotten', 'rejected']);
   const same = all.find(n => norm(n.content) === norm(text));

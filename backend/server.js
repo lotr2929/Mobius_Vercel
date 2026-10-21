@@ -29,6 +29,7 @@ import { listProjects, saveProject, removeProject, PROJECT_MAX } from './pcm/pro
 import { getSettings, saveSettings } from './pcm/settings.js';
 import { listTrash, trashStats, restoreTrash, deleteTrash, canMirror } from './pcm/backup.js';
 import { housekeeping, storageReport } from './pcm/housekeeping.js';
+import { redactSecrets } from './secrets.js';
 import { listNotes, addNote, updateNote, setStatus } from './pcm/notes.js';
 import { recentMood, deleteMood, deleteAllMood, backfillMood, moodStats } from './mood.js';
 import { listDevNotes, addDevNote, updateDevNote, setDevNoteDone, removeDevNote } from './pcm/devnotes.js';
@@ -139,11 +140,11 @@ app.post('/api/chat/local-save', async (req, res) => {
   if (typeof query !== 'string' || typeof answer !== 'string' || !query.trim() || !answer.trim()) return res.status(400).json({ error: 'query and answer are needed' });
   try {
     if (sealed === true) { // a private exchange answered on the laptop: filed in the sealed compartment, never embedded or summarised
-      const kept = await saveSealedExchange({ query: stripPrivatePrefix(query).slice(0, 20000), answer: answer.slice(0, 60000), model: LOCAL_MODEL.name });
+      const kept = await saveSealedExchange({ query: redactSecrets(stripPrivatePrefix(query)).text.slice(0, 20000), answer: answer.slice(0, 60000), model: LOCAL_MODEL.name });
       return res.json({ ok: !!kept });
     }
     const saved = await saveExchange({
-      query: query.slice(0, 20000),
+      query: redactSecrets(query).text.slice(0, 20000),
       docs: (Array.isArray(docs) ? docs : []).filter(d => typeof d === 'string').slice(0, 20),
       answer: answer.slice(0, 60000),
       model: LOCAL_MODEL.name,
