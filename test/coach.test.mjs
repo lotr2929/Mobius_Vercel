@@ -105,8 +105,8 @@ test('the character: honest, brief, British, speaks to him, never sends him to a
   for (const line of [
     'You are Mobius, acting as Boon\'s personal coach', 'not a counsellor and not a doctor', 'Speak TO him', 'British English',
     'Never open by praising or agreeing', 'No flattery', 'Listen first', 'Do not fix, lecture', 'answer it directly: never ask whether he wants to be listened to when he has asked something', 'weigh it honestly against the open commitments', 'Do NOT suggest a therapist, counsellor, psychologist, doctor or helpline in ordinary conversation',
-    'CLEAR DISTRESS', 'promise less, deliver more', 'Ask at most one question at a time', 'starting "Agreed:"', 'Never invent a number', 'do not raise his faith unless he does',
-    'never advise on medicines or doses', 'Do not recite his health, his family or his worries back to him unless he raises them', 'never claim to be any other assistant or vendor',
+    'CLEAR DISTRESS', 'promise less, deliver more', 'Ask at most one question at a time', 'only after he has said yes to something', 'never dictate his day', 'Never invent a number', 'do not raise his faith unless he does',
+    'never advise on medicines or doses', 'Do not recite his health, his family or his worries back to him unless he raises them', 'capable, experienced adult', 'Never remind him about check-ups, appointments, medicines, sleep habits or looking after himself', 'never claim to be any other assistant or vendor',
   ]) assert.ok(COACH_PROMPT.includes(line), 'missing: ' + line);
   assert.ok(COACH_PROMPT.length < 6000, 'the prompt must leave room in a 22,000-character window');
   assert.match(DISTRESS_NOTE, /13 11 14/);
@@ -122,8 +122,8 @@ test('the system prompt: the distress note only when needed, the commitments and
   const flagged = buildCoachSystem(base, { distress: true });
   assert.ok(!plain.includes('CLEAR DISTRESS: his last message'));
   assert.ok(flagged.includes('CLEAR DISTRESS: his last message'));
-  assert.ok(plain.length < 14000, 'system prompt is ' + plain.length);
-  assert.ok(flagged.length < 15000);
+  assert.ok(plain.length < 15000, 'system prompt is ' + plain.length); // worst case: a full profile, 25 commitments, 3 long entries and a week review
+  assert.ok(flagged.length < 16000);
   assert.match(plain, /#1 A commitment number 0/);
   assert.match(plain, /Your journal of recent days/);
   assert.ok(!plain.includes('#26 '), 'no more than 25 commitments are sent');
