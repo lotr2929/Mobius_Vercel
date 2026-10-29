@@ -13,7 +13,7 @@ export const stripPrivatePrefix = q => String(q || '').replace(/^\s*(?:private|c
 
 const shaped = (row, screen) => ({
   id: SEALED_ID_OFFSET + row.id, role: row.role,
-  content: screen && row.role === 'user' ? 'Private: ' + row.content : row.content, // on screen it reads as he typed it
+  content: screen && row.role === 'user' ? (row.kind === 'coach' ? 'Coach: ' : 'Private: ') + row.content : row.content, // on screen it reads as he typed it
   created_at: row.created_at, ai_provider: row.ai_provider || null, docs: null, sealed: true,
 });
 
@@ -22,27 +22,34 @@ export function mergeByTime(a, b, limit) {
   return [...a, ...b].sort((x, y) => (Date.parse(x.created_at) - Date.parse(y.created_at)) || (x.id - y.id)).slice(-limit);
 }
 
-export async function saveSealedExchange({ query, answer, model = null }) {
+// kind: null for a "Private:" exchange; 'coach' for a coaching exchange (backend/coach.js). Only a truthy kind is written, so a private
+// exchange is stored exactly as before.
+export async function saveSealedExchange({ query, answer, model = null, kind = null }) {
   if (!supabase || !query || !answer) return null;
   const t = Date.now();
+  const tag = kind ? { kind } : {};
   const { error } = await supabase.from('mobius_sealed_messages').insert([
-    { role: 'user', content: String(query), created_at: new Date(t).toISOString() },
-    { role: 'assistant', content: String(answer), ai_provider: model, created_at: new Date(t + 1).toISOString() },
+    { role: 'user', content: String(query), created_at: new Date(t).toISOString(), ...tag },
+    { role: 'assistant', content: String(answer), ai_provider: model, created_at: new Date(t + 1).toISOString(), ...tag },
   ]);
   if (error) { console.warn('[pcm] saveSealedExchange:', error.message); return null; }
   return true;
 }
 
-async function sealedRows(limit) {
+// which: 'any' (the history screen), 'private' (a "Private:" turn must not see coaching) or 'coach' (the coach sees only its own)
+async function sealedRows(limit, which = 'any') {
   if (!supabase) return [];
-  const { data, error } = await supabase.from('mobius_sealed_messages').select('id, role, content, created_at, ai_provider').order('created_at', { ascending: false }).limit(limit);
+  let q = supabase.from('mobius_sealed_messages').select('id, role, content, created_at, ai_provider, kind').order('created_at', { ascending: false }).limit(limit);
+  if (which === 'private') q = q.is('kind', null);
+  else if (which === 'coach') q = q.eq('kind', 'coach');
+  const { data, error } = await q;
   if (error) { console.warn('[pcm] sealed messages:', error.message); return []; }
   return data.reverse();
 }
 
 // For a PRIVATE turn: the ordinary recent messages and the sealed ones, in time order, as the model's earlier turns.
 export async function getRecentWithSealed(limit) {
-  const [normal, sealed] = await Promise.all([getMessages(limit), sealedRows(limit)]);
+  const [normal, sealed] = await Promise.all([getMessages(limit), sealedRows(limit, 'private')]);
   return mergeByTime(normal, sealed.map(r => shaped(r, false)), limit);
 }
 
@@ -50,6 +57,24 @@ export async function getRecentWithSealed(limit) {
 export async function getHistoryWithSealed(limit) {
   const [normal, sealed] = await Promise.all([getMessages(limit), sealedRows(limit)]);
   return mergeByTime(normal, sealed.map(r => shaped(r, true)), limit);
+}
+
+// Coaching (backend/coach.js). The coach reads only exchanges of its own kind; nothing else reads them.
+export async function getRecentCoach(limit) {
+  return (await sealedRows(limit, 'coach')).map(r => shaped(r, false));
+}
+export async function coachMessagesBetween(fromIso, toIso) {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('mobius_sealed_messages').select('role, content, created_at').eq('kind', 'coach')
+    .gte('created_at', fromIso).lt('created_at', toIso).order('created_at', { ascending: true }).limit(400);
+  if (error) { console.warn('[pcm] coach messages:', error.message); return []; }
+  return data;
+}
+export async function coachStamps(sinceIso) {
+  if (!supabase) return [];
+  const { data, error } = await supabase.from('mobius_sealed_messages').select('created_at').eq('kind', 'coach').gte('created_at', sinceIso).order('created_at', { ascending: true }).limit(3000);
+  if (error) { console.warn('[pcm] coach stamps:', error.message); return []; }
+  return data.map(r => r.created_at);
 }
 
 // The time of the newest message of either kind (other devices use it to notice that something new has been said).

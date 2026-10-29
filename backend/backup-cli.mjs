@@ -20,7 +20,7 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 const DRIVE_DIR = process.env.BACKUP_DRIVE_DIR || 'J:\\My Drive\\_mobiusstore'; // outside the shared "Atlas" folder: the backup holds his conversations and notes (moved here 15 Oct 2026; it was in Atlas\_mobius)
 const LOCAL_DIR = 'C:\\_Personal\\_Mobius\\Backup\\db';
 const KEEP = 7, DUE_HOURS = 20, CHECK_EVERY_MS = 3 * 3600e3;
-const SKIP = new Set(['mobius_docs', 'mobius_bible', 'mobius_traces', 'mobius_google', 'mobius_passkeys', 'mobius_sealed_messages']); // sealed private chats: never in the Drive backup
+const SKIP = new Set(['mobius_docs', 'mobius_bible', 'mobius_traces', 'mobius_google', 'mobius_passkeys', 'mobius_sealed_messages', 'mobius_coach_journal', 'mobius_coach_items']); // sealed private chats and coaching: never in the Drive backup
 const SEALED_DIR = 'C:\\_Personal\\_Mobius\\Backup\\sealed'; // their copy stays on this PC (not in Google Drive)
 const DROP_COLUMNS = ['embedding', 'fts'];
 
@@ -63,6 +63,23 @@ async function backupSealedLocally() {
   say(`Sealed chats: ${data.length} messages copied to ${file} (this PC only).`);
   return file;
 }
+// The coach's journal, commitments and profile: this PC only, for the same reason.
+async function backupCoachLocally() {
+  const out = {};
+  let total = 0;
+  for (const t of ['mobius_coach_journal', 'mobius_coach_items']) {
+    const { data, error } = await supabase.from(t).select('*').order('id');
+    if (error) throw new Error(t + ': ' + error.message);
+    out[t] = data; total += data.length;
+  }
+  if (!total) return null;
+  fs.mkdirSync(SEALED_DIR, { recursive: true });
+  const file = path.join(SEALED_DIR, `coach-${stamp()}.json.gz`);
+  fs.writeFileSync(file, zlib.gzipSync(JSON.stringify({ made_at: new Date().toISOString(), tables: out })));
+  for (const f of fs.readdirSync(SEALED_DIR).filter(f => /^coach-\d{8}-\d{4}\.json\.gz$/.test(f)).sort().slice(0, -KEEP)) fs.unlinkSync(path.join(SEALED_DIR, f));
+  say(`Coaching journal: ${total} rows copied to ${file} (this PC only).`);
+  return file;
+}
 export async function backupNow() {
   if (!supabase) throw new Error('No database connection.');
   const spec = await (await fetch(`${SUPABASE_URL}/rest/v1/`, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } })).json();
@@ -81,6 +98,7 @@ export async function backupNow() {
   for (const f of old) fs.unlinkSync(path.join(dir, f));
   say(`Backup written: ${file} (${(fs.statSync(file).size / 1024).toFixed(0)} KB). ${counts.join(', ')}.${old.length ? ` Removed ${old.length} older.` : ''}`);
   await backupSealedLocally().catch(e => say('Sealed backup failed: ' + e.message));
+  await backupCoachLocally().catch(e => say('Coaching backup failed: ' + e.message));
   return file;
 }
 

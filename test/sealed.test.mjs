@@ -19,7 +19,7 @@ test('only pcm/sealed.js and the backup script touch the sealed table', () => {
 
 test('only chat.js and server.js import the sealed module', () => {
   const importers = files.filter(f => /from\s+'\.{1,2}\/(?:pcm\/)?sealed\.js'/.test(f.text)).map(f => f.name).sort();
-  assert.deepEqual(importers, ['chat.js', 'server.js']);
+  assert.deepEqual(importers, ['chat.js', 'coach.js', 'server.js']); // coach.js: the coaching exchanges are kept in the sealed table (kind 'coach'); see test/coach.test.mjs
 });
 
 test('the jobs that read ordinary messages know nothing of the sealed ones', () => {

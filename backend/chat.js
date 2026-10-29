@@ -16,6 +16,7 @@ import { restoreAudit } from './ai/audit.js';
 import { analyse, isTrivial } from './pcm/router.js';
 import { getMessages, saveExchange, settled } from './pcm/messages.js';
 import { saveSealedExchange, getRecentWithSealed } from './pcm/sealed.js';
+import { coachRoute, coachTurn } from './coach.js';
 import { getProfile, getWeek, searchArchive } from './pcm/retrieve.js';
 import { listActive, getActive, getState } from './pcm/memory.js';
 import { guardQueries, parseNames, searchFooter } from './privacy.js';
@@ -109,6 +110,14 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
   const userQuery = privateMode ? (asked.replace(PRIVATE_PREFIX, '') || asked) : asked;
   const attached = (Array.isArray(docs) ? docs : []).filter(d => d?.text);
   const ctx = describeContext(client, geo); // { tz, now, where }
+
+  // Coach mode (coach.js): "Coach: ." opens a coaching session that carries on, without the prefix, until "Coach: off" or four quiet hours.
+  // It is answered only by models that do not train, runs no web search, embedding, learning, mood or review step, and is kept only in the
+  // sealed compartment and the coach's own tables. A "Private:" message or a forced model ("Ask: ...") is never taken for coaching.
+  if (!privateMode && !forceProvider) {
+    const route = await safe(() => coachRoute(asked), null);
+    if (route) { yield* coachTurn({ route, signal, dryRun, tz: ctx.tz, redactionNote: redacted.length ? redactionNotice(redacted) : '' }); return; }
+  }
 
   const trace = startTrace('chat', {
     query: privateMode ? '[private message — not recorded]' : userQuery, forced: forceProvider, attached: attached.map(d => d.filename), private: privateMode, dryRun, redacted,

@@ -480,3 +480,36 @@ create table if not exists mobius_sealed_messages (
 );
 alter table mobius_sealed_messages enable row level security;
 create index if not exists mobius_sealed_messages_created_idx on mobius_sealed_messages (created_at desc);
+
+-- Coaching (backend/coach.js, added 29 Oct 2026). A coaching exchange is kept in the sealed table with kind = 'coach' (a "Private:" exchange has
+-- kind null), so no search, digest, summary, mood or learning job can read it. The journal, the commitments and what the coach holds about him
+-- (kind 'profile') are in tables of their own. Only backend/coach.js touches them (test/coach.test.mjs guards that), and the backup script keeps
+-- all of them out of the Drive backup and copies them to this PC only.
+alter table mobius_sealed_messages add column if not exists kind text;
+create index if not exists mobius_sealed_kind_idx on mobius_sealed_messages (kind, created_at desc);
+
+create table if not exists mobius_coach_journal (
+  id          bigserial primary key,
+  kind        text not null check (kind in ('day','week','profile')),
+  period      date not null,                       -- the day, the Monday of the week, or 2000-01-01 for the profile
+  content     text not null,
+  deleted_at  timestamptz,                         -- "forget entry": hidden, not destroyed
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (kind, period)
+);
+alter table mobius_coach_journal enable row level security;
+
+create table if not exists mobius_coach_items (
+  id          bigserial primary key,
+  text        text not null,
+  due         date,
+  detail      text,
+  status      text not null default 'open' check (status in ('open','done','dropped')),
+  from_period date,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  closed_at   timestamptz
+);
+alter table mobius_coach_items enable row level security;
+create index if not exists mobius_coach_items_open_idx on mobius_coach_items (status, due);
