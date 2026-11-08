@@ -44,6 +44,8 @@ html.vh-js #app{height:var(--app-h);} /* set by viewport.js: the visible height,
 #mode-badge{display:none;margin-left:8px;align-self:center;font-size:9px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;line-height:15px;padding:0 6px;border-radius:8px;border:1px solid currentColor;opacity:.65;cursor:default;white-space:nowrap;}
 #mode-badge.show{display:inline-block;}
 #mode-badge.local{background:#2e5233;border-color:#2e5233;color:#fff;opacity:1;}
+#mode-badge.private{background:var(--red);border-color:var(--red);color:#fff;opacity:1;}
+#mode-badge.coach{background:#7a5a1e;border-color:#7a5a1e;color:#fff;opacity:1;}
 #mode-badge.off{opacity:.45;border-style:dashed;}
 #status-dot{width:7px;height:7px;border-radius:50%;background:var(--green-light);flex-shrink:0;transition:background .3s;}
 #status-dot.offline{background:var(--border2);}
@@ -662,22 +664,32 @@ async function getClientInfo() {
 }
 
 // ── Send ───────────────────────────────────────────────────────────────────
-// The Local / Cloud switch (Ask: Local, Ask: Cloud) stays on until changed. The badge beside the title says which is on, but only once the
-// connection has been tested: Ollama for Local, the Mobius server for Cloud. Until then it stays hidden; if the test fails it says "offline".
+// The four modes (Cloud, Local, Private, Coach; frontend/local.js) stay on until switched. The badge beside the title says which is on, spelled out.
+// It appears only once the connection has been tested: Ollama for Local, the Mobius server for the others. Until then it stays hidden; if the test
+// fails it says "offline". Local, Private and Coach are all private (see handleSend).
 var serverOk, modeCheck = 0;
+// What the page tells the error log about a message: nothing of it when the message is private, because that log is kept in the database.
+const PRIVATE_LEAD = /^\s*(?:private|confidential|coach)\s*[:\-\u2013\u2014]/i;
+const srcOf = s => (MobiusLocal.isPrivate() || PRIVATE_LEAD.test(s)) ? '[private]' : String(s).slice(0, 80);
+const MODE_TIPS = {
+  cloud: 'The cloud models are answering and the chat is remembered (Public). Type Private:, Ask: Local or Ask: Coach for a private mode.',
+  local: 'Local: Qwen on this laptop is answering, privately (nothing goes into the ordinary memory; it is kept sealed). Type Ask: Cloud to go back.',
+  private: 'Private: only cloud models that do not train answer, nothing goes into the ordinary memory (it is kept sealed). It stays until you type Public:.',
+  coach: 'Coach: your coach answers, privately (sealed, with its own journal). It stays until you type Ask: Cloud, or Coach: off.',
+};
 async function showMode() {
   const b = document.getElementById('mode-badge'); if (!b) return;
   const mine = ++modeCheck;
-  const local = !!(window.MobiusLocal && MobiusLocal.getMode() === 'local');
+  const mode = window.MobiusLocal ? MobiusLocal.getMode() : 'cloud';
   let ok;
-  if (local) ok = await MobiusLocal.ping(2500);
-  else if (serverOk == null) return;   // Cloud: wait for the server check (checkStatus)
+  if (mode === 'local') ok = await MobiusLocal.ping(2500);
+  else if (serverOk == null) return;   // the others: wait for the server check (checkStatus)
   else ok = serverOk;
   if (mine !== modeCheck) return;      // a newer check has started
-  b.textContent = (local ? 'Local' : 'Cloud') + (ok ? '' : ' offline');
-  b.className = 'show' + (local ? ' local' : '') + (ok ? '' : ' off');
-  b.title = !ok ? (local ? 'Local is selected but Qwen on this laptop cannot be reached, so the cloud answers instead.' : 'Cloud is selected but the Mobius server cannot be reached.')
-    : local ? 'Qwen on this laptop is answering. Type Ask: Cloud to go back to the cloud models.' : 'The cloud models are answering. Type Ask: Local to use Qwen on this laptop.';
+  b.textContent = mode.charAt(0).toUpperCase() + mode.slice(1) + (ok ? '' : ' offline');
+  b.className = 'show' + (mode !== 'cloud' ? ' ' + mode : '') + (ok ? '' : ' off');
+  b.title = !ok ? (mode === 'local' ? 'Local is selected but Qwen on this laptop cannot be reached, so the cloud answers instead.' : mode + ' is selected but the Mobius server cannot be reached.')
+    : MODE_TIPS[mode];
 }
 showMode();
 async function handleSend() {
@@ -693,12 +705,40 @@ async function handleSend() {
   // that is all the message does; with a question after it, the question is sent in the new mode. Local is only taken on if Ollama answers.
   let localNote = '';
   let switchLabel = '';
+  // "Coach: ..." switches to Coach (and "Coach: off" back to Cloud); the whole message still goes to the server, which needs the prefix for its commands.
+  const co = MobiusLocal.parseCoach(q);
+  if (co) { if (!co.leave) MobiusLocal.setMode('coach'); else if (MobiusLocal.getMode() === 'coach') MobiusLocal.setMode('cloud'); showMode(); } // "Coach: off" leaves Coach, and changes nothing if he is not in it
+  // In Coach a "Private:" prefix is dropped: Coach is private already, and with the prefix on, the server would answer the message as an ordinary private
+  // one instead of as coaching. (Nothing left after the prefix opens a check-in, as "Coach:" alone does.)
+  if (MobiusLocal.getMode() === 'coach') q = q.replace(/^\s*(?:private|confidential)\s*[:\-\u2013\u2014]\s*/i, '') || 'Coach:';
+  // "Private: ..." switches to Private and it stays until "Public: ...". In Local the prefix only makes that one message private (Local is private
+  // already, and it must not take him out of it); in Coach it was dropped above; "Public: ..." always goes back to Cloud. With nothing after it, that is all the message does.
+  const st = MobiusLocal.parseSticky(q);
+  if (st && (st.mode === 'cloud' || MobiusLocal.getMode() === 'cloud')) {
+    MobiusLocal.setMode(st.mode); showMode();
+    if (!st.rest) {
+      const f = document.getElementById('feed'); f.innerHTML = '';
+      f.appendChild(makeBubble('user', q, { docs: [] }));
+      const nb = makeBubble('assistant', ''); f.appendChild(nb);
+      document.getElementById(nb._ansId).innerHTML = md(st.mode === 'private'
+        ? 'On **Private**: only cloud models that do not train answer, and nothing goes into the ordinary memory (it is kept sealed), until you type **Public:**.'
+        : 'Back on **Public** (Cloud): the cloud models answer again and the chat is remembered, until you switch (**Private:**, **Ask: Local** or **Ask: Coach**).');
+      busy = false; scrollFeed();
+      return;
+    }
+    if (st.mode === 'cloud') q = st.rest; // "Public:" is only a switch; "Private:" stays on the message, which is what the server reads
+  }
   const sw = MobiusLocal.parseSwitch(q);
   if (sw) {
-    const reachable = sw.mode === 'cloud' || await MobiusLocal.ping();
+    const reachable = sw.mode !== 'local' || await MobiusLocal.ping();
     MobiusLocal.setMode(reachable ? sw.mode : 'cloud'); showMode();
-    const note = sw.mode === 'cloud' ? 'Back on **Cloud**: the cloud models answer again until you type **Ask: Local**.'
-      : reachable ? 'On **Local**: Qwen on this laptop writes the answers until you type **Ask: Cloud**. If it cannot be reached, the cloud answers instead and says so.'
+    const NOTES = {
+      cloud: 'Back on **Cloud** (Public): the cloud models answer again and the chat is remembered, until you switch (**Private:**, **Ask: Local** or **Ask: Coach**).',
+      local: 'On **Local**: Qwen on this laptop writes the answers, privately (nothing goes into the ordinary memory), until you type **Ask: Cloud**. If it cannot be reached, the cloud answers instead and says so.',
+      private: 'On **Private**: only cloud models that do not train answer, and nothing goes into the ordinary memory (it is kept sealed), until you type **Public:**.',
+      coach: 'On **Coach**: your coach answers, privately (sealed, with its own journal), until you type **Ask: Cloud** or **Coach: off**.',
+    };
+    const note = reachable ? NOTES[sw.mode]
       : '**Local** cannot be reached from this device (is Ollama running on the laptop, and has the browser been allowed to reach this computer?), so I am staying on **Cloud**.';
     if (!sw.rest) {
       const f = document.getElementById('feed'); f.innerHTML = '';
@@ -710,7 +750,7 @@ async function handleSend() {
     }
     if (!reachable) localNote = 'Local could not be reached';
     q = sw.rest;
-    switchLabel = 'Ask: ' + (sw.mode === 'local' ? 'Local' : 'Cloud') + ' ';
+    switchLabel = 'Ask: ' + sw.mode.charAt(0).toUpperCase() + sw.mode.slice(1) + ' ';
   }
   const viewingId = histIdx !== -1 ? (history[histIdx]?.id ?? null) : null; // the exchange on screen, if he has browsed back to one
   histIdx = -1;
@@ -741,6 +781,8 @@ async function handleSend() {
 
   try {
     const body = { query: q, client: await getClientInfo().catch(() => null) };
+    if (MobiusLocal.isPrivate()) body.privateMode = true; // Local, Private and Coach are all private: every message is handled as a "Private:" one (chat.js privateAll)
+    if (MobiusLocal.getMode() === 'coach') body.coach = true; // and in Coach every message is a coaching turn until switched (chat.js coachAll)
     if (viewingId != null) body.viewing = viewingId;
     if (imgs.length) body.images = imgs.map(i=>({base64:i.base64,mimeType:i.mimeType}));
     if (docs.length) body.docs = docs.map(d=>({filename:d.filename,text:d.text}));
@@ -802,7 +844,7 @@ async function handleSend() {
             }
           }
           if (obj.token) { full += obj.token; ansEl.innerHTML = md(full); scrollFeed(); }
-          if (obj.error) { ansEl.innerHTML += '<div style="color:var(--red);font-size:12px;margin-top:6px">⚠ '+esc(obj.error)+'</div>'; reportError('server error: ' + obj.error, { source: q.slice(0, 80) }); }
+          if (obj.error) { ansEl.innerHTML += '<div style="color:var(--red);font-size:12px;margin-top:6px">⚠ '+esc(obj.error)+'</div>'; reportError('server error: ' + obj.error, { source: srcOf(q) }); }
         } catch {}
       }
     }
@@ -821,7 +863,7 @@ async function handleSend() {
       } catch (e) {
         if (e.noToken) {
           localNote = 'Local model unavailable: answered by the cloud (' + String(e.message || e).slice(0, 90) + ')';
-          reportError('local model: ' + (e.message || e), { source: q.slice(0, 80) });
+          reportError('local model: ' + (e.message || e), { source: srcOf(q) });
           localJob = null; full = ''; usedModel = ''; body.local = false;
           ansEl.innerHTML = '<span class="thinking-dots">thinking…</span>';
           await pump();
@@ -850,7 +892,7 @@ async function handleSend() {
 
   } catch(e) {
     ansEl.innerHTML = '<div style="color:var(--red)">'+esc(e.message)+'</div>';
-    reportError('chat request failed: ' + e.message, { source: q.slice(0, 80), stack: e.stack });
+    reportError('chat request failed: ' + e.message, { source: srcOf(q), stack: e.stack });
     document.getElementById('status-dot').className = 'offline';
   }
 

@@ -89,7 +89,7 @@ const clientBrief = c => c && { model: c.model, platform: c.platform, browser: c
 // then builds everything as usual but, instead of calling the cascade, hands the finished prompt to the page ({ local }) and ends;
 // the page streams the answer from Ollama and files the exchange itself (POST /api/chat/local-save). Not done for such a turn:
 // the review, the plain-code checks and automatic learning (they would send the answer to cloud models), and the saving here.
-export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false, local = false, laptopTools = false }) {
+export async function* chatTurn({ query, docs = [], images = [], client = null, geo = null, viewing = null, signal, dryRun = false, local = false, privateAll = false, coachAll = false, laptopTools = false }) {
   const turnStart = Date.now(); // the review (pcm/review.js) must finish inside the turn's time budget
   // Secrets never go anywhere: card numbers, passwords, keys and the like are cut out of the message and of any attached text before
   // anything else sees them (secrets.js), so no model, embedding, database row, trace or backup ever holds them. Boon is told what was removed.
@@ -106,16 +106,20 @@ export async function* chatTurn({ query, docs = [], images = [], client = null, 
   // read by the digest jobs, which use the free models that do train).
   const PRIVATE_PREFIX = /^\s*(?:private|confidential)\s*[:\-\u2013\u2014]\s*/i;
   const asked = cleanQuery || query; // "Ask: Qwen" alone shouldn't blank the query
-  const privateMode = PRIVATE_PREFIX.test(asked);
-  const userQuery = privateMode ? (asked.replace(PRIVATE_PREFIX, '') || asked) : asked;
+  // Two ways in: the prefix on one message, or a private mode (Local, Private, Coach: frontend/local.js, kept per device until switched), which the page
+  // sends as privateAll on every message. Both are handled identically from here on, except that the coach is only held back by the prefix: coaching is
+  // already private (sealed, models that do not train), so the modes must not switch it off. coachAll = the device is in Coach mode.
+  const prefixPrivate = PRIVATE_PREFIX.test(asked);
+  const privateMode = privateAll === true || prefixPrivate;
+  const userQuery = prefixPrivate ? (asked.replace(PRIVATE_PREFIX, '') || asked) : asked;
   const attached = (Array.isArray(docs) ? docs : []).filter(d => d?.text);
   const ctx = describeContext(client, geo); // { tz, now, where }
 
-  // Coach mode (coach.js): "Coach: ." opens a coaching session that carries on, without the prefix, until "Coach: off" or four quiet hours.
+  // Coach mode (coach.js): "Coach: ..." starts coaching, and the device's Coach mode (coachAll) carries on, without the prefix, until it is switched.
   // It is answered only by models that do not train, runs no web search, embedding, learning, mood or review step, and is kept only in the
   // sealed compartment and the coach's own tables. A "Private:" message or a forced model ("Ask: ...") is never taken for coaching.
-  if (!privateMode && !forceProvider) {
-    const route = await safe(() => coachRoute(asked), null);
+  if (!prefixPrivate && !forceProvider) {
+    const route = await safe(() => coachRoute(asked, { forced: coachAll === true }), null);
     if (route) { yield* coachTurn({ route, signal, dryRun, tz: ctx.tz, redactionNote: redacted.length ? redactionNotice(redacted) : '' }); return; }
   }
 

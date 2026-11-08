@@ -1,7 +1,6 @@
 // coach.js - Mobius as a personal coach (added 29 Oct 2026).
 //
-//   "Coach: ..." starts a coaching session. It carries on without the prefix until "Coach: off" or four quiet hours, so a conversation
-//   does not need the word on every line. Everything said in it stays private:
+//   "Coach: ..." starts a coaching session, and the Coach mode ("Ask: Coach") stays on, on that device, until it is switched ("Coach: off" or "Ask: Cloud"). Everything said in it stays private:
 //     * answered ONLY by models that do not train on prompts (ai/models.js `trains: false`); if none can answer, nothing is sent anywhere;
 //     * no web search, no embedding, no automatic learning, no mood reading, no digest: none of those jobs can see it;
 //     * the conversation is kept in the sealed compartment (pcm/sealed.js, kind 'coach'); the journal and the commitments in tables of
@@ -19,7 +18,9 @@ import { getState, setState } from './pcm/memory.js';
 import { saveSealedExchange, getRecentCoach, coachMessagesBetween, coachStamps } from './pcm/sealed.js';
 import { settled } from './pcm/messages.js';
 import { startTrace, saveTrace } from './trace.js';
-import { RECENT_MESSAGES } from './config.js';
+import { RECENT_MESSAGES, KEYS } from './config.js';
+import { guardQueries, parseNames, searchFooter } from './privacy.js';
+import { tavilySearchMany } from './web.js';
 import { clip, safe, parseJson, nowIn } from './util.js';
 
 export const DEFAULT_TZ = 'Australia/Perth';
@@ -40,12 +41,12 @@ export function parseCoachMessage(text) {
 export const modeActive = (state, now = Date.now(), idle = MODE_IDLE_MS) =>
   !!(state && state.on && state.at && now - Date.parse(state.at) < idle);
 
-// Is this message a coaching turn? Prefixed, or the session is still open.
-export async function coachRoute(text, now = Date.now()) {
+// Is this message a coaching turn? Prefixed, or Boon's device is in Coach mode (the page sends coach: true on every message until he switches it,
+// 8 Nov 2026; before that a session closed itself after four quiet hours, which is no longer wanted: a mode stays until it is switched).
+export async function coachRoute(text, { forced = false } = {}) {
   const p = parseCoachMessage(text);
   if (p.prefixed) return { kind: p.leave ? 'leave' : 'turn', body: p.body, opening: !p.body };
-  const state = await getState('coach_mode');
-  if (modeActive(state, now)) return { kind: 'turn', body: p.body, opening: false };
+  if (forced) return { kind: 'turn', body: p.body, opening: false };
   return null;
 }
 const setMode = (on, now = new Date()) => setState('coach_mode', { on, at: now.toISOString() });
@@ -148,12 +149,12 @@ Coaching
 - Ask at most one question at a time. Offer a next step when he wants one or the plan is stuck.
 - Use his own words and values when they help (Love, Creation, Contribution, Understanding; "Wake up with courage. Act with confidence. Reflect with gratitude."; "It is what it is ... just keep doing it ... enjoy today."). Do not preach, and do not raise his faith unless he does.
 - Offer a plan as a suggestion and let him change it; never dictate his day. Write "Agreed:" (with the due date, so that it reaches the journal) only after he has said yes to something, never on your own proposal.
-- Use only what the notes below and he himself have said. Never invent a number, a date or something he said. If you do not know, ask.
+- Use only what the notes below, the web results below (when there are any) and he himself have said. Never invent a number, a date or something he said. If you do not know, ask, or say plainly what you could not check.
 - Use what you know about him only where it changes your answer. Do not recite his health, his family or his worries back to him unless he raises them.`;
 
 export const DISTRESS_NOTE = `CLEAR DISTRESS: his last message suggests he may be in real danger or despair. Put everything else aside for this reply. Answer warmly, directly and in plain words, and tell him you are glad he said it. Ask him plainly whether he is thinking of ending his life or harming himself. If he is in immediate danger, tell him to call 000; otherwise Lifeline is on 13 11 14, at any hour. Ask whether someone close is with him, and encourage him to tell them, or his doctor, today. Do not lecture, and do not return to tasks, commitments or the journal in this reply.`;
 
-export function buildCoachContext({ profile = '', items = [], entries = [], week = null, now = new Date(), tz = DEFAULT_TZ, opening = false, newSession = false } = {}) {
+export function buildCoachContext({ profile = '', items = [], entries = [], week = null, now = new Date(), tz = DEFAULT_TZ, opening = false, newSession = false, web = '' } = {}) {
   const today = dayKey(now, tz);
   const parts = [`Now: ${nowIn(tz)}.`];
   if (profile.trim()) parts.push(`What you know about him (his coaching profile; he can correct it):\n${clip(profile.trim(), 2800)}`);
@@ -163,12 +164,42 @@ export function buildCoachContext({ profile = '', items = [], entries = [], week
   const newest = entries.slice(0, 3).map(e => `[${shortDate(e.period)}]\n${clip(e.content, 1400)}`);
   if (newest.length) parts.push(`Your journal of recent days, newest first (your own record; trust it over guesses):\n${newest.join('\n\n')}`);
   if (week) parts.push(`Your latest weekly review:\n${clip(week.content, 1200)}`);
+  if (web) parts.push(`Web search results, made just now (${nowIn(tz)}) from generic public searches for this message. They are CURRENT and override anything you remember. Use them only where they bear on what he asked, say in a few words where a fact came from, and never claim to have searched when nothing is listed here. If they do not settle the question, say what is missing:\n${clip(web, WEB_CAP)}`);
   if (opening) parts.push('He has just opened a coaching session and said nothing else. Open with one short, warm check-in that fits the time of day and, if something is due soon or overdue, name it plainly. Ask one question.');
   else if (newSession) parts.push('This is the first message of a new coaching session. If he is planning, deciding or asking about his day, you may add one short line about anything due today or overdue. If he is venting or low, say nothing about commitments.');
   return parts.join('\n\n');
 }
 export const buildCoachSystem = (ctx, { distress = false } = {}) =>
   `${COACH_PROMPT}\n\n${buildCoachContext(ctx)}${distress ? '\n\n' + DISTRESS_NOTE : ''}`;
+
+// ── The web, for current answers (8 Nov 2026) ───────────────────────────────
+// The coach may look things up so that what it says is current. What leaves Mobius is only what privacy.js allows: up to three short, generic,
+// impersonal queries (no "my", no "I", no names from his life, no numbers that identify, no links), checked by plain code, not by a model. The
+// question itself, his words, the journal and the profile are never sent. If his list of names cannot be read, nothing is searched. A turn that
+// shows clear distress is never searched. Boon sees exactly which queries went out, under the answer.
+const WEB_CAP = 3000;
+export const SEARCH_PLAN_SYSTEM = `You decide whether a coaching reply needs current facts from the web. Reply with one JSON object and nothing else: {"search": true or false, "queries": []}.
+Search ONLY when his message turns on something that changes with time or that is easy to get wrong: a rule, a deadline, a date, a price, an event, the news, a product or tool, current research or guidance. Do not search for feelings, venting, planning his day, or anything personal.
+Queries are public and impersonal, like a search anyone might type: at most 3, at most 10 words each, never "my", "our" or "I", never a person's name, never a number that identifies something, never a phrase copied from his message. Put the year in when it matters. Example of the form: {"search": true, "queries": ["Australian university academic integrity AI policy 2026"]}.`;
+const WEB_CUE = /\?|\b(?:latest|current(?:ly)?|new(?:s|est)?|update[ds]?|deadline|rules?|polic(?:y|ies)|price|cost|how (?:do|does|to|can|much|many)|what(?:'s| is| are)|when|where|which|should i|best|recommend\w*|research|evidence|stud(?:y|ies)|guidance|guidelines?|available)\b/i;
+export const wantsLookup = body => { const s = String(body || '').trim(); return s.length >= 20 && WEB_CUE.test(s); };
+export function parseSearchPlan(text) {
+  let o; try { o = parseJson(text); } catch { return []; }
+  return o && o.search === true && Array.isArray(o.queries) ? o.queries.filter(q => typeof q === 'string').slice(0, 5) : [];
+}
+// Returns { text, sent[] }: the results to give the coach, and the queries that went out (for the footer). Never throws; any failure is "no search".
+async function webForCoach(body, { now, tz, prior = '' }) {
+  const none = { text: '', sent: [], blocked: 0 };
+  if (!KEYS.tavily || !wantsLookup(body) || distressSignal(body)) return none;
+  const names = parseNames(await safe(() => getState('private_names'), null));
+  if (!names) return none; // fail closed: without the list of names to keep out, nothing is searched
+  const prompt = `Now: ${nowIn(tz)}.\n${prior ? `His message before this one, for context only:\n${clip(prior, 600)}\n\n` : ''}His message:\n${clip(body, 1200)}`;
+  const reply = await safe(() => askModel(prompt, { role: 'chat', privateOnly: true, timeoutMs: 15000, system: SEARCH_PLAN_SYSTEM }), '');
+  const { allowed, blocked } = guardQueries(parseSearchPlan(reply), { names });
+  if (!allowed.length) return { ...none, blocked: blocked.length };
+  const text = await safe(() => tavilySearchMany(allowed, { recent: true }), null);
+  return text ? { text, sent: allowed, blocked: blocked.length } : { ...none, blocked: blocked.length };
+}
 
 // ── The coach's own tables ──────────────────────────────────────────────────
 const need = () => { if (!supabase) throw new Error('No database connection.'); return supabase; };
@@ -485,9 +516,14 @@ export async function* coachTurn({ route, signal, dryRun = false, tz = DEFAULT_T
       safe(() => getRecentCoach(RECENT_MESSAGES + 4), []),
     ]);
     const distress = distressSignal(body);
-    const system = buildCoachSystem({ profile, items, entries, week: weeks[0] || null, now, tz, opening: route.opening, newSession }, { distress });
+    // Current facts from the web, when the message turns on something that changes with time (see "The web" above). Only generic, impersonal
+    // queries leave Mobius, and he is shown which. Never in a dry run (the smoke test stays offline) or in a turn of clear distress.
+    const prior = settled(raw).filter(m => m.role === 'user').at(-1)?.content || '';
+    const web = !dryRun && !route.opening && !distress ? await webForCoach(body, { now, tz, prior }) : { text: '', sent: [], blocked: 0 };
+    if (web.sent.length) yield { event: 'searching web...' };
+    const system = buildCoachSystem({ profile, items, entries, week: weeks[0] || null, now, tz, opening: route.opening, newSession, web: web.text }, { distress });
     const messages = [...settled(raw).slice(-RECENT_MESSAGES).map(m => ({ role: m.role, content: m.content })), { role: 'user', content: body || 'Hello.' }];
-    trace.set({ distress, items: items.length, entries: entries.length, system_chars: system.length, turns: messages.length });
+    trace.set({ distress, items: items.length, entries: entries.length, system_chars: system.length, turns: messages.length, web: { sent: web.sent.length, blocked: web.blocked } });
 
     let full = '', usedModel = null, failure = null;
     try {
@@ -508,6 +544,7 @@ export async function* coachTurn({ route, signal, dryRun = false, tz = DEFAULT_T
       await safe(() => saveSealedExchange({ query: body || 'Hello.', answer: full, model: usedModel, kind: 'coach' }), null);
       catchUpJournal({ now, tz }).catch(() => {}); // earlier days without an entry get one; never blocks the reply
     }
+    if (web.sent.length && full.trim() && !failure) yield { token: searchFooter(web.sent) }; // he sees exactly what was sent out (not part of the saved answer)
   } catch (e) {
     trace.set({ error: String(e.message).slice(0, 300) });
     throw e;

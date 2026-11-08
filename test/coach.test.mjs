@@ -8,7 +8,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseCoachMessage, modeActive, MODE_IDLE_MS, dayKey, dayStartUtc, addDays, weekdayOf, monday, parseDue, describeDue, formatItems,
-  distressSignal, parseCoachCommand, COACH_PROMPT, DISTRESS_NOTE, buildCoachSystem, buildJournalPrompt, parseJournalReply,
+  distressSignal, parseCoachCommand, COACH_PROMPT, DISTRESS_NOTE, buildCoachSystem, buildCoachContext, buildJournalPrompt, parseJournalReply,
+  wantsLookup, parseSearchPlan, SEARCH_PLAN_SYSTEM,
 } from '../backend/coach.js';
 
 const backend = fileURLToPath(new URL('../backend/', import.meta.url));
@@ -186,18 +187,39 @@ test('the coach never reaches a model that may train: every call is private-only
   for (const c of calls) assert.match(c, /privateOnly: true/, 'must be private-only: ' + c.slice(0, 90));
 });
 
-test('the coach uses no web search, embedding, learning, mood, review, router or library step', () => {
+test('the coach uses no embedding, learning, mood, review, router or library step, and reaches the web only through the privacy guard', () => {
   const src = files.find(f => f.name === 'coach.js').text;
   const imports = [...src.matchAll(/from\s+'([^']+)'/g)].map(m => m[1]).sort();
-  assert.deepEqual(imports, ['./ai/cascade.js', './config.js', './db.js', './pcm/memory.js', './pcm/messages.js', './pcm/sealed.js', './trace.js', './util.js']);
-  assert.ok(!/tavily|embed|learnFrom|moodFrom|reviewDraft|analyse\(|libraryContext/.test(src.replace(/\/\/[^\n]*/g, '')));
+  assert.deepEqual(imports, ['./ai/cascade.js', './config.js', './db.js', './pcm/memory.js', './pcm/messages.js', './pcm/sealed.js', './privacy.js', './trace.js', './util.js', './web.js']);
+  const code = src.replace(/\/\/[^\n]*/g, '');
+  assert.ok(!/embed|learnFrom|moodFrom|reviewDraft|analyse\(|libraryContext/.test(code));
+  // the only search call sits after guardQueries, and takes only what it allowed; the whole message is never searched
+  assert.equal((code.match(/tavilySearchMany\(/g) || []).length, 1);
+  assert.ok(!/tavilySearch\(|tavilyExtract\(/.test(code));
+  assert.match(code, /guardQueries\(parseSearchPlan\(reply\), \{ names \}\);[\s\S]{0,200}tavilySearchMany\(allowed, \{ recent: true \}\)/);
+  assert.match(code, /if \(!names\) return none;/, 'without the list of names to keep out, nothing is searched');
+  assert.match(code, /!distress \? await webForCoach/, 'a turn of clear distress is never searched');
+});
+
+test('the coach looks things up when the message turns on something current, not when he is venting', () => {
+  for (const t of ['What is the latest guidance on AI in assessments?', 'When is the next census date at the university?', 'Should I switch to the new reference manager that was released?'])
+    assert.equal(wantsLookup(t), true, t);
+  for (const t of ['I slept badly and feel flat today', 'ok', 'Thanks, that helps a lot with the plan', 'I am so tired of marking'])
+    assert.equal(wantsLookup(t), false, t);
+  assert.deepEqual(parseSearchPlan('{"search": true, "queries": ["a", 3, "b"]}'), ['a', 'b']);
+  assert.deepEqual(parseSearchPlan('{"search": false, "queries": ["a"]}'), []);
+  assert.deepEqual(parseSearchPlan('not json at all'), []);
+  assert.match(SEARCH_PLAN_SYSTEM, /never "my", "our" or "I", never a person's name/);
+  assert.match(buildCoachContext({ web: 'Search: x\n- Title - https://example.org' }), /Web search results, made just now[\s\S]*example\.org/);
+  assert.ok(!buildCoachContext({}).includes('Web search results'), 'no results, no section, and no claim of having searched');
+  assert.ok(buildCoachContext({ web: 'x'.repeat(9000) }).length < 9000, 'the results are capped to leave room in a small window');
 });
 
 test('chat.js: the coach branch comes before anything is looked up, and never takes a private or forced-model message', () => {
   const chat = read('../backend/chat.js');
-  const at = chat.indexOf('const route = await safe(() => coachRoute(asked), null);');
+  const at = chat.indexOf('const route = await safe(() => coachRoute(asked, { forced: coachAll === true }), null);');
   assert.ok(at > 0 && at < chat.indexOf("const trace = startTrace('chat'"), 'the coach branch precedes the ordinary trace');
-  assert.match(chat, /if \(!privateMode && !forceProvider\) \{\s*\n\s*const route = await safe\(\(\) => coachRoute\(asked\), null\);/);
+  assert.match(chat, /if \(!prefixPrivate && !forceProvider\) \{\s*\n\s*const route = await safe\(\(\) => coachRoute\(asked, \{ forced: coachAll === true \}\), null\);/, 'only the Private: prefix holds the coach back; the Local/Private modes do not, because coaching is already sealed');
   assert.match(chat, /yield\* coachTurn\(\{ route, signal, dryRun, tz: ctx\.tz, /);
 });
 

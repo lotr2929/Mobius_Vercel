@@ -1,4 +1,4 @@
-/* local.js - "Ask: Local" and "Ask: Cloud": answering on this laptop with Qwen (Ollama), or by the cloud models.
+/* local.js - the four modes (Cloud, Local, Private, Coach) and "Ask: Local": answering on this laptop with Qwen (Ollama), or by the cloud models.
  * Loaded by the app as a plain script (index.html) and imported by the tests. It holds nothing about what to say: chat.js on the server
  * builds the system prompt and memory block and hands them to the page as a { local } job; this file only
  *   - reads the switch from what Boon types ("Ask: Local ...", "Ask: Cloud ..."),
@@ -12,16 +12,32 @@
   const FIRST_TOKEN_MS = 240000; // a 7B model on a CPU needs time to load and to read the prompt before the first word
   const TOTAL_MS = 900000;
 
-  // "Ask: Local", "Ask: Cloud", "ask: local what is X". The colon is required so that an ordinary sentence
-  // such as "Ask local councils about it" is never taken for the switch. A specific model ("Ask: Gemini ...") is not handled here.
+  // The four modes, kept per device and until switched: Cloud (the ordinary chat, remembered), Local (Qwen on this laptop), Private (cloud models that do
+  // not train, nothing in ordinary memory) and Coach (the coach, chat.js coachAll). Local, Private and Coach are all private: the page tells the server
+  // so (privateMode / coach) and chat.js treats every message as a "Private:" one. "Ask: Private", "Mode: Coach", "ask: local what is X" and so on;
+  // "Public" is another word for Cloud. The colon is required so that an ordinary sentence such as "Ask local councils about it" is never taken for
+  // the switch. A specific model ("Ask: Gemini ...") is not handled here. ("Coach: ..." is read by index.html, because the server needs it too.)
+  const MODES = ['cloud', 'local', 'private', 'coach'];
   function parseSwitch(q) {
-    const m = String(q || '').match(/^\s*ask\s*:\s*(local|cloud)\b[\s:,.\-\u2013\u2014]*([\s\S]*)$/i);
-    return m ? { mode: m[1].toLowerCase(), rest: m[2].trim() } : null;
+    const m = String(q || '').match(/^\s*(?:ask|mode)\s*:\s*(local|cloud|private|coach|public)\b[\s:,.\-\u2013\u2014]*([\s\S]*)$/i);
+    if (!m) return null;
+    const w = m[1].toLowerCase();
+    return { mode: w === 'public' ? 'cloud' : w, rest: m[2].trim() };
   }
 
   const store = () => { try { return globalThis.localStorage || null; } catch { return null; } };
-  function getMode() { const s = store(); let v = null; try { v = s && s.getItem(KEY); } catch {} return v === 'local' ? 'local' : 'cloud'; }
-  function setMode(mode) { const s = store(); try { if (s) s.setItem(KEY, mode === 'local' ? 'local' : 'cloud'); } catch {} return getMode(); }
+  function getMode() { const s = store(); let v = null; try { v = s && s.getItem(KEY); } catch {} return MODES.includes(v) ? v : 'cloud'; }
+  function setMode(mode) { const s = store(); try { if (s) s.setItem(KEY, MODES.includes(mode) ? mode : 'cloud'); } catch {} return getMode(); }
+  const isPrivate = () => getMode() !== 'cloud'; // Local, Private and Coach are all private
+  // "Coach: off" (and the words the server also takes) ends coaching, so the mode goes back to Cloud
+  const COACH_LEAVE = /^\s*coach\s*[:\-\u2013\u2014]\s*(?:done|end|off|stop|finished|exit|leave|bye|goodbye|that'?s all)\s*[.!]?\s*$/i;
+  const parseCoach = q => { const s = String(q || ''); return /^\s*coach\s*[:\-\u2013\u2014]/i.test(s) ? { leave: COACH_LEAVE.test(s) } : null; };
+  // "Private: ..." (or "Confidential: ...") switches to Private and it stays until "Public: ..." switches back to Cloud. The prefix is also what the server reads
+  // for a single private message, so it is left on the message. "Public" needs the colon, so an ordinary sentence is never taken for the switch.
+  const parseSticky = q => {
+    const m = String(q || '').match(/^\s*(?:(private|confidential)\s*[:\-\u2013\u2014]|(public)\s*:)\s*([\s\S]*)$/i);
+    return m ? { mode: m[2] ? 'cloud' : 'private', rest: m[3].trim() } : null;
+  };
 
   // Does Ollama answer? (the browser may show its permission question the first time)
   async function ping(ms = 5000) {
@@ -185,5 +201,5 @@
     }
   }
 
-  globalThis.MobiusLocal = { OLLAMA, parseSwitch, getMode, setMode, ping, stream, toolList, parseTextToolCall };
+  globalThis.MobiusLocal = { OLLAMA, MODES, parseSwitch, parseCoach, parseSticky, getMode, setMode, isPrivate, ping, stream, toolList, parseTextToolCall };
 })();
